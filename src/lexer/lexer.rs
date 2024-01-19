@@ -1,5 +1,4 @@
 use crate::token::Token;
-use std::str;
 
 #[allow(unused)]
 pub struct Lexer {
@@ -9,6 +8,7 @@ pub struct Lexer {
     next_pos: usize,
     cur_ch: Option<char>,
     next_ch: Option<char>,
+    finished: bool,
 }
 
 #[inline]
@@ -32,6 +32,7 @@ impl Lexer {
             next_pos: 0,
             cur_ch: None,
             next_ch: None,
+            finished: false,
         };
         l.read_char();
         l
@@ -52,6 +53,14 @@ impl Lexer {
         self.next_ch = self._read_wrap();
     }
 
+    fn peek(&self) -> Option<char> {
+        if self.next_ch.is_some() {
+            Some(self.chars[self.next_pos + 1])
+        } else {
+            None
+        }
+    }
+
     fn read_ident(&mut self) -> Token {
         use crate::token::Token::*;
         let pos = self.pos;
@@ -63,26 +72,61 @@ impl Lexer {
         }
 
         match &self.input[pos..=self.pos] {
+            "true" => TRUE,
+            "false" => FALSE,
+
+            "null" => NULL,
+
             "if" => IF,
             "then" => THEN,
             "else" => ELSE,
+            "assert" => ASSERT,
+            "with" => WITH,
             "let" => LET,
             "in" => IN,
-            "with" => WITH,
-            "import" => IMPORT,
-            "assert" => ASSERT,
+            "rec" => REC,
             "inherit" => INHERIT,
+            "or" => ORKW,
+
             ident => IDENT(ident.to_string()),
         }
     }
 
     fn read_number(&mut self) -> Token {
         let pos = self.pos;
-        while self.next_ch.unwrap_or_default().is_digit(10) {
+        let mut is_float = false;
+        while self.next_ch.unwrap_or_default().is_digit(10)
+            || (if self.next_ch.unwrap_or_default() == '.' && !is_float {
+                is_float = true;
+                true
+            } else {
+                false
+            })
+        {
             self.read_char();
         }
 
-        Token::INT(self.input[pos..=self.pos].to_string())
+        if is_float {
+            Token::FLOAT(self.input[pos..=self.pos].to_string())
+        } else {
+            Token::INT(self.input[pos..=self.pos].to_string())
+        }
+    }
+
+    fn read_string(&mut self) -> Token {
+        self.read_char();
+        let pos = self.pos;
+        while self.cur_ch.map_or(false, |c| c != '"') {
+            self.read_char();
+        }
+
+        Token::STRING(self.input[pos..self.pos].to_string())
+    }
+
+    fn skip_comment(&mut self) {
+        while self.cur_ch.unwrap_or_default() != '\n' {
+            self.read_char();
+        }
     }
 
     fn skip_white(&mut self) {
@@ -98,6 +142,10 @@ impl Iterator for Lexer {
     type Item = Token;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
+
         use crate::token::Token::*;
 
         self.skip_white();
@@ -111,26 +159,86 @@ impl Iterator for Lexer {
                     EQ
                 }
             }
-            '+' => PLUS,
-            '-' => MINUS,
+            '+' => {
+                if self.next_ch.unwrap_or_default() != '+' {
+                    PLUS
+                } else {
+                    self.read_char();
+                    CONCAT
+                }
+            }
+            '-' => {
+                if self.next_ch.unwrap_or_default() != '>' {
+                    MINUS
+                } else {
+                    self.read_char();
+                    IMPL
+                }
+            }
             '*' => MUL,
-            '/' => SLASH,
+            '/' => {
+                if self.next_ch.unwrap_or_default() != '/' {
+                    SLASH
+                } else {
+                    self.read_char();
+                    UPDATE
+                }
+            }
             '!' => {
                 if self.next_ch.unwrap_or_default() != '=' {
                     BANG
                 } else {
                     self.read_char();
-                    NE
+                    NEQ
+                }
+            }
+            '&' => {
+                if self.next_ch.unwrap_or_default() != '&' {
+                    ILLEGAL
+                } else {
+                    self.read_char();
+                    AND
+                }
+            }
+            '|' => {
+                if self.next_ch.unwrap_or_default() != '|' {
+                    ILLEGAL
+                } else {
+                    self.read_char();
+                    OR
                 }
             }
 
-            '<' => LT,
-            '>' => GT,
+            '<' => {
+                if self.next_ch.unwrap_or_default() != '=' {
+                    LANGLE
+                } else {
+                    self.read_char();
+                    LEQ
+                }
+            }
+            '>' => {
+                if self.next_ch.unwrap_or_default() != '=' {
+                    RANGLE
+                } else {
+                    self.read_char();
+                    GEQ
+                }
+            }
 
             ',' => COMMA,
             ';' => SEMI,
             ':' => COLON,
-            '.' => DOT,
+            '.' => {
+                if self.next_ch.unwrap_or_default() != '.' || self.peek().unwrap_or_default() != '.'
+                {
+                    DOT
+                } else {
+                    self.read_char();
+                    self.read_char();
+                    ELLIPSIS
+                }
+            }
 
             '(' => LPAREN,
             ')' => RPAREN,
@@ -139,12 +247,26 @@ impl Iterator for Lexer {
             '{' => LBRACE,
             '}' => RBRACE,
 
-            '\0' => EOF,
+            '\0' => {
+                if !self.finished {
+                    self.finished = true;
+                    EOF
+                } else {
+                    unreachable!()
+                }
+            }
+
+            '"' => self.read_string(),
+
+            '#' => {
+                self.skip_comment();
+                self.next().unwrap()
+            }
 
             ch => {
-                if ch.is_ascii() && is_letter(self.chars[self.pos]) {
+                if is_letter(ch) {
                     self.read_ident()
-                } else if self.chars[self.pos].is_digit(10) {
+                } else if ch.is_digit(10) {
                     self.read_number()
                 } else {
                     ILLEGAL
