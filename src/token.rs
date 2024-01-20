@@ -22,6 +22,7 @@ pub enum Token {
     IMPL,
     UPDATE,
     CONCAT,
+    QUEST,
 
     EQ,
     NEQ,
@@ -83,6 +84,7 @@ impl fmt::Display for Token {
             IMPL => write!(f, "->"),
             UPDATE => write!(f, "//"),
             CONCAT => write!(f, "++"),
+            QUEST => write!(f, "?"),
 
             EQ => write!(f, "=="),
             NEQ => write!(f, "!="),
@@ -95,8 +97,8 @@ impl fmt::Display for Token {
             DOT => write!(f, "."),
             ELLIPSIS => write!(f, "..."),
 
-            LPAREN => write!(f, ")"),
-            RPAREN => write!(f, "("),
+            LPAREN => write!(f, "("),
+            RPAREN => write!(f, ")"),
             LBRACKET => write!(f, "["),
             RBRACKET => write!(f, "]"),
             LBRACE => write!(f, "{{"),

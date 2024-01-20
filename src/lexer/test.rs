@@ -5,10 +5,10 @@ mod test {
     use std::iter::zip;
 
     #[test]
-    fn test_next_token() {
+    fn test_lexer() {
         let input = r#"let five = 5;
             time_two = num: num * 2;
-        in {
+        in rec {
             ten = time_two five;
             ast1 = assert ten == 10;
             ast2 = assert ten != 9;
@@ -19,7 +19,9 @@ mod test {
             f = 1.0;
             il = 1.0.1;
             s = "test";
+            # comments
             b = (true && false) -> (true || false);
+            b2 = attr ? ten;
         }"#;
         let expect = [
             LET,
@@ -36,6 +38,7 @@ mod test {
             INT("2".to_string()),
             SEMI,
             IN,
+            REC,
             LBRACE,
             IDENT("ten".to_string()),
             ASSIGN,
@@ -105,6 +108,12 @@ mod test {
             OR,
             FALSE,
             RPAREN,
+            SEMI,
+            IDENT("b2".to_string()),
+            ASSIGN,
+            IDENT("attr".to_string()),
+            QUEST,
+            IDENT("ten".to_string()),
             SEMI,
             RBRACE,
             EOF,

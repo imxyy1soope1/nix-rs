@@ -239,6 +239,7 @@ impl Iterator for Lexer {
                     ELLIPSIS
                 }
             }
+            '?' => QUEST,
 
             '(' => LPAREN,
             ')' => RPAREN,

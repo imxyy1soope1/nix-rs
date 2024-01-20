@@ -1,9 +1,8 @@
 use super::types::*;
 use crate::token::Token;
-use std::any::Any;
 use std::fmt::Display;
 
-pub trait Expression: Display + Any {}
+pub trait Expression: Display {}
 
 pub struct PrefixExpr {
     token: Token,
@@ -132,8 +131,53 @@ impl Display for NullLiteralExpr {
     }
 }
 
+pub struct EllipsisLiteralExpr;
+
+impl Expression for EllipsisLiteralExpr {}
+
+impl Display for EllipsisLiteralExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "...")
+    }
+}
+
 pub struct StringLiteralExpr {
     literal: NixString,
+}
+
+impl StringLiteralExpr {
+    pub fn new(s: &str) -> StringLiteralExpr {
+        StringLiteralExpr {
+            literal: s.to_string(),
+        }
+    }
+}
+
+impl Expression for StringLiteralExpr {}
+
+impl Display for StringLiteralExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, r#""{}""#, self.literal)
+    }
+}
+
+pub struct FunctionLiteral {
+    arg: Box<dyn Expression>,
+    body: Box<dyn Expression>,
+}
+
+impl FunctionLiteral {
+    pub fn new(arg: Box<dyn Expression>, body: Box<dyn Expression>) -> FunctionLiteral {
+        FunctionLiteral { arg, body }
+    }
+}
+
+impl Expression for FunctionLiteral {}
+
+impl Display for FunctionLiteral {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.arg, self.body)
+    }
 }
 
 pub struct IfExpr {
@@ -164,19 +208,175 @@ impl Display for IfExpr {
     }
 }
 
-impl StringLiteralExpr {
-    pub fn new(s: &str) -> StringLiteralExpr {
-        StringLiteralExpr {
-            literal: s.to_string(),
-        }
+pub struct BindingExpr {
+    name: Box<dyn Expression>,
+    value: Box<dyn Expression>,
+}
+
+impl BindingExpr {
+    pub fn new(name: Box<dyn Expression>, value: Box<dyn Expression>) -> BindingExpr {
+        BindingExpr { name, value }
     }
 }
 
-impl Expression for StringLiteralExpr {}
+impl Expression for BindingExpr {}
 
-impl Display for StringLiteralExpr {
+impl Display for BindingExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, r#""{}""#, self.literal)
+        write!(f, "{} = {}", self.name, self.value)
+    }
+}
+
+pub struct AttrsLiteralExpr {
+    bindings: Vec<Box<dyn Expression>>,
+    rec: bool,
+}
+
+impl AttrsLiteralExpr {
+    pub fn new(bindings: Vec<Box<dyn Expression>>, rec: bool) -> AttrsLiteralExpr {
+        AttrsLiteralExpr { bindings, rec }
+    }
+}
+
+impl Expression for AttrsLiteralExpr {}
+
+impl Display for AttrsLiteralExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.rec {
+            write!(f, "rec ")?;
+        }
+        write!(f, "{{")?;
+        for binding in self.bindings.iter() {
+            write!(f, " {};", binding)?;
+        }
+        write!(f, " }}")
+    }
+}
+
+pub struct ArgSetExpr {
+    args: Vec<Box<dyn Expression>>,
+}
+
+impl ArgSetExpr {
+    pub fn new(args: Vec<Box<dyn Expression>>) -> ArgSetExpr {
+        ArgSetExpr { args }
+    }
+}
+
+impl Expression for ArgSetExpr {}
+
+impl Display for ArgSetExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{{ ")?;
+        let mut first = true;
+        for arg in self.args.iter() {
+            if first {
+                first = false;
+            } else {
+                write!(f, ", ")?;
+            }
+            write!(f, "{arg}")?;
+        }
+        write!(f, " }}")
+    }
+}
+
+pub struct ListLiteralExpr {
+    items: Vec<Box<dyn Expression>>,
+}
+
+impl ListLiteralExpr {
+    pub fn new(items: Vec<Box<dyn Expression>>) -> ListLiteralExpr {
+        ListLiteralExpr { items }
+    }
+}
+
+impl Expression for ListLiteralExpr {}
+
+impl Display for ListLiteralExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[ ")?;
+        for item in self.items.iter() {
+            write!(f, "{item} ")?;
+        }
+        write!(f, "]")
+    }
+}
+
+pub struct LetExpr {
+    bindings: Vec<Box<dyn Expression>>,
+    expr: Box<dyn Expression>,
+}
+
+impl LetExpr {
+    pub fn new(bindings: Vec<Box<dyn Expression>>, expr: Box<dyn Expression>) -> LetExpr {
+        LetExpr { bindings, expr }
+    }
+}
+
+impl Expression for LetExpr {}
+
+impl Display for LetExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "let ")?;
+        for binding in self.bindings.iter() {
+            write!(f, "{binding}; ")?;
+        }
+        write!(f, "in {}", self.expr)
+    }
+}
+
+pub struct WithExpr {
+    attrs: Box<dyn Expression>,
+    expr: Box<dyn Expression>,
+}
+
+impl WithExpr {
+    pub fn new(attrs: Box<dyn Expression>, expr: Box<dyn Expression>) -> WithExpr {
+        WithExpr { attrs, expr }
+    }
+}
+
+impl Expression for WithExpr {}
+
+impl Display for WithExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "with {}; {}", self.attrs, self.expr)
+    }
+}
+
+pub struct InheritExpr {
+    inherits: Vec<Box<dyn Expression>>,
+    from: Option<Box<dyn Expression>>,
+}
+
+impl InheritExpr {
+    pub fn new(
+        inherits: Vec<Box<dyn Expression>>,
+        from: Option<Box<dyn Expression>>,
+    ) -> InheritExpr {
+        InheritExpr { inherits, from }
+    }
+}
+
+impl Expression for InheritExpr {}
+
+impl Display for InheritExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "inherit ")?;
+        if self.from.is_some() {
+            write!(f, "({}) ", self.from.as_ref().unwrap())?;
+        }
+        let mut first = true;
+        for inherit in self.inherits.iter() {
+            if first {
+                first = false;
+            } else {
+                write!(f, " ")?;
+            }
+            write!(f, "{inherit}")?;
+        }
+        Ok(())
     }
 }
 
