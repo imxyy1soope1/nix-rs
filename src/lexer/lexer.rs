@@ -1,3 +1,5 @@
+use std::io::BufWriter;
+
 use crate::token::Token;
 
 #[allow(unused)]
@@ -19,6 +21,50 @@ fn is_letter(ch: char) -> bool {
 #[inline]
 fn is_white(ch: char) -> bool {
     ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r'
+}
+
+fn escape_string(s: String) -> String {
+    if s == "\\" {
+        panic!();
+    } else if let 0..=1 = s.len() {
+        return s;
+    }
+
+    let mut buf = String::new();
+    let chars: Vec<char> = s.chars().collect();
+    let mut skip = false;
+    for i in 0..chars.len() - 1 {
+        if skip {
+            skip = false;
+            continue;
+        }
+        buf.push(match chars[i] {
+            '\\' => {
+                skip = true;
+                match chars[i + 1] {
+                    'n' => '\n',
+                    't' => '\t',
+                    'r' => '\r',
+                    '\\' => '\\',
+                    _ => panic!(),
+                }
+            }
+            '\r' => {
+                if chars[i + 1] == '\n' {
+                    skip = true;
+                }
+                '\n'
+            }
+            c => c,
+        })
+    }
+
+    if chars[chars.len() - 2] != '\\' && chars[chars.len() - 1] == '\\' {
+        panic!()
+    }
+    buf.push(chars[chars.len() - 1]);
+
+    buf
 }
 
 impl Lexer {
@@ -120,13 +166,31 @@ impl Lexer {
             self.read_char();
         }
 
-        Token::STRING(self.input[pos..self.pos].to_string())
+        Token::STRING(escape_string(self.input[pos..self.pos].to_string()))
     }
+
+    /* fn read_lines(&mut self) -> Token {
+        self.read_char();
+        self.read_char();
+        let pos = self.pos;
+        while self.next_ch.map_or(false, |c| c != '\'') || self.cur_ch.map_or(false, |c| c != '\''|) {
+            self.read_char();
+        }
+    } */
 
     fn skip_comment(&mut self) {
         while self.cur_ch.unwrap_or_default() != '\n' {
             self.read_char();
         }
+        self.read_char();
+    }
+
+    fn skip_long_comment(&mut self) {
+        while self.cur_ch.unwrap_or_default() != '*' || self.next_ch.unwrap_or_default() != '/' {
+            self.read_char();
+        }
+        self.read_char();
+        self.read_char();
     }
 
     fn skip_white(&mut self) {
@@ -176,14 +240,17 @@ impl Iterator for Lexer {
                 }
             }
             '*' => MUL,
-            '/' => {
-                if self.next_ch.unwrap_or_default() != '/' {
-                    SLASH
-                } else {
+            '/' => match self.next_ch.unwrap_or_default() {
+                '/' => {
                     self.read_char();
                     UPDATE
                 }
-            }
+                '*' => {
+                    self.skip_long_comment();
+                    return self.next();
+                }
+                _ => SLASH,
+            },
             '!' => {
                 if self.next_ch.unwrap_or_default() != '=' {
                     BANG
@@ -240,6 +307,7 @@ impl Iterator for Lexer {
                 }
             }
             '?' => QUEST,
+            '@' => AT,
 
             '(' => LPAREN,
             ')' => RPAREN,
@@ -261,7 +329,7 @@ impl Iterator for Lexer {
 
             '#' => {
                 self.skip_comment();
-                self.next().unwrap()
+                return self.next();
             }
 
             ch => {

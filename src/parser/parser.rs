@@ -1,4 +1,5 @@
 use core::panic;
+use std::ops::Add;
 
 use crate::ast::*;
 use crate::lexer::Lexer;
@@ -13,17 +14,67 @@ enum Precedence {
 
     ASSIGN,
     FUNCDEF,
-    CALL,
     EQ,
     BOOL,
     CMP,
     SUM,
     MUL,
     PREFIX,
+    CALL,
     HASATTR,
     ATTR,
-}
+    LIST,
 
+    HIGHEST,
+}
+/*
+    impl Precedence {
+    fn to_int(&self) -> u8 {
+        match self {
+            Self::LOWEST => 0,
+            Self::ASSIGN => 1,
+            Self::FUNCDEF => 2,
+            Self::EQ => 3,
+            Self::BOOL => 4,
+            Self::CMP => 5,
+            Self::SUM => 6,
+            Self::MUL => 7,
+            Self::PREFIX => 8,
+            Self::CALL => 9,
+            Self::HASATTR => 10,
+            Self::ATTR => 11,
+            Self::HIGHEST => 12,
+        }
+    }
+
+    fn from_int(i: u8) -> Self {
+        match i {
+            0 => Self::LOWEST,
+            1 => Self::ASSIGN,
+            2 => Self::FUNCDEF,
+            3 => Self::EQ,
+            4 => Self::BOOL,
+            5 => Self::CMP,
+            6 => Self::SUM,
+            7 => Self::MUL,
+            8 => Self::PREFIX,
+            9 => Self::CALL,
+            10 => Self::HASATTR,
+            11 => Self::ATTR,
+            12 => Self::HIGHEST,
+            _ => panic!(),
+        }
+    }
+
+    pub fn higher(&self, level: u8) -> Self {
+        Self::from_int(self.to_int() + level)
+    }
+
+    pub fn lower(&self, level: u8) -> Self {
+        Self::from_int(self.to_int() - level)
+    }
+}
+*/
 pub struct Parser {
     l: Lexer,
 
@@ -46,23 +97,24 @@ impl Parser {
         p
     }
 
-    fn prefix_parser(&self, t: &Token) -> PrefixParseFn {
+    fn prefix_parser(&self, t: &Token) -> Option<PrefixParseFn> {
         macro_rules! strexpr {
             ($token:tt, $exprtype:tt) => {
-                |s| {
+                Some(|s| {
                     Box::new($exprtype::new(
-                        if let Token::$token(s) = s.cur_token.as_ref().unwrap() {
-                            s
+                        if let Token::$token(string) = s.cur_token.clone().unwrap() {
+                            s.next();
+                            string
                         } else {
                             unreachable!()
                         },
                     ))
-                }
+                })
             };
         }
         macro_rules! parser {
             ($parsername:tt) => {
-                |s| s.$parsername()
+                Some(|s| s.$parsername())
             };
         }
 
@@ -72,9 +124,19 @@ impl Parser {
             INT(_) => strexpr!(INT, IntLiteralExpr),
             FLOAT(_) => strexpr!(FLOAT, FloatLiteralExpr),
             STRING(_) => strexpr!(STRING, StringLiteralExpr),
-            TRUE | FALSE => |s| Box::new(BoolLiteralExpr::new(s.cur_is(TRUE))),
-            NULL => |_| Box::new(NullLiteralExpr),
-            ELLIPSIS => |_| Box::new(EllipsisLiteralExpr),
+            TRUE | FALSE => Some(|s| {
+                let b = s.cur_is(TRUE);
+                s.next();
+                Box::new(BoolLiteralExpr::new(b))
+            }),
+            NULL => Some(|s| {
+                s.next();
+                Box::new(NullLiteralExpr)
+            }),
+            ELLIPSIS => Some(|s| {
+                s.next();
+                Box::new(EllipsisLiteralExpr)
+            }),
             MINUS | BANG => parser!(parse_prefix),
             // LANGLE => |s| s.parse_spath(,
             LPAREN => parser!(parse_group),
@@ -85,7 +147,7 @@ impl Parser {
             WITH => parser!(parse_with),
             REC => parser!(parse_rec),
             INHERIT => parser!(parse_inherit),
-            invalid => panic!("no such prefix op: {invalid}"),
+            _ => None,
         }
     }
 
@@ -101,6 +163,9 @@ impl Parser {
             | IMPL | AND | OR | QUEST | DOT => parser!(parse_infix),
             ASSIGN => parser!(parse_binding),
             COLON => parser!(parse_function),
+
+            /* IDENT(_) | INT(_) | FLOAT(_) | STRING(_) | TRUE | FALSE | NULL | LPAREN | LBRACE
+            | LBRACKET | LET | WITH | REC => parser!(parse_call), */
             _ => None,
         }
     }
@@ -118,9 +183,10 @@ impl Parser {
     fn parse_group(&mut self) -> Box<dyn Expression> {
         self.next();
         let expr = self.parse_expr(Precedence::LOWEST);
-        if !self.next_is(Token::RPAREN) {
+        if !self.cur_is(Token::RPAREN) {
             panic!()
         }
+        self.next();
 
         expr
     }
@@ -130,18 +196,16 @@ impl Parser {
 
         let cond = self.parse_expr(Precedence::LOWEST);
 
-        if !self.next_is(Token::THEN) {
+        if !self.cur_is(Token::THEN) {
             panic!()
         }
-        self.next();
         self.next();
 
         let consq = self.parse_expr(Precedence::LOWEST);
 
-        if !self.next_is(Token::ELSE) {
+        if !self.cur_is(Token::ELSE) {
             panic!()
         }
-        self.next();
         self.next();
 
         let alter = self.parse_expr(Precedence::LOWEST);
@@ -162,20 +226,19 @@ impl Parser {
         while !self.cur_is(Token::RBRACE) {
             bindings.push(self.parse_expr(Precedence::LOWEST));
             use Token::*;
-            match self.unwrap_next() {
+            match self.unwrap_cur() {
                 SEMI => {
-                    self.next();
                     self.next();
                 }
                 COMMA => {
                     is_attrs = false;
                     self.next();
-                    self.next();
                 }
-                RBRACE => self.next(),
+                RBRACE => (),
                 _ => panic!(),
             }
         }
+        self.next();
 
         if is_attrs {
             Box::new(AttrsLiteralExpr::new(bindings, false))
@@ -189,9 +252,9 @@ impl Parser {
         let mut items: Vec<Box<dyn Expression>> = Vec::new();
 
         while !self.cur_is(Token::RBRACKET) {
-            items.push(self.parse_expr(Precedence::LOWEST));
-            self.next();
+            items.push(self.parse_expr(Precedence::LIST));
         }
+        self.next();
 
         Box::new(ListLiteralExpr::new(items))
     }
@@ -202,13 +265,11 @@ impl Parser {
 
         while !self.cur_is(Token::IN) {
             bindings.push(self.parse_expr(Precedence::LOWEST));
-            if !self.next_is(Token::SEMI) {
+            if !self.cur_is(Token::SEMI) {
                 panic!()
             }
             self.next();
-            self.next();
         }
-
         self.next();
 
         Box::new(LetExpr::new(bindings, self.parse_expr(Precedence::LOWEST)))
@@ -217,10 +278,9 @@ impl Parser {
     fn parse_with(&mut self) -> Box<dyn Expression> {
         self.next();
         let attrs = self.parse_expr(Precedence::LOWEST);
-        if !self.next_is(Token::SEMI) {
+        if !self.cur_is(Token::SEMI) {
             panic!()
         }
-        self.next();
         self.next();
 
         Box::new(WithExpr::new(attrs, self.parse_expr(Precedence::LOWEST)))
@@ -236,12 +296,12 @@ impl Parser {
 
         while !self.cur_is(Token::RBRACE) {
             bindings.push(self.parse_expr(Precedence::LOWEST));
-            if !self.next_is(Token::SEMI) {
+            if !self.cur_is(Token::SEMI) {
                 panic!()
             }
             self.next();
-            self.next();
         }
+        self.next();
 
         Box::new(AttrsLiteralExpr::new(bindings, true))
     }
@@ -249,11 +309,11 @@ impl Parser {
     fn parse_inherit(&mut self) -> Box<dyn Expression> {
         self.next();
         let from = if self.cur_is(Token::LPAREN) {
+            self.next();
             let from = Some(self.parse_expr(Precedence::LOWEST));
-            if !self.next_is(Token::RPAREN) {
+            if !self.cur_is(Token::RPAREN) {
                 panic!()
             }
-            self.next();
             self.next();
             from
         } else {
@@ -268,12 +328,12 @@ impl Parser {
             SEMI => false,
             _ => panic!(),
         } {
-            inherits.push(self.parse_expr(Precedence::LOWEST));
-            self.next();
+            inherits.push(self.parse_expr(Precedence::HIGHEST));
         }
         if !self.cur_is(Token::SEMI) {
             panic!()
         }
+        self.next();
 
         Box::new(InheritExpr::new(inherits, from))
     }
@@ -291,6 +351,8 @@ impl Parser {
             DOT => Precedence::ATTR,
             COLON => Precedence::FUNCDEF,
 
+            /* IDENT(_) | INT(_) | FLOAT(_) | STRING(_) | TRUE | FALSE | NULL | LPAREN | LBRACE
+            | LBRACKET | LET | WITH | REC => Precedence::CALL, */
             _ => Precedence::LOWEST,
         }
     }
@@ -313,9 +375,16 @@ impl Parser {
 
     fn parse_function(&mut self, arg: Box<dyn Expression>) -> Box<dyn Expression> {
         self.next();
-        Box::new(FunctionLiteral::new(
+        Box::new(FunctionLiteralExpr::new(
             arg,
             self.parse_expr(Precedence::FUNCDEF),
+        ))
+    }
+
+    fn parse_call(&mut self, func: Box<dyn Expression>) -> Box<dyn Expression> {
+        Box::new(FunctionCallExpr::new(
+            func,
+            self.parse_expr(Precedence::CALL),
         ))
     }
 
@@ -340,19 +409,30 @@ impl Parser {
     }
 
     fn parse_expr(&mut self, precedence: Precedence) -> Box<dyn Expression> {
-        let mut left = self.prefix_parser(self.unwrap_cur())(self);
+        let mut left = self.prefix_parser(self.unwrap_cur()).unwrap()(self);
 
-        while !self.next_is(Token::SEMI)
-            && !self.next_is(Token::EOF)
-            && precedence < self.next_precedence()
+        while !self.cur_is(Token::SEMI)
+            && !self.cur_is(Token::EOF)
+            && precedence < self.cur_precedence()
         {
-            match self.infix_parser(self.unwrap_next()) {
+            match self.infix_parser(self.unwrap_cur()) {
                 None => return left,
                 Some(f) => {
-                    self.next();
                     left = f(self, left);
                 }
             }
+        }
+
+        if !self.cur_is(Token::SEMI)
+            && !self.cur_is(Token::EOF)
+            && Precedence::CALL > precedence
+            && precedence != Precedence::LIST
+            && self.prefix_parser(self.unwrap_cur()).is_some()
+        {
+            left = Box::new(FunctionCallExpr::new(
+                left,
+                self.parse_expr(Precedence::CALL),
+            ));
         }
 
         left

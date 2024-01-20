@@ -48,10 +48,8 @@ pub struct IdentifierExpr {
 }
 
 impl IdentifierExpr {
-    pub fn new(ident: &str) -> IdentifierExpr {
-        IdentifierExpr {
-            ident: ident.to_string(),
-        }
+    pub fn new(ident: String) -> IdentifierExpr {
+        IdentifierExpr { ident }
     }
 }
 
@@ -68,7 +66,7 @@ pub struct IntLiteralExpr {
 }
 
 impl IntLiteralExpr {
-    pub fn new(s: &str) -> IntLiteralExpr {
+    pub fn new(s: String) -> IntLiteralExpr {
         IntLiteralExpr {
             literal: s.parse().unwrap(),
         }
@@ -88,7 +86,7 @@ pub struct FloatLiteralExpr {
 }
 
 impl FloatLiteralExpr {
-    pub fn new(s: &str) -> FloatLiteralExpr {
+    pub fn new(s: String) -> FloatLiteralExpr {
         FloatLiteralExpr {
             literal: s.parse().unwrap(),
         }
@@ -146,7 +144,7 @@ pub struct StringLiteralExpr {
 }
 
 impl StringLiteralExpr {
-    pub fn new(s: &str) -> StringLiteralExpr {
+    pub fn new(s: String) -> StringLiteralExpr {
         StringLiteralExpr {
             literal: s.to_string(),
         }
@@ -161,22 +159,41 @@ impl Display for StringLiteralExpr {
     }
 }
 
-pub struct FunctionLiteral {
+pub struct FunctionLiteralExpr {
     arg: Box<dyn Expression>,
     body: Box<dyn Expression>,
 }
 
-impl FunctionLiteral {
-    pub fn new(arg: Box<dyn Expression>, body: Box<dyn Expression>) -> FunctionLiteral {
-        FunctionLiteral { arg, body }
+impl FunctionLiteralExpr {
+    pub fn new(arg: Box<dyn Expression>, body: Box<dyn Expression>) -> FunctionLiteralExpr {
+        FunctionLiteralExpr { arg, body }
     }
 }
 
-impl Expression for FunctionLiteral {}
+impl Expression for FunctionLiteralExpr {}
 
-impl Display for FunctionLiteral {
+impl Display for FunctionLiteralExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.arg, self.body)
+        write!(f, "({}: {})", self.arg, self.body)
+    }
+}
+
+pub struct FunctionCallExpr {
+    func: Box<dyn Expression>,
+    arg: Box<dyn Expression>,
+}
+
+impl FunctionCallExpr {
+    pub fn new(func: Box<dyn Expression>, arg: Box<dyn Expression>) -> FunctionCallExpr {
+        FunctionCallExpr { func, arg }
+    }
+}
+
+impl Expression for FunctionCallExpr {}
+
+impl Display for FunctionCallExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({} {})", self.func, self.arg)
     }
 }
 

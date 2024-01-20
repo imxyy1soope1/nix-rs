@@ -1,10 +1,11 @@
-use std::fmt;
+use std::fmt::{self, write};
 
 #[allow(unused)]
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Token {
     ILLEGAL,
     EOF,
+    SPACE,
 
     IDENT(String),
     INT(String),
@@ -23,6 +24,7 @@ pub enum Token {
     UPDATE,
     CONCAT,
     QUEST,
+    AT,
 
     EQ,
     NEQ,
@@ -67,6 +69,7 @@ impl fmt::Display for Token {
         match self {
             ILLEGAL => write!(f, "ILLEGAL"),
             EOF => write!(f, "EOF"),
+            SPACE => write!(f, " "),
 
             IDENT(literal) => write!(f, "{literal}"),
             INT(literal) => write!(f, "{literal}"),
@@ -85,6 +88,7 @@ impl fmt::Display for Token {
             UPDATE => write!(f, "//"),
             CONCAT => write!(f, "++"),
             QUEST => write!(f, "?"),
+            AT => write!(f, "@"),
 
             EQ => write!(f, "=="),
             NEQ => write!(f, "!="),

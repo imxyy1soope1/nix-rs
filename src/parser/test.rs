@@ -81,13 +81,14 @@ mod test {
         );
         _test_parse(
             "{a, b, ...}: { c = a + b; }",
-            "{ a, b, ... }: { c = (a + b); }",
+            "({ a, b, ... }: { c = (a + b); })",
         );
     }
 
     #[test]
     fn test_parse_list() {
         _test_parse(r#"[1 2 "1" "3"]"#, r#"[ 1 2 "1" "3" ]"#);
+        _test_parse("[(a+b) (b+c)]", "[ (a + b) (b + c) ]")
     }
 
     #[test]
@@ -119,6 +120,11 @@ mod test {
             "let super = { a = 1; b = 2; }; in { inherit (super) a b; }",
             "let super = { a = 1; b = 2; }; in { inherit (super) a b; }",
         )
+    }
+
+    #[test]
+    fn test_call() {
+        _test_parse("(a: b: a + b) 1 2", "(((a: (b: (a + b))) 1) 2)");
     }
 
     // #[test]

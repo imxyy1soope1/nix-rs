@@ -20,8 +20,9 @@ mod test {
             il = 1.0.1;
             s = "test";
             # comments
-            b = (true && false) -> (true || false);
+            b = (true && false) -> /* long comments */(true || false);
             b2 = attr ? ten;
+            l = ["1" "2" 1 2];
         }"#;
         let expect = [
             LET,
@@ -114,6 +115,15 @@ mod test {
             IDENT("attr".to_string()),
             QUEST,
             IDENT("ten".to_string()),
+            SEMI,
+            IDENT("l".to_string()),
+            ASSIGN,
+            LBRACKET,
+            STRING("1".to_string()),
+            STRING("2".to_string()),
+            INT("1".to_string()),
+            INT("2".to_string()),
+            RBRACKET,
             SEMI,
             RBRACE,
             EOF,
