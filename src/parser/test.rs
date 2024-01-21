@@ -2,7 +2,6 @@
 mod test {
     use super::super::Parser;
     use crate::lexer::Lexer;
-    use crate::token::Token::*;
 
     fn _test_parse(input: &str, expect: &str) {
         let mut parser = Parser::from_lexer(Lexer::from_str(input));
@@ -151,9 +150,10 @@ mod test {
             b = (true && false) -> /* long comments */(true || false);
             b2 = attr ? ten;
             l = ["1" "2" 1 2];
+            a.b.c = 1;
         }"#;
 
-        let expect = r#"(let five = 5; time_two = (num: (num * 2)); in rec { ten = (time_two five); ast1 = (assert (ten == 10); true); ast2 = (assert (ten != 9); true); attr = { inherit ten; }; pkgs = (with (import null); [ hello ]); f = 1; s = "test"; b = ((true && false) -> (true || false)); b2 = (attr ? ten); l = [ "1" "2" 1 2 ]; })"#;
+        let expect = r#"(let five = 5; time_two = (num: (num * 2)); in rec { ten = (time_two five); ast1 = (assert (ten == 10); true); ast2 = (assert (ten != 9); true); attr = { inherit ten; }; pkgs = (with (import null); [ hello ]); f = 1; s = "test"; b = ((true && false) -> (true || false)); b2 = (attr ? ten); l = [ "1" "2" 1 2 ]; ((a . b) . c) = 1; })"#;
 
         _test_parse(input, expect);
     }

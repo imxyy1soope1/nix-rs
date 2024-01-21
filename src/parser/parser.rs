@@ -179,7 +179,7 @@ impl Parser {
 
         let is_attrs = {
             match self.unwrap_next() {
-                ASSIGN => true,
+                ASSIGN | DOT => true,
                 IDENT(_) | STRING(_) | LPAREN => {
                     if !self.cur_is(INHERIT) {
                         panic!()
@@ -200,10 +200,10 @@ impl Parser {
                     }
                     _ => panic!(),
                 }
-                if !self.next_is(ASSIGN) {
+                if !self.next_is(ASSIGN) && !self.next_is(DOT) {
                     panic!()
                 }
-                let ident = self.parse_expr(Precedence::HIGHEST);
+                let ident = self.parse_expr(Precedence::CALL);
                 bindings.push(self.parse_binding(ident));
                 if !self.cur_is(SEMI) {
                     panic!()
@@ -322,10 +322,10 @@ impl Parser {
                 }
                 _ => panic!(),
             }
-            if !self.next_is(ASSIGN) {
+            if !self.next_is(ASSIGN) && !self.next_is(DOT) {
                 panic!()
             }
-            let ident = self.parse_expr(Precedence::HIGHEST);
+            let ident = self.parse_expr(Precedence::CALL);
             bindings.push(self.parse_binding(ident));
             if !self.cur_is(SEMI) {
                 panic!()
