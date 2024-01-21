@@ -118,8 +118,8 @@ impl Parser {
         }
         use Token::*;
         match t {
-            PLUS | MINUS | MUL | SLASH | EQ | NEQ | LANGLE | RANGLE | LEQ | GEQ | CONCAT | UPDATE
-            | IMPL | AND | OR | QUEST | DOT => parser!(parse_infix),
+            PLUS | MINUS | MUL | SLASH | EQ | NEQ | LANGLE | RANGLE | LEQ | GEQ | CONCAT
+            | UPDATE | IMPL | AND | OR | QUEST | DOT => parser!(parse_infix),
             ASSIGN => parser!(parse_binding),
             COLON => parser!(parse_function),
             AT => parser!(parse_argset_with_alias),
@@ -146,6 +146,9 @@ impl Parser {
         }
         self.next();
 
+        let a = expr.as_any();
+        assert!(!a.is::<BindingExpr>());
+
         expr
     }
 
@@ -153,6 +156,8 @@ impl Parser {
         self.next();
 
         let cond = self.parse_expr(Precedence::LOWEST);
+        let a = cond.as_any();
+        assert!(!a.is::<BindingExpr>());
 
         if !self.cur_is(Token::THEN) {
             panic!()
@@ -160,6 +165,8 @@ impl Parser {
         self.next();
 
         let consq = self.parse_expr(Precedence::LOWEST);
+        let a = consq.as_any();
+        assert!(!a.is::<BindingExpr>());
 
         if !self.cur_is(Token::ELSE) {
             panic!()
@@ -167,13 +174,28 @@ impl Parser {
         self.next();
 
         let alter = self.parse_expr(Precedence::LOWEST);
+        let a = alter.as_any();
+        assert!(!a.is::<BindingExpr>());
 
         Box::new(IfExpr::new(cond, consq, alter))
     }
 
     fn parse_binding(&mut self, name: Box<dyn Expression>) -> Box<dyn Expression> {
         self.next();
-        Box::new(BindingExpr::new(name, self.parse_expr(Precedence::ASSIGN)))
+        let expr = self.parse_expr(Precedence::ASSIGN);
+        let a = expr.as_any();
+        assert!(a.downcast_ref::<InfixExpr>().unwrap().token == Token::ASSIGN);
+        let a = a.downcast_ref::<InfixExpr>().unwrap().right.as_any();
+        assert!(
+            a.is::<IdentifierExpr>()
+                || a.is::<StringLiteralExpr>()
+                || a.is::<NullLiteralExpr>()
+                || a.is::<BoolLiteralExpr>()
+                || a.is::<InheritExpr>()
+                || (a.is::<InfixExpr>()
+                    && a.downcast_ref::<InfixExpr>().unwrap().token == Token::DOT)
+        );
+        Box::new(BindingExpr::new(name, expr))
     }
 
     fn parse_attrs(&mut self) -> Box<dyn Expression> {
@@ -198,44 +220,34 @@ impl Parser {
         let mut allow_more = false;
         while !self.cur_is(RBRACE) {
             if is_attrs {
-                match self.unwrap_cur() {
-                    IDENT(_) | STRING(_) | NULL | TRUE | FALSE => (),
-                    INHERIT => {
-                        bindings.push(self.parse_inherit());
-                        continue;
-                    }
-                    _ => panic!(),
+                let expr = self.parse_expr(Precedence::LOWEST);
+                let a = expr.as_any();
+                assert!(a.is::<BindingExpr>() || a.is::<InheritExpr>());
+                if a.is::<InfixExpr>() {
+                    
                 }
-                if !self.next_is(ASSIGN) && !self.next_is(DOT) {
-                    panic!()
-                }
-                let ident = self.parse_expr(Precedence::CALL);
-                bindings.push(self.parse_binding(ident));
+                bindings.push(expr);
                 if !self.cur_is(SEMI) {
                     panic!()
                 }
                 self.next();
             } else {
+                let expr = self.parse_expr(Precedence::LOWEST);
+                let a = expr.as_any();
+                assert!(a.is::<IdentifierExpr>() || a.is::<EllipsisLiteralExpr>() || (a.is::<InfixExpr>() && a.downcast_ref::<InfixExpr>().unwrap().token == QUEST));
+                if a.is::<EllipsisLiteralExpr>() {
+                    allow_more = true;
+                }
+                bindings.push(expr);
                 match self.unwrap_cur() {
-                    IDENT(_) | NULL | TRUE | FALSE => (),
-                    ELLIPSIS => {
-                        if !self.next_is(RBRACE) {
-                            panic!()
+                    COMMA => {
+                        if allow_more {
+                            panic!("expect formals to end")
                         }
-                        allow_more = true;
-                        break;
-                    }
-                    _ => panic!(),
-                }
-                match self.unwrap_next() {
-                    COMMA | QUEST | RBRACE => (),
-                    _ => panic!(),
-                }
-                bindings.push(self.parse_expr(Precedence::LOWEST));
-                match self.unwrap_cur() {
-                    COMMA => self.next(),
+                        self.next()
+                    },
                     RBRACE => (),
-                    _ => panic!(),
+                    invalid => panic!("unexpected {}", invalid),
                 }
             }
         }
@@ -270,27 +282,22 @@ impl Parser {
         let mut allow_more = false;
 
         while !self.cur_is(RBRACE) {
+            let expr = self.parse_expr(Precedence::LOWEST);
+            let a = expr.as_any();
+            assert!(a.is::<IdentifierExpr>() || a.is::<EllipsisLiteralExpr>() || (a.is::<InfixExpr>() && a.downcast_ref::<InfixExpr>().unwrap().token == QUEST));
+            if a.is::<EllipsisLiteralExpr>() {
+                allow_more = true;
+            }
+            args.push(expr);
             match self.unwrap_cur() {
-                IDENT(_) | NULL | TRUE | FALSE => (),
-                ELLIPSIS => {
-                    if !self.next_is(RBRACE) {
-                        panic!()
+                COMMA => {
+                    if allow_more {
+                        panic!("expect formals to end")
                     }
-                    allow_more = true;
-                    self.next();
-                    break;
-                }
-                _ => panic!(),
-            }
-            match self.unwrap_next() {
-                COMMA | QUEST | RBRACE => (),
-                _ => panic!(),
-            }
-            args.push(self.parse_expr(Precedence::LOWEST));
-            match self.unwrap_cur() {
-                COMMA => self.next(),
+                    self.next()
+                },
                 RBRACE => (),
-                _ => panic!(),
+                invalid => panic!("unexpected {}", invalid),
             }
         }
         self.next();
@@ -489,7 +496,7 @@ impl Parser {
             IDENT(s) => {
                 literal.push_str(s);
                 self.next();
-            },
+            }
             DOT => {
                 literal.push('.');
                 self.next();
@@ -518,7 +525,9 @@ impl Parser {
         }
         self.next();
 
-        Box::new(SearchPathExpr::new(Box::new(PathLiteralExpr::new(literal, true))))
+        Box::new(SearchPathExpr::new(Box::new(PathLiteralExpr::new(
+            literal, true,
+        ))))
     }
 
     fn _precedence(t: &Token) -> Precedence {
@@ -583,9 +592,9 @@ impl Parser {
     }
 
     fn parse_expr(&mut self, precedence: Precedence) -> Box<dyn Expression> {
-        let mut left = self
-            .prefix_parser(self.unwrap_cur())
-            .expect(&format!("unexpected token: {}", self.unwrap_cur()))(self);
+        let mut left =
+            self.prefix_parser(self.unwrap_cur())
+                .expect(&format!("unexpected token: {}", self.unwrap_cur()))(self);
 
         while !self.cur_is(Token::SEMI)
             && !self.cur_is(Token::EOF)

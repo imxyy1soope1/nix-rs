@@ -1,8 +1,11 @@
 use super::types::*;
 use crate::token::Token;
+use std::any::Any;
 use std::fmt::Display;
 
-pub trait Expression: Display {}
+pub trait Expression: Display {
+    fn as_any(&self) -> &dyn Any;
+}
 
 pub struct PrefixExpr {
     token: Token,
@@ -15,7 +18,11 @@ impl PrefixExpr {
     }
 }
 
-impl Expression for PrefixExpr {}
+impl Expression for PrefixExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for PrefixExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -24,9 +31,9 @@ impl Display for PrefixExpr {
 }
 
 pub struct InfixExpr {
-    token: Token,
-    left: Box<dyn Expression>,
-    right: Box<dyn Expression>,
+    pub token: Token,
+    pub left: Box<dyn Expression>,
+    pub right: Box<dyn Expression>,
 }
 
 impl InfixExpr {
@@ -35,7 +42,11 @@ impl InfixExpr {
     }
 }
 
-impl Expression for InfixExpr {}
+impl Expression for InfixExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for InfixExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -53,7 +64,11 @@ impl IdentifierExpr {
     }
 }
 
-impl Expression for IdentifierExpr {}
+impl Expression for IdentifierExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for IdentifierExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -73,7 +88,11 @@ impl IntLiteralExpr {
     }
 }
 
-impl Expression for IntLiteralExpr {}
+impl Expression for IntLiteralExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for IntLiteralExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -93,7 +112,11 @@ impl FloatLiteralExpr {
     }
 }
 
-impl Expression for FloatLiteralExpr {}
+impl Expression for FloatLiteralExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for FloatLiteralExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -111,7 +134,11 @@ impl BoolLiteralExpr {
     }
 }
 
-impl Expression for BoolLiteralExpr {}
+impl Expression for BoolLiteralExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for BoolLiteralExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -121,7 +148,11 @@ impl Display for BoolLiteralExpr {
 
 pub struct NullLiteralExpr;
 
-impl Expression for NullLiteralExpr {}
+impl Expression for NullLiteralExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for NullLiteralExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -131,7 +162,11 @@ impl Display for NullLiteralExpr {
 
 pub struct EllipsisLiteralExpr;
 
-impl Expression for EllipsisLiteralExpr {}
+impl Expression for EllipsisLiteralExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for EllipsisLiteralExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -151,7 +186,11 @@ impl StringLiteralExpr {
     }
 }
 
-impl Expression for StringLiteralExpr {}
+impl Expression for StringLiteralExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for StringLiteralExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -170,7 +209,11 @@ impl FunctionLiteralExpr {
     }
 }
 
-impl Expression for FunctionLiteralExpr {}
+impl Expression for FunctionLiteralExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for FunctionLiteralExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -189,7 +232,11 @@ impl FunctionCallExpr {
     }
 }
 
-impl Expression for FunctionCallExpr {}
+impl Expression for FunctionCallExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for FunctionCallExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -213,7 +260,11 @@ impl IfExpr {
     }
 }
 
-impl Expression for IfExpr {}
+impl Expression for IfExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for IfExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -236,7 +287,11 @@ impl BindingExpr {
     }
 }
 
-impl Expression for BindingExpr {}
+impl Expression for BindingExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for BindingExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -255,7 +310,11 @@ impl AttrsLiteralExpr {
     }
 }
 
-impl Expression for AttrsLiteralExpr {}
+impl Expression for AttrsLiteralExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for AttrsLiteralExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -290,7 +349,11 @@ impl ArgSetExpr {
     }
 }
 
-impl Expression for ArgSetExpr {}
+impl Expression for ArgSetExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for ArgSetExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -325,7 +388,11 @@ impl ListLiteralExpr {
     }
 }
 
-impl Expression for ListLiteralExpr {}
+impl Expression for ListLiteralExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for ListLiteralExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -348,7 +415,11 @@ impl LetExpr {
     }
 }
 
-impl Expression for LetExpr {}
+impl Expression for LetExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for LetExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -371,7 +442,11 @@ impl WithExpr {
     }
 }
 
-impl Expression for WithExpr {}
+impl Expression for WithExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for WithExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -390,7 +465,11 @@ impl AssertExpr {
     }
 }
 
-impl Expression for AssertExpr {}
+impl Expression for AssertExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for AssertExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -412,7 +491,11 @@ impl InheritExpr {
     }
 }
 
-impl Expression for InheritExpr {}
+impl Expression for InheritExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for InheritExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -444,7 +527,11 @@ impl PathLiteralExpr {
     }
 }
 
-impl Expression for PathLiteralExpr {}
+impl Expression for PathLiteralExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for PathLiteralExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -453,7 +540,7 @@ impl Display for PathLiteralExpr {
 }
 
 pub struct SearchPathExpr {
-    path: Box<dyn Expression>
+    path: Box<dyn Expression>,
 }
 
 impl SearchPathExpr {
@@ -462,7 +549,11 @@ impl SearchPathExpr {
     }
 }
 
-impl Expression for SearchPathExpr {}
+impl Expression for SearchPathExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Display for SearchPathExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
