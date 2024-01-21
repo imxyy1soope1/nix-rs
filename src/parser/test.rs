@@ -95,14 +95,19 @@ mod test {
     fn test_parse_let() {
         _test_parse(
             "let a = 1; b = a + 1; in a + b",
-            "let a = 1; b = (a + 1); in (a + b)",
+            "(let a = 1; b = (a + 1); in (a + b))",
         );
     }
 
     #[test]
     fn test_parse_with() {
-        _test_parse("with {a = 1;}; a + 1", "with { a = 1; }; (a + 1)");
-        _test_parse("with pkgs; [hello]", "with pkgs; [ hello ]");
+        _test_parse("with {a = 1;}; a + 1", "(with { a = 1; }; (a + 1))");
+        _test_parse("with pkgs; [hello]", "(with pkgs; [ hello ])");
+    }
+
+    #[test]
+    fn test_parse_assert() {
+        _test_parse("assert true; 1", "(assert true; 1)");
     }
 
     #[test]
@@ -110,7 +115,7 @@ mod test {
         _test_parse("rec { a = 1; b = a + 1; }", "rec { a = 1; b = (a + 1); }");
         _test_parse(
             "with rec { a = 1; b = a + 1; }; a + b",
-            "with rec { a = 1; b = (a + 1); }; (a + b)",
+            "(with rec { a = 1; b = (a + 1); }; (a + b))",
         );
     }
 
@@ -118,104 +123,38 @@ mod test {
     fn test_parse_inherit() {
         _test_parse(
             "let super = { a = 1; b = 2; }; in { inherit (super) a b; }",
-            "let super = { a = 1; b = 2; }; in { inherit (super) a b; }",
+            "(let super = { a = 1; b = 2; }; in { inherit (super) a b; })",
         )
     }
 
     #[test]
     fn test_call() {
         _test_parse("(a: b: a + b) 1 2", "(((a: (b: (a + b))) 1) 2)");
+        _test_parse("(a: b: a + b) ((a: a + 1) 2) 3", "(((a: (b: (a + b))) ((a: (a + 1)) 2)) 3)")
     }
 
-    // #[test]
+    #[test]
     fn test_parse() {
-        /*
-         ```nix
-         let five = 5;
-           time_two = num: num * 2;
-         in {
-           ten = time_two five;
-           ast1 = assert ten == 10;
-           ast2 = assert ten != 9;
-           attr = { inherit ten; };
-           pkgs = with (import <nixpkgs>); [
-               hello
-           ];
-           f = 1.0;
-           il = 1.0.1;
-         ```
-        }*/
-        let input = [
-            LET,
-            IDENT("five".to_string()),
-            ASSIGN,
-            INT("5".to_string()),
-            SEMI,
-            IDENT("time_two".to_string()),
-            ASSIGN,
-            IDENT("num".to_string()),
-            COLON,
-            IDENT("num".to_string()),
-            MUL,
-            INT("2".to_string()),
-            SEMI,
-            IN,
-            LBRACE,
-            IDENT("ten".to_string()),
-            ASSIGN,
-            IDENT("time_two".to_string()),
-            IDENT("five".to_string()),
-            SEMI,
-            IDENT("ast1".to_string()),
-            ASSIGN,
-            ASSERT,
-            IDENT("ten".to_string()),
-            EQ,
-            INT("10".to_string()),
-            SEMI,
-            IDENT("ast2".to_string()),
-            ASSIGN,
-            ASSERT,
-            IDENT("ten".to_string()),
-            NEQ,
-            INT("9".to_string()),
-            SEMI,
-            IDENT("attr".to_string()),
-            ASSIGN,
-            LBRACE,
-            INHERIT,
-            IDENT("ten".to_string()),
-            SEMI,
-            RBRACE,
-            SEMI,
-            IDENT("pkgs".to_string()),
-            ASSIGN,
-            WITH,
-            LPAREN,
-            IDENT("import".to_string()),
-            LANGLE,
-            IDENT("nixpkgs".to_string()),
-            RANGLE,
-            RPAREN,
-            SEMI,
-            LBRACKET,
-            IDENT("hello".to_string()),
-            RBRACKET,
-            SEMI,
-            IDENT("f".to_string()),
-            ASSIGN,
-            FLOAT("1.0".to_string()),
-            SEMI,
-            IDENT("il".to_string()),
-            ASSIGN,
-            FLOAT("1.0".to_string()),
-            DOT,
-            INT("1".to_string()),
-            SEMI,
-            RBRACE,
-            EOF,
-        ];
+        let input = r#"let five = 5;
+            time_two = num: num * 2;
+        in rec {
+            ten = time_two five;
+            ast1 = assert ten == 10; true;
+            ast2 = assert ten != 9; true;
+            attr = { inherit ten; };
+            pkgs = with (import null); [
+                hello
+            ];
+            f = 1.0;
+            s = "test";
+            # comments
+            b = (true && false) -> /* long comments */(true || false);
+            b2 = attr ? ten;
+            l = ["1" "2" 1 2];
+        }"#;
 
-        // let expect =
+        let expect = r#"(let five = 5; time_two = (num: (num * 2)); in rec { ten = (time_two five); ast1 = (assert (ten == 10); true); ast2 = (assert (ten != 9); true); attr = { inherit ten; }; pkgs = (with (import null); [ hello ]); f = 1; s = "test"; b = ((true && false) -> (true || false)); b2 = (attr ? ten); l = [ "1" "2" 1 2 ]; })"#;
+
+        _test_parse(input, expect);
     }
 }

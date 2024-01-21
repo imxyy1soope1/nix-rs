@@ -1,4 +1,4 @@
-use std::fmt::{self, write};
+use std::fmt;
 
 #[allow(unused)]
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]

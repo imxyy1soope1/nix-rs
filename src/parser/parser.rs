@@ -1,5 +1,4 @@
-use core::panic;
-use std::ops::Add;
+use std::error::Error;
 
 use crate::ast::*;
 use crate::lexer::Lexer;
@@ -8,11 +7,14 @@ use crate::token::Token;
 type PrefixParseFn = fn(&mut Parser) -> Box<dyn Expression>;
 type InfixParseFn = fn(&mut Parser, Box<dyn Expression>) -> Box<dyn Expression>;
 
+type Result = std::result::Result<Box<dyn Expression>, Box<dyn Error>>;
+
 #[derive(PartialEq, PartialOrd)]
 enum Precedence {
     LOWEST,
 
     ASSIGN,
+    FDLOWER,
     FUNCDEF,
     EQ,
     BOOL,
@@ -23,58 +25,10 @@ enum Precedence {
     CALL,
     HASATTR,
     ATTR,
-    LIST,
 
     HIGHEST,
 }
-/*
-    impl Precedence {
-    fn to_int(&self) -> u8 {
-        match self {
-            Self::LOWEST => 0,
-            Self::ASSIGN => 1,
-            Self::FUNCDEF => 2,
-            Self::EQ => 3,
-            Self::BOOL => 4,
-            Self::CMP => 5,
-            Self::SUM => 6,
-            Self::MUL => 7,
-            Self::PREFIX => 8,
-            Self::CALL => 9,
-            Self::HASATTR => 10,
-            Self::ATTR => 11,
-            Self::HIGHEST => 12,
-        }
-    }
 
-    fn from_int(i: u8) -> Self {
-        match i {
-            0 => Self::LOWEST,
-            1 => Self::ASSIGN,
-            2 => Self::FUNCDEF,
-            3 => Self::EQ,
-            4 => Self::BOOL,
-            5 => Self::CMP,
-            6 => Self::SUM,
-            7 => Self::MUL,
-            8 => Self::PREFIX,
-            9 => Self::CALL,
-            10 => Self::HASATTR,
-            11 => Self::ATTR,
-            12 => Self::HIGHEST,
-            _ => panic!(),
-        }
-    }
-
-    pub fn higher(&self, level: u8) -> Self {
-        Self::from_int(self.to_int() + level)
-    }
-
-    pub fn lower(&self, level: u8) -> Self {
-        Self::from_int(self.to_int() - level)
-    }
-}
-*/
 pub struct Parser {
     l: Lexer,
 
@@ -145,6 +99,7 @@ impl Parser {
             LBRACKET => parser!(parse_list),
             LET => parser!(parse_let),
             WITH => parser!(parse_with),
+            ASSERT => parser!(parse_assert),
             REC => parser!(parse_rec),
             INHERIT => parser!(parse_inherit),
             _ => None,
@@ -164,8 +119,6 @@ impl Parser {
             ASSIGN => parser!(parse_binding),
             COLON => parser!(parse_function),
 
-            /* IDENT(_) | INT(_) | FLOAT(_) | STRING(_) | TRUE | FALSE | NULL | LPAREN | LBRACE
-            | LBRACKET | LET | WITH | REC => parser!(parse_call), */
             _ => None,
         }
     }
@@ -219,23 +172,66 @@ impl Parser {
     }
 
     fn parse_attrs(&mut self) -> Box<dyn Expression> {
+        use Token::*;
+
         self.next();
         let mut bindings: Vec<Box<dyn Expression>> = Vec::new();
 
-        let mut is_attrs = true;
-        while !self.cur_is(Token::RBRACE) {
-            bindings.push(self.parse_expr(Precedence::LOWEST));
-            use Token::*;
-            match self.unwrap_cur() {
-                SEMI => {
-                    self.next();
+        let is_attrs = {
+            match self.unwrap_next() {
+                ASSIGN => true,
+                IDENT(_) | STRING(_) | LPAREN => {
+                    if !self.cur_is(INHERIT) {
+                        panic!()
+                    }
+                    true
                 }
-                COMMA => {
-                    is_attrs = false;
-                    self.next();
-                }
-                RBRACE => (),
+                COMMA | QUEST => false,
                 _ => panic!(),
+            }
+        };
+        while !self.cur_is(RBRACE) {
+            if is_attrs {
+                match self.unwrap_cur() {
+                    IDENT(_) | STRING(_) | NULL | TRUE | FALSE => (),
+                    INHERIT => {
+                        bindings.push(self.parse_inherit());
+                        continue;
+                    }
+                    _ => panic!(),
+                }
+                if !self.next_is(ASSIGN) {
+                    panic!()
+                }
+                let ident = self.parse_expr(Precedence::HIGHEST);
+                bindings.push(self.parse_binding(ident));
+                if !self.cur_is(SEMI) {
+                    panic!()
+                }
+                self.next();
+            } else {
+                match self.unwrap_cur() {
+                    IDENT(_) | NULL | TRUE | FALSE => (),
+                    ELLIPSIS => {
+                        if !self.next_is(RBRACE) {
+                            panic!()
+                        }
+                        self.next();
+                        self.next();
+                        return Box::new(ArgSetExpr::new(bindings, true));
+                    }
+                    _ => panic!(),
+                }
+                match self.unwrap_next() {
+                    COMMA | QUEST | RBRACE => (),
+                    _ => panic!(),
+                }
+                bindings.push(self.parse_expr(Precedence::LOWEST));
+                match self.unwrap_cur() {
+                    COMMA => self.next(),
+                    RBRACE => (),
+                    _ => panic!(),
+                }
             }
         }
         self.next();
@@ -243,7 +239,7 @@ impl Parser {
         if is_attrs {
             Box::new(AttrsLiteralExpr::new(bindings, false))
         } else {
-            Box::new(ArgSetExpr::new(bindings))
+            Box::new(ArgSetExpr::new(bindings, false))
         }
     }
 
@@ -252,7 +248,7 @@ impl Parser {
         let mut items: Vec<Box<dyn Expression>> = Vec::new();
 
         while !self.cur_is(Token::RBRACKET) {
-            items.push(self.parse_expr(Precedence::LIST));
+            items.push(self.parse_expr(Precedence::HIGHEST));
         }
         self.next();
 
@@ -260,12 +256,22 @@ impl Parser {
     }
 
     fn parse_let(&mut self) -> Box<dyn Expression> {
+        use Token::*;
+
         self.next();
         let mut bindings: Vec<Box<dyn Expression>> = Vec::new();
 
-        while !self.cur_is(Token::IN) {
-            bindings.push(self.parse_expr(Precedence::LOWEST));
-            if !self.cur_is(Token::SEMI) {
+        while !self.cur_is(IN) {
+            match self.unwrap_cur() {
+                IDENT(_) | STRING(_) => (),
+                _ => panic!(),
+            }
+            if !self.next_is(ASSIGN) {
+                panic!()
+            }
+            let ident = self.parse_expr(Precedence::HIGHEST);
+            bindings.push(self.parse_binding(ident));
+            if !self.cur_is(SEMI) {
                 panic!()
             }
             self.next();
@@ -286,17 +292,42 @@ impl Parser {
         Box::new(WithExpr::new(attrs, self.parse_expr(Precedence::LOWEST)))
     }
 
+    fn parse_assert(&mut self) -> Box<dyn Expression> {
+        self.next();
+        let assertion = self.parse_expr(Precedence::LOWEST);
+        if !self.cur_is(Token::SEMI) {
+            panic!()
+        }
+        self.next();
+
+        Box::new(AssertExpr::new(assertion, self.parse_expr(Precedence::LOWEST)))
+    }
+
     fn parse_rec(&mut self) -> Box<dyn Expression> {
-        if !self.next_is(Token::LBRACE) {
+        use Token::*;
+
+        if !self.next_is(LBRACE) {
             panic!()
         }
         self.next();
         self.next();
         let mut bindings: Vec<Box<dyn Expression>> = Vec::new();
 
-        while !self.cur_is(Token::RBRACE) {
-            bindings.push(self.parse_expr(Precedence::LOWEST));
-            if !self.cur_is(Token::SEMI) {
+        while !self.cur_is(RBRACE) {
+            match self.unwrap_cur() {
+                IDENT(_) | STRING(_) | NULL | TRUE | FALSE => (),
+                INHERIT => {
+                    bindings.push(self.parse_inherit());
+                    continue;
+                }
+                _ => panic!(),
+            }
+            if !self.next_is(ASSIGN) {
+                panic!()
+            }
+            let ident = self.parse_expr(Precedence::HIGHEST);
+            bindings.push(self.parse_binding(ident));
+            if !self.cur_is(SEMI) {
                 panic!()
             }
             self.next();
@@ -351,8 +382,6 @@ impl Parser {
             DOT => Precedence::ATTR,
             COLON => Precedence::FUNCDEF,
 
-            /* IDENT(_) | INT(_) | FLOAT(_) | STRING(_) | TRUE | FALSE | NULL | LPAREN | LBRACE
-            | LBRACKET | LET | WITH | REC => Precedence::CALL, */
             _ => Precedence::LOWEST,
         }
     }
@@ -377,14 +406,7 @@ impl Parser {
         self.next();
         Box::new(FunctionLiteralExpr::new(
             arg,
-            self.parse_expr(Precedence::FUNCDEF),
-        ))
-    }
-
-    fn parse_call(&mut self, func: Box<dyn Expression>) -> Box<dyn Expression> {
-        Box::new(FunctionCallExpr::new(
-            func,
-            self.parse_expr(Precedence::CALL),
+            self.parse_expr(Precedence::FDLOWER),
         ))
     }
 
@@ -423,10 +445,9 @@ impl Parser {
             }
         }
 
-        if !self.cur_is(Token::SEMI)
+        while !self.cur_is(Token::SEMI)
             && !self.cur_is(Token::EOF)
             && Precedence::CALL > precedence
-            && precedence != Precedence::LIST
             && self.prefix_parser(self.unwrap_cur()).is_some()
         {
             left = Box::new(FunctionCallExpr::new(

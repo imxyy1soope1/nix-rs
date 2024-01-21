@@ -272,11 +272,12 @@ impl Display for AttrsLiteralExpr {
 
 pub struct ArgSetExpr {
     args: Vec<Box<dyn Expression>>,
+    allow_more: bool,
 }
 
 impl ArgSetExpr {
-    pub fn new(args: Vec<Box<dyn Expression>>) -> ArgSetExpr {
-        ArgSetExpr { args }
+    pub fn new(args: Vec<Box<dyn Expression>>, allow_more: bool) -> ArgSetExpr {
+        ArgSetExpr { args, allow_more }
     }
 }
 
@@ -293,6 +294,9 @@ impl Display for ArgSetExpr {
                 write!(f, ", ")?;
             }
             write!(f, "{arg}")?;
+        }
+        if self.allow_more {
+            write!(f, ", ...")?;
         }
         write!(f, " }}")
     }
@@ -335,11 +339,11 @@ impl Expression for LetExpr {}
 
 impl Display for LetExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "let ")?;
+        write!(f, "(let ")?;
         for binding in self.bindings.iter() {
             write!(f, "{binding}; ")?;
         }
-        write!(f, "in {}", self.expr)
+        write!(f, "in {})", self.expr)
     }
 }
 
@@ -358,7 +362,26 @@ impl Expression for WithExpr {}
 
 impl Display for WithExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "with {}; {}", self.attrs, self.expr)
+        write!(f, "(with {}; {})", self.attrs, self.expr)
+    }
+}
+
+pub struct AssertExpr {
+    assertion: Box<dyn Expression>,
+    expr: Box<dyn Expression>,
+}
+
+impl AssertExpr {
+    pub fn new(assertion: Box<dyn Expression>, expr: Box<dyn Expression>) -> AssertExpr {
+        AssertExpr { assertion, expr }
+    }
+}
+
+impl Expression for AssertExpr {}
+
+impl Display for AssertExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "(assert {}; {})", self.assertion, self.expr)
     }
 }
 
