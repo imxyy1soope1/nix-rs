@@ -23,6 +23,7 @@ mod test {
             b = (true && false) -> /* long comments */(true || false);
             b2 = attr ? ten;
             l = ["1" "2" 1 2];
+            p = ../.;
         }"#;
         let expect = [
             LET,
@@ -124,6 +125,12 @@ mod test {
             INT("1".to_string()),
             INT("2".to_string()),
             RBRACKET,
+            SEMI,
+            IDENT("p".to_string()),
+            ASSIGN,
+            PARENT,
+            SLASH,
+            DOT,
             SEMI,
             RBRACE,
             EOF,

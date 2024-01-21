@@ -102,6 +102,10 @@ impl Parser {
             ASSERT => parser!(parse_assert),
             REC => parser!(parse_rec),
             INHERIT => parser!(parse_inherit),
+            DOT => parser!(parse_rel_path),
+            PARENT => parser!(parse_rel_path),
+            SLASH => parser!(parse_abs_path),
+            LANGLE => parser!(parse_search_path),
             _ => None,
         }
     }
@@ -114,10 +118,11 @@ impl Parser {
         }
         use Token::*;
         match t {
-            PLUS | MINUS | MUL | EQ | NEQ | LANGLE | RANGLE | LEQ | GEQ | CONCAT | UPDATE
+            PLUS | MINUS | MUL | SLASH | EQ | NEQ | LANGLE | RANGLE | LEQ | GEQ | CONCAT | UPDATE
             | IMPL | AND | OR | QUEST | DOT => parser!(parse_infix),
             ASSIGN => parser!(parse_binding),
             COLON => parser!(parse_function),
+            AT => parser!(parse_argset_with_alias),
 
             _ => None,
         }
@@ -190,6 +195,7 @@ impl Parser {
                 _ => panic!(),
             }
         };
+        let mut allow_more = false;
         while !self.cur_is(RBRACE) {
             if is_attrs {
                 match self.unwrap_cur() {
@@ -216,9 +222,8 @@ impl Parser {
                         if !self.next_is(RBRACE) {
                             panic!()
                         }
-                        self.next();
-                        self.next();
-                        return Box::new(ArgSetExpr::new(bindings, true));
+                        allow_more = true;
+                        break;
                     }
                     _ => panic!(),
                 }
@@ -239,8 +244,58 @@ impl Parser {
         if is_attrs {
             Box::new(AttrsLiteralExpr::new(bindings, false))
         } else {
-            Box::new(ArgSetExpr::new(bindings, false))
+            let alias = if self.next_is(AT) {
+                self.next();
+                self.next();
+                match self.unwrap_cur() {
+                    IDENT(_) => (),
+                    _ => panic!(),
+                }
+                Some(self.parse_expr(Precedence::HIGHEST))
+            } else {
+                None
+            };
+
+            Box::new(ArgSetExpr::new(bindings, allow_more, alias))
         }
+    }
+
+    fn parse_argset_with_alias(&mut self, alias: Box<dyn Expression>) -> Box<dyn Expression> {
+        use Token::*;
+
+        self.next();
+        self.next();
+
+        let mut args: Vec<Box<dyn Expression>> = Vec::new();
+        let mut allow_more = false;
+
+        while !self.cur_is(RBRACE) {
+            match self.unwrap_cur() {
+                IDENT(_) | NULL | TRUE | FALSE => (),
+                ELLIPSIS => {
+                    if !self.next_is(RBRACE) {
+                        panic!()
+                    }
+                    allow_more = true;
+                    self.next();
+                    break;
+                }
+                _ => panic!(),
+            }
+            match self.unwrap_next() {
+                COMMA | QUEST | RBRACE => (),
+                _ => panic!(),
+            }
+            args.push(self.parse_expr(Precedence::LOWEST));
+            match self.unwrap_cur() {
+                COMMA => self.next(),
+                RBRACE => (),
+                _ => panic!(),
+            }
+        }
+        self.next();
+
+        Box::new(ArgSetExpr::new(args, allow_more, Some(alias)))
     }
 
     fn parse_list(&mut self) -> Box<dyn Expression> {
@@ -300,7 +355,10 @@ impl Parser {
         }
         self.next();
 
-        Box::new(AssertExpr::new(assertion, self.parse_expr(Precedence::LOWEST)))
+        Box::new(AssertExpr::new(
+            assertion,
+            self.parse_expr(Precedence::LOWEST),
+        ))
     }
 
     fn parse_rec(&mut self) -> Box<dyn Expression> {
@@ -369,6 +427,100 @@ impl Parser {
         Box::new(InheritExpr::new(inherits, from))
     }
 
+    fn parse_rel_path(&mut self) -> Box<dyn Expression> {
+        use Token::*;
+
+        let mut literal = String::new();
+        literal.push_str(&format!("{}", self.unwrap_cur()));
+        self.next();
+
+        while self.cur_is(SLASH) {
+            literal.push('/');
+            match self.unwrap_next() {
+                IDENT(s) => literal.push_str(s),
+                DOT => literal.push('.'),
+                PARENT => literal.push_str(".."),
+                _ => panic!("unexpected '.'"),
+            }
+            self.next();
+            self.next();
+        }
+
+        if literal.len() <= 2 {
+            println!("{}", literal);
+            panic!("unexpected '.'")
+        }
+
+        Box::new(PathLiteralExpr::new(literal, true))
+    }
+
+    fn parse_abs_path(&mut self) -> Box<dyn Expression> {
+        use Token::*;
+
+        let mut literal = String::new();
+
+        while self.cur_is(SLASH) {
+            literal.push('/');
+            match self.unwrap_next() {
+                IDENT(s) => literal.push_str(s),
+                DOT => literal.push('.'),
+                PARENT => literal.push_str(".."),
+                _ => panic!("unexpected '/'"),
+            }
+            self.next();
+            self.next();
+        }
+
+        if literal.len() == 1 {
+            panic!("unexpected '/'")
+        }
+
+        Box::new(PathLiteralExpr::new(literal, false))
+    }
+
+    fn parse_search_path(&mut self) -> Box<dyn Expression> {
+        use Token::*;
+
+        self.next();
+
+        let mut literal = String::from("./");
+
+        match self.unwrap_cur() {
+            IDENT(s) => {
+                literal.push_str(s);
+                self.next();
+            },
+            DOT => {
+                literal.push('.');
+                self.next();
+            }
+            PARENT => {
+                literal.push_str("..");
+                self.next();
+            }
+            _ => (),
+        }
+
+        while self.cur_is(SLASH) {
+            literal.push('/');
+            match self.unwrap_next() {
+                IDENT(s) => literal.push_str(s),
+                DOT => literal.push('.'),
+                PARENT => literal.push_str(".."),
+                _ => panic!("unexpected '<'"),
+            }
+            self.next();
+            self.next();
+        }
+
+        if literal.len() == 2 || !self.cur_is(RANGLE) {
+            panic!("unexpected '<'")
+        }
+        self.next();
+
+        Box::new(SearchPathExpr::new(Box::new(PathLiteralExpr::new(literal, true))))
+    }
+
     fn _precedence(t: &Token) -> Precedence {
         use Token::*;
         match t {
@@ -380,7 +532,7 @@ impl Parser {
             ASSIGN => Precedence::ASSIGN,
             QUEST => Precedence::HASATTR,
             DOT => Precedence::ATTR,
-            COLON => Precedence::FUNCDEF,
+            COLON | AT => Precedence::FUNCDEF,
 
             _ => Precedence::LOWEST,
         }
@@ -431,7 +583,9 @@ impl Parser {
     }
 
     fn parse_expr(&mut self, precedence: Precedence) -> Box<dyn Expression> {
-        let mut left = self.prefix_parser(self.unwrap_cur()).unwrap()(self);
+        let mut left = self
+            .prefix_parser(self.unwrap_cur())
+            .expect(&format!("unexpected token: {}", self.unwrap_cur()))(self);
 
         while !self.cur_is(Token::SEMI)
             && !self.cur_is(Token::EOF)

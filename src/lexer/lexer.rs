@@ -1,5 +1,3 @@
-use std::io::BufWriter;
-
 use crate::token::Token;
 
 #[allow(unused)]
@@ -297,13 +295,17 @@ impl Iterator for Lexer {
             ';' => SEMI,
             ':' => COLON,
             '.' => {
-                if self.next_ch.unwrap_or_default() != '.' || self.peek().unwrap_or_default() != '.'
-                {
-                    DOT
+                if self.next_ch.unwrap_or_default() == '.' {
+                    if self.peek().unwrap_or_default() == '.' {
+                        self.read_char();
+                        self.read_char();
+                        ELLIPSIS
+                    } else {
+                        self.read_char();
+                        PARENT
+                    }
                 } else {
-                    self.read_char();
-                    self.read_char();
-                    ELLIPSIS
+                    DOT
                 }
             }
             '?' => QUEST,

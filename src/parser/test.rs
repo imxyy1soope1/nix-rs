@@ -79,8 +79,12 @@ mod test {
             r#"{ test = "test"; "123" = "asdf"; }"#,
         );
         _test_parse(
-            "{a, b, ...}: { c = a + b; }",
-            "({ a, b, ... }: { c = (a + b); })",
+            "{a, b, ...} @ d: { c = a + b; }",
+            "({ a, b, ... } @ d: { c = (a + b); })",
+        );
+        _test_parse(
+            "d @ {a, b, ...}: { c = a + b; }",
+            "({ a, b, ... } @ d: { c = (a + b); })",
         );
     }
 
@@ -127,9 +131,21 @@ mod test {
     }
 
     #[test]
+    fn test_parse_path() {
+        _test_parse("./.", "./.");
+        _test_parse("./test", "./test");
+        _test_parse("/test/../.", "/test/../.");
+        _test_parse("<.>", "<./.>");
+        _test_parse("<nixpkgs>", "<./nixpkgs>");
+    }
+
+    #[test]
     fn test_call() {
         _test_parse("(a: b: a + b) 1 2", "(((a: (b: (a + b))) 1) 2)");
-        _test_parse("(a: b: a + b) ((a: a + 1) 2) 3", "(((a: (b: (a + b))) ((a: (a + 1)) 2)) 3)")
+        _test_parse(
+            "(a: b: a + b) ((a: a + 1) 2) 3",
+            "(((a: (b: (a + b))) ((a: (a + 1)) 2)) 3)",
+        )
     }
 
     #[test]

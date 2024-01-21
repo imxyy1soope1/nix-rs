@@ -273,11 +273,20 @@ impl Display for AttrsLiteralExpr {
 pub struct ArgSetExpr {
     args: Vec<Box<dyn Expression>>,
     allow_more: bool,
+    alias: Option<Box<dyn Expression>>,
 }
 
 impl ArgSetExpr {
-    pub fn new(args: Vec<Box<dyn Expression>>, allow_more: bool) -> ArgSetExpr {
-        ArgSetExpr { args, allow_more }
+    pub fn new(
+        args: Vec<Box<dyn Expression>>,
+        allow_more: bool,
+        alias: Option<Box<dyn Expression>>,
+    ) -> ArgSetExpr {
+        ArgSetExpr {
+            args,
+            allow_more,
+            alias,
+        }
     }
 }
 
@@ -298,7 +307,11 @@ impl Display for ArgSetExpr {
         if self.allow_more {
             write!(f, ", ...")?;
         }
-        write!(f, " }}")
+        write!(f, " }}")?;
+        if self.alias.is_some() {
+            write!(f, " @ {}", self.alias.as_ref().unwrap())?;
+        }
+        Ok(())
     }
 }
 
@@ -422,6 +435,13 @@ impl Display for InheritExpr {
 
 pub struct PathLiteralExpr {
     literal: NixPath,
+    relative: bool,
+}
+
+impl PathLiteralExpr {
+    pub fn new(literal: NixPath, relative: bool) -> PathLiteralExpr {
+        PathLiteralExpr { literal, relative }
+    }
 }
 
 impl Expression for PathLiteralExpr {}
@@ -429,5 +449,23 @@ impl Expression for PathLiteralExpr {}
 impl Display for PathLiteralExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.literal)
+    }
+}
+
+pub struct SearchPathExpr {
+    path: Box<dyn Expression>
+}
+
+impl SearchPathExpr {
+    pub fn new(path: Box<dyn Expression>) -> SearchPathExpr {
+        SearchPathExpr { path }
+    }
+}
+
+impl Expression for SearchPathExpr {}
+
+impl Display for SearchPathExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<{}>", self.path)
     }
 }

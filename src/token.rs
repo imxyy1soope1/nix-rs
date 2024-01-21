@@ -35,6 +35,7 @@ pub enum Token {
     SEMI,
     COLON,
     DOT,
+    PARENT,
     ELLIPSIS,
 
     LPAREN,
@@ -99,6 +100,7 @@ impl fmt::Display for Token {
             SEMI => write!(f, ";"),
             COLON => write!(f, ":"),
             DOT => write!(f, "."),
+            PARENT => write!(f, ".."),
             ELLIPSIS => write!(f, "..."),
 
             LPAREN => write!(f, "("),
