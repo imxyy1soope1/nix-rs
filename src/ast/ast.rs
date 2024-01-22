@@ -176,12 +176,14 @@ impl Display for EllipsisLiteralExpr {
 
 pub struct StringLiteralExpr {
     literal: NixString,
+    replaces: Vec<(usize, Vec<Token>)>,
 }
 
 impl StringLiteralExpr {
-    pub fn new(s: String) -> StringLiteralExpr {
+    pub fn new(s: String, replaces: Vec<(usize, Vec<Token>)>) -> StringLiteralExpr {
         StringLiteralExpr {
-            literal: s.to_string(),
+            literal: s.clone(),
+            replaces,
         }
     }
 }
@@ -277,8 +279,8 @@ impl Display for IfExpr {
 }
 
 pub struct BindingExpr {
-    name: Box<dyn Expression>,
-    value: Box<dyn Expression>,
+    pub name: Box<dyn Expression>,
+    pub value: Box<dyn Expression>,
 }
 
 impl BindingExpr {

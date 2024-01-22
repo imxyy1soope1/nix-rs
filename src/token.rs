@@ -5,12 +5,11 @@ use std::fmt;
 pub enum Token {
     ILLEGAL,
     EOF,
-    SPACE,
 
     IDENT(String),
     INT(String),
     FLOAT(String),
-    STRING(String),
+    STRING(String, Vec<(usize, Vec<Token>)>),
 
     ASSIGN,
     PLUS,
@@ -46,6 +45,7 @@ pub enum Token {
     RBRACE,
     LANGLE,
     RANGLE,
+    DOLLARCURLY,
 
     TRUE,
     FALSE,
@@ -70,12 +70,11 @@ impl fmt::Display for Token {
         match self {
             ILLEGAL => write!(f, "ILLEGAL"),
             EOF => write!(f, "EOF"),
-            SPACE => write!(f, " "),
 
             IDENT(literal) => write!(f, "{literal}"),
             INT(literal) => write!(f, "{literal}"),
             FLOAT(literal) => write!(f, "{literal}"),
-            STRING(literal) => write!(f, r#""{literal}""#),
+            STRING(literal, replaces) => write!(f, r#""{literal}"({:?})"#, replaces),
 
             ASSIGN => write!(f, "="),
             PLUS => write!(f, "+"),
@@ -111,6 +110,7 @@ impl fmt::Display for Token {
             RBRACE => write!(f, "}}"),
             LANGLE => write!(f, "<"),
             RANGLE => write!(f, ">"),
+            DOLLARCURLY => write!(f, "${{"),
 
             TRUE => write!(f, "true"),
             FALSE => write!(f, "false"),

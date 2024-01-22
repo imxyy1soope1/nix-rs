@@ -36,9 +36,8 @@ pub struct Parser {
     next_token: Option<Token>,
 }
 
-#[allow(dead_code)]
 impl Parser {
-    pub fn from_lexer(l: Lexer) -> Parser {
+    pub fn new(l: Lexer) -> Parser {
         let mut p = Parser {
             l,
             cur_token: None,
@@ -77,7 +76,14 @@ impl Parser {
             IDENT(_) => strexpr!(IDENT, IdentifierExpr),
             INT(_) => strexpr!(INT, IntLiteralExpr),
             FLOAT(_) => strexpr!(FLOAT, FloatLiteralExpr),
-            STRING(_) => strexpr!(STRING, StringLiteralExpr),
+            STRING(..) => Some(|s| {
+                if let Token::STRING(string, replaces) = s.cur_token.clone().unwrap() {
+                    s.next();
+                    Box::new(StringLiteralExpr::new(string, replaces))
+                } else {
+                    unreachable!()
+                }
+            }),
             TRUE | FALSE => Some(|s| {
                 let b = s.cur_is(TRUE);
                 s.next();
@@ -181,11 +187,7 @@ impl Parser {
     }
 
     fn parse_binding(&mut self, name: Box<dyn Expression>) -> Box<dyn Expression> {
-        self.next();
-        let expr = self.parse_expr(Precedence::ASSIGN);
-        let a = expr.as_any();
-        assert!(a.downcast_ref::<InfixExpr>().unwrap().token == Token::ASSIGN);
-        let a = a.downcast_ref::<InfixExpr>().unwrap().right.as_any();
+        let a = name.as_any();
         assert!(
             a.is::<IdentifierExpr>()
                 || a.is::<StringLiteralExpr>()
@@ -195,6 +197,9 @@ impl Parser {
                 || (a.is::<InfixExpr>()
                     && a.downcast_ref::<InfixExpr>().unwrap().token == Token::DOT)
         );
+        self.next();
+        let expr = self.parse_expr(Precedence::ASSIGN);
+        assert!(!expr.as_any().is::<BindingExpr>());
         Box::new(BindingExpr::new(name, expr))
     }
 
@@ -207,7 +212,7 @@ impl Parser {
         let is_attrs = {
             match self.unwrap_next() {
                 ASSIGN | DOT => true,
-                IDENT(_) | STRING(_) | LPAREN => {
+                IDENT(_) | STRING(..) | LPAREN => {
                     if !self.cur_is(INHERIT) {
                         panic!()
                     }
@@ -223,9 +228,7 @@ impl Parser {
                 let expr = self.parse_expr(Precedence::LOWEST);
                 let a = expr.as_any();
                 assert!(a.is::<BindingExpr>() || a.is::<InheritExpr>());
-                if a.is::<InfixExpr>() {
-                    
-                }
+                println!("{} {}", self.unwrap_cur(), &expr);
                 bindings.push(expr);
                 if !self.cur_is(SEMI) {
                     panic!()
@@ -234,18 +237,24 @@ impl Parser {
             } else {
                 let expr = self.parse_expr(Precedence::LOWEST);
                 let a = expr.as_any();
-                assert!(a.is::<IdentifierExpr>() || a.is::<EllipsisLiteralExpr>() || (a.is::<InfixExpr>() && a.downcast_ref::<InfixExpr>().unwrap().token == QUEST));
+                assert!(
+                    a.is::<IdentifierExpr>()
+                        || a.is::<EllipsisLiteralExpr>()
+                        || (a.is::<InfixExpr>()
+                            && a.downcast_ref::<InfixExpr>().unwrap().token == QUEST)
+                );
                 if a.is::<EllipsisLiteralExpr>() {
                     allow_more = true;
+                } else {
+                    bindings.push(expr);
                 }
-                bindings.push(expr);
                 match self.unwrap_cur() {
                     COMMA => {
                         if allow_more {
                             panic!("expect formals to end")
                         }
                         self.next()
-                    },
+                    }
                     RBRACE => (),
                     invalid => panic!("unexpected {}", invalid),
                 }
@@ -256,8 +265,7 @@ impl Parser {
         if is_attrs {
             Box::new(AttrsLiteralExpr::new(bindings, false))
         } else {
-            let alias = if self.next_is(AT) {
-                self.next();
+            let alias = if self.cur_is(AT) {
                 self.next();
                 match self.unwrap_cur() {
                     IDENT(_) => (),
@@ -284,18 +292,24 @@ impl Parser {
         while !self.cur_is(RBRACE) {
             let expr = self.parse_expr(Precedence::LOWEST);
             let a = expr.as_any();
-            assert!(a.is::<IdentifierExpr>() || a.is::<EllipsisLiteralExpr>() || (a.is::<InfixExpr>() && a.downcast_ref::<InfixExpr>().unwrap().token == QUEST));
+            assert!(
+                a.is::<IdentifierExpr>()
+                    || a.is::<EllipsisLiteralExpr>()
+                    || (a.is::<InfixExpr>()
+                        && a.downcast_ref::<InfixExpr>().unwrap().token == QUEST)
+            );
             if a.is::<EllipsisLiteralExpr>() {
                 allow_more = true;
+            } else {
+                args.push(expr);
             }
-            args.push(expr);
             match self.unwrap_cur() {
                 COMMA => {
                     if allow_more {
                         panic!("expect formals to end")
                     }
                     self.next()
-                },
+                }
                 RBRACE => (),
                 invalid => panic!("unexpected {}", invalid),
             }
@@ -325,7 +339,7 @@ impl Parser {
 
         while !self.cur_is(IN) {
             match self.unwrap_cur() {
-                IDENT(_) | STRING(_) => (),
+                IDENT(_) | STRING(..) => (),
                 _ => panic!(),
             }
             if !self.next_is(ASSIGN) {
@@ -380,7 +394,7 @@ impl Parser {
 
         while !self.cur_is(RBRACE) {
             match self.unwrap_cur() {
-                IDENT(_) | STRING(_) | NULL | TRUE | FALSE => (),
+                IDENT(_) | STRING(..) | NULL | TRUE | FALSE => (),
                 INHERIT => {
                     bindings.push(self.parse_inherit());
                     continue;
@@ -420,7 +434,7 @@ impl Parser {
 
         use Token::*;
         while match self.unwrap_cur() {
-            IDENT(_) | STRING(_) => true,
+            IDENT(_) | STRING(..) => true,
             SEMI => false,
             _ => panic!(),
         } {
@@ -429,7 +443,6 @@ impl Parser {
         if !self.cur_is(Token::SEMI) {
             panic!()
         }
-        self.next();
 
         Box::new(InheritExpr::new(inherits, from))
     }

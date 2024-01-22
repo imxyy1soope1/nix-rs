@@ -21,48 +21,81 @@ fn is_white(ch: char) -> bool {
     ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r'
 }
 
-fn escape_string(s: String) -> String {
+fn escape_string(s: String) -> (String, Vec<(usize, Vec<Token>)>) {
     if s == "\\" {
         panic!();
     } else if let 0..=1 = s.len() {
-        return s;
+        return (s, Vec::new());
     }
 
     let mut buf = String::new();
-    let chars: Vec<char> = s.chars().collect();
-    let mut skip = false;
-    for i in 0..chars.len() - 1 {
-        if skip {
-            skip = false;
-            continue;
+    let mut chars = s.chars().peekable();
+    let mut c = Some('\0');
+    let mut replaces: Vec<(usize, Vec<Token>)> = Vec::new();
+    let mut i = 0;
+    'outer: while c.is_some() {
+        c = chars.next();
+        if c.is_none() {
+            break;
         }
-        buf.push(match chars[i] {
+        i += 1;
+        buf.push(match c.unwrap() {
             '\\' => {
-                skip = true;
-                match chars[i + 1] {
+                c = chars.next();
+                i += 1;
+                match c.unwrap_or_default() {
                     'n' => '\n',
                     't' => '\t',
                     'r' => '\r',
                     '\\' => '\\',
+                    '\0' => panic!("string not closed"),
                     _ => panic!(),
                 }
             }
-            '\r' => {
-                if chars[i + 1] == '\n' {
-                    skip = true;
+            '$' => {
+                c = chars.next();
+                i += 1;
+                match c.unwrap_or_default() {
+                    '{' => {
+                        let mut l = Lexer::from_str(&String::from_iter(chars.clone()));
+                        let mut tokens: Vec<Token> = Vec::new();
+                        loop {
+                            match l.next().unwrap() {
+                                Token::RBRACE => {
+                                    replaces.push((i - 2, tokens));
+                                    while c.unwrap() != '}' {
+                                        c = chars.next();
+                                        i += 1;
+                                    }
+                                    continue 'outer;
+                                }
+                                Token::EOF => panic!("unclosed DOLLAR_CURLY"),
+                                v => {
+                                    println!("{:?}", v);
+                                    tokens.push(v)
+                                }
+                            }
+                        }
+                    }
+                    c => c,
                 }
-                '\n'
+            }
+            '\r' => {
+                c = chars.peek().as_deref().copied();
+                match c.unwrap_or_default() {
+                    '\n' => {
+                        c = chars.next();
+                        i += 1;
+                        '\n'
+                    }
+                    _ => continue,
+                }
             }
             c => c,
         })
     }
 
-    if chars[chars.len() - 2] != '\\' && chars[chars.len() - 1] == '\\' {
-        panic!()
-    }
-    buf.push(chars[chars.len() - 1]);
-
-    buf
+    (buf, replaces)
 }
 
 impl Lexer {
@@ -164,7 +197,8 @@ impl Lexer {
             self.read_char();
         }
 
-        Token::STRING(escape_string(self.input[pos..self.pos].to_string()))
+        let (s, r) = escape_string(self.input[pos..self.pos].to_string());
+        Token::STRING(s, r)
     }
 
     /* fn read_lines(&mut self) -> Token {
@@ -317,6 +351,14 @@ impl Iterator for Lexer {
             ']' => RBRACKET,
             '{' => LBRACE,
             '}' => RBRACE,
+            '$' => {
+                if self.next_ch.unwrap() == '{' {
+                    self.read_char();
+                    DOLLARCURLY
+                } else {
+                    ILLEGAL
+                }
+            }
 
             '\0' => {
                 if !self.finished {

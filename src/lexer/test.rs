@@ -24,6 +24,7 @@ mod test {
             b2 = attr ? ten;
             l = ["1" "2" 1 2];
             p = ../.;
+            s1 = "${test}";
         }"#;
         let expect = [
             LET,
@@ -95,7 +96,7 @@ mod test {
             SEMI,
             IDENT("s".to_string()),
             ASSIGN,
-            STRING("test".to_string()),
+            STRING("test".to_string(), Vec::new()),
             SEMI,
             IDENT("b".to_string()),
             ASSIGN,
@@ -120,8 +121,8 @@ mod test {
             IDENT("l".to_string()),
             ASSIGN,
             LBRACKET,
-            STRING("1".to_string()),
-            STRING("2".to_string()),
+            STRING("1".to_string(), Vec::new()),
+            STRING("2".to_string(), Vec::new()),
             INT("1".to_string()),
             INT("2".to_string()),
             RBRACKET,
@@ -131,6 +132,10 @@ mod test {
             PARENT,
             SLASH,
             DOT,
+            SEMI,
+            IDENT("s1".to_string()),
+            ASSIGN,
+            STRING("".to_string(), vec![(0, vec![IDENT("test".to_string())])]),
             SEMI,
             RBRACE,
             EOF,
