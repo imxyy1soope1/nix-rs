@@ -24,7 +24,7 @@ mod test {
             b2 = attr ? ten;
             l = ["1" "2" 1 2];
             p = ../.;
-            s1 = "${test}";
+            s1 = "${test}test${test}";
         }"#;
         let expect = [
             LET,
@@ -135,7 +135,13 @@ mod test {
             SEMI,
             IDENT("s1".to_string()),
             ASSIGN,
-            STRING("".to_string(), vec![(0, vec![IDENT("test".to_string())])]),
+            STRING(
+                "test".to_string(),
+                vec![
+                    (0, vec![IDENT("test".to_string())]),
+                    (4, vec![IDENT("test".to_string())]),
+                ],
+            ),
             SEMI,
             RBRACE,
             EOF,

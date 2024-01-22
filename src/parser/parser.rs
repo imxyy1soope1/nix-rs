@@ -112,6 +112,7 @@ impl Parser {
             PARENT => parser!(parse_rel_path),
             SLASH => parser!(parse_abs_path),
             LANGLE => parser!(parse_search_path),
+            DOLLARCURLY => parser!(parse_thunk),
             _ => None,
         }
     }
@@ -541,6 +542,25 @@ impl Parser {
         Box::new(SearchPathExpr::new(Box::new(PathLiteralExpr::new(
             literal, true,
         ))))
+    }
+
+    fn parse_thunk(&mut self) -> Box<dyn Expression> {
+        self.next();
+
+        let expr = self.parse_expr(Precedence::HIGHEST);
+        let a = expr.as_any();
+        assert!(
+            a.is::<IdentifierExpr>()
+                || (a.is::<StringLiteralExpr>()
+                    && a.downcast_ref::<StringLiteralExpr>()
+                        .unwrap()
+                        .replaces
+                        .is_empty())
+        );
+        assert!(self.cur_is(Token::RBRACE));
+        self.next();
+
+        Box::new(ThunkExpr::new(expr))
     }
 
     fn _precedence(t: &Token) -> Precedence {

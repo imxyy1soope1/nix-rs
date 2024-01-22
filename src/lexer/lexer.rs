@@ -33,12 +33,17 @@ fn escape_string(s: String) -> (String, Vec<(usize, Vec<Token>)>) {
     let mut c = Some('\0');
     let mut replaces: Vec<(usize, Vec<Token>)> = Vec::new();
     let mut i = 0;
+    let mut skip = true;
     'outer: while c.is_some() {
+        if !skip {
+            i += 1;
+        } else {
+            skip = false;
+        }
         c = chars.next();
         if c.is_none() {
             break;
         }
-        i += 1;
         buf.push(match c.unwrap() {
             '\\' => {
                 c = chars.next();
@@ -54,7 +59,6 @@ fn escape_string(s: String) -> (String, Vec<(usize, Vec<Token>)>) {
             }
             '$' => {
                 c = chars.next();
-                i += 1;
                 match c.unwrap_or_default() {
                     '{' => {
                         let mut l = Lexer::from_str(&String::from_iter(chars.clone()));
@@ -62,18 +66,15 @@ fn escape_string(s: String) -> (String, Vec<(usize, Vec<Token>)>) {
                         loop {
                             match l.next().unwrap() {
                                 Token::RBRACE => {
-                                    replaces.push((i - 2, tokens));
+                                    replaces.push((i, tokens));
                                     while c.unwrap() != '}' {
                                         c = chars.next();
-                                        i += 1;
                                     }
+                                    skip = true;
                                     continue 'outer;
                                 }
                                 Token::EOF => panic!("unclosed DOLLAR_CURLY"),
-                                v => {
-                                    println!("{:?}", v);
-                                    tokens.push(v)
-                                }
+                                v => tokens.push(v),
                             }
                         }
                     }

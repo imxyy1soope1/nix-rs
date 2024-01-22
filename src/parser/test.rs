@@ -149,6 +149,11 @@ mod test {
     }
 
     #[test]
+    fn test_thunk() {
+        _test_parse("a.${b} = 1", "(a . ${b}) = 1");
+    }
+
+    #[test]
     fn test_parse() {
         let input = r#"let five = 5;
             time_two = num: num * 2;

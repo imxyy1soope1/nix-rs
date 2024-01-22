@@ -175,8 +175,8 @@ impl Display for EllipsisLiteralExpr {
 }
 
 pub struct StringLiteralExpr {
-    literal: NixString,
-    replaces: Vec<(usize, Vec<Token>)>,
+    pub literal: NixString,
+    pub replaces: Vec<(usize, Vec<Token>)>,
 }
 
 impl StringLiteralExpr {
@@ -343,6 +343,8 @@ impl ArgSetExpr {
         allow_more: bool,
         alias: Option<Box<dyn Expression>>,
     ) -> ArgSetExpr {
+        assert!(args.iter().all(|a| a.as_any().is::<IdentifierExpr>()));
+        assert!(alias.as_ref().map_or(true, |a| a.as_any().is::<IdentifierExpr>()));
         ArgSetExpr {
             args,
             allow_more,
@@ -386,6 +388,7 @@ pub struct ListLiteralExpr {
 
 impl ListLiteralExpr {
     pub fn new(items: Vec<Box<dyn Expression>>) -> ListLiteralExpr {
+        assert!(!items.iter().any(|i| i.as_any().is::<BindingExpr>()));
         ListLiteralExpr { items }
     }
 }
@@ -413,6 +416,8 @@ pub struct LetExpr {
 
 impl LetExpr {
     pub fn new(bindings: Vec<Box<dyn Expression>>, expr: Box<dyn Expression>) -> LetExpr {
+        assert!(bindings.iter().all(|b| b.as_any().is::<BindingExpr>()));
+        assert!(!expr.as_any().is::<BindingExpr>());
         LetExpr { bindings, expr }
     }
 }
@@ -440,6 +445,8 @@ pub struct WithExpr {
 
 impl WithExpr {
     pub fn new(attrs: Box<dyn Expression>, expr: Box<dyn Expression>) -> WithExpr {
+        let a = attrs.as_any();
+        assert!(!a.is::<BindingExpr>() && !a.is::<PrefixExpr>());
         WithExpr { attrs, expr }
     }
 }
@@ -463,6 +470,7 @@ pub struct AssertExpr {
 
 impl AssertExpr {
     pub fn new(assertion: Box<dyn Expression>, expr: Box<dyn Expression>) -> AssertExpr {
+        assert!(!assertion.as_any().is::<BindingExpr>() && !expr.as_any().is::<BindingExpr>());
         AssertExpr { assertion, expr }
     }
 }
@@ -489,6 +497,10 @@ impl InheritExpr {
         inherits: Vec<Box<dyn Expression>>,
         from: Option<Box<dyn Expression>>,
     ) -> InheritExpr {
+        assert!(inherits.iter().all(|e| {
+            let a = e.as_any();
+            a.is::<IdentifierExpr>() || a.is::<StringLiteralExpr>()
+        }));
         InheritExpr { inherits, from }
     }
 }
@@ -547,6 +559,8 @@ pub struct SearchPathExpr {
 
 impl SearchPathExpr {
     pub fn new(path: Box<dyn Expression>) -> SearchPathExpr {
+        let a = path.as_any();
+        assert!(a.is::<PathLiteralExpr>() && a.downcast_ref::<PathLiteralExpr>().unwrap().relative);
         SearchPathExpr { path }
     }
 }
@@ -560,5 +574,36 @@ impl Expression for SearchPathExpr {
 impl Display for SearchPathExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<{}>", self.path)
+    }
+}
+
+pub struct ThunkExpr {
+    pub ident: Box<dyn Expression>,
+}
+
+impl ThunkExpr {
+    pub fn new(ident: Box<dyn Expression>) -> ThunkExpr {
+        let a = ident.as_any();
+        assert!(
+            a.is::<IdentifierExpr>()
+                || (a.is::<StringLiteralExpr>()
+                    && a.downcast_ref::<StringLiteralExpr>()
+                        .unwrap()
+                        .replaces
+                        .is_empty())
+        );
+        ThunkExpr { ident }
+    }
+}
+
+impl Expression for ThunkExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl Display for ThunkExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "${{{}}}", self.ident)
     }
 }
