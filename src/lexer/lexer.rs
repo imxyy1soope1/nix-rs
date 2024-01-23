@@ -61,7 +61,7 @@ fn escape_string(s: String) -> (String, Vec<(usize, Vec<Token>)>) {
                 c = chars.next();
                 match c.unwrap_or_default() {
                     '{' => {
-                        let mut l = Lexer::from_str(&String::from_iter(chars.clone()));
+                        let mut l = Lexer::build(&String::from_iter(chars.clone()));
                         let mut tokens: Vec<Token> = Vec::new();
                         loop {
                             match l.next().unwrap() {
@@ -100,7 +100,7 @@ fn escape_string(s: String) -> (String, Vec<(usize, Vec<Token>)>) {
 }
 
 impl Lexer {
-    pub fn from_str(s: &str) -> Lexer {
+    pub fn build(s: &str) -> Lexer {
         assert!(!s.is_empty(), "s must not be empty!");
         let input = s.to_string();
         let mut l = Lexer {

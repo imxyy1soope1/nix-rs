@@ -147,7 +147,7 @@ mod test {
             EOF,
         ];
 
-        let l = Lexer::from_str(input);
+        let l = Lexer::new(input);
 
         for (actual, exp) in zip(l, expect) {
             assert_eq!(actual, exp);
