@@ -1,5 +1,7 @@
 use std::{any::Any, fmt::Display};
 
+use crate::ast::Expression;
+
 pub trait Object: Display {
     fn as_any(&self) -> &dyn Any;
 }
@@ -13,9 +15,8 @@ pub mod type_ids {
         pub static ref FLOAT: TypeId = Float::new(0f64).type_id();
         pub static ref BOOL: TypeId = TRUE.type_id();
         pub static ref NULL: TypeId = super::NULL.type_id();
-        pub static ref STRING: TypeId = Str::new("".to_string()).type_id();
+        pub static ref STRING: TypeId = Str::new("".to_string(), Vec::new()).type_id();
     }
-
 }
 
 pub struct Int {
@@ -76,11 +77,11 @@ impl Bool {
     fn new(value: bool) -> Bool {
         Bool { value }
     }
-    pub fn bang(&self) -> Bool {
+    pub fn bang(&self) -> &'static Bool {
         if self.value {
-            TRUE
+            &TRUE
         } else {
-            FALSE
+            &FALSE
         }
     }
     pub fn from_bool(value: bool) -> &'static Bool {
@@ -106,6 +107,12 @@ impl Display for Bool {
 
 pub struct Null {}
 
+impl Null {
+    pub fn null() -> &'static Null {
+        &NULL
+    }
+}
+
 impl Object for Null {
     fn as_any(&self) -> &dyn Any {
         self
@@ -119,11 +126,11 @@ impl Display for Null {
 }
 
 pub struct Str {
-    value: String
+    value: String,
 }
 
 impl Str {
-    pub fn new(value: String) -> Str {
+    pub fn new(value: String, replaces: Vec<(usize, &dyn Object)>) -> Str {
         Str { value }
     }
 }
@@ -140,23 +147,23 @@ impl Display for Str {
     }
 }
 
-pub struct List {
-    value: Vec<Box<dyn Object>>
+pub struct List<'a> {
+    value: Vec<&'a dyn Object>,
 }
 
-impl List {
-    pub fn new(value: Vec<Box<dyn Object>>) -> List {
+impl<'a> List<'a> {
+    pub fn new(value: Vec<&dyn Object>) -> List<'a> {
         List { value }
     }
 }
 
-impl Object for List {
+impl Object for List<'_> {
     fn as_any(&self) -> &dyn Any {
         self
     }
 }
 
-impl Display for List {
+impl Display for List<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[ ")?;
         for v in self.value.iter() {

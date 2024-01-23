@@ -2,23 +2,28 @@ use super::types::*;
 use crate::eval::Environment;
 use crate::object::*;
 use crate::token::Token;
-use core::panic;
 use std::any::Any;
+use std::env;
 use std::fmt::Display;
 
 pub trait Expression: Display {
     fn as_any(&self) -> &dyn Any;
-    fn eval(&self, env: &Environment) -> Box<dyn Object>;
+    fn eval(&mut self, env: &mut Environment) -> &dyn Object;
 }
 
 pub struct PrefixExpr {
     pub token: Token,
     pub right: Box<dyn Expression>,
+    evaled: Option<Box<dyn Object>>,
 }
 
 impl PrefixExpr {
     pub fn new(token: Token, right: Box<dyn Expression>) -> PrefixExpr {
-        PrefixExpr { token, right }
+        PrefixExpr {
+            token,
+            right,
+            evaled: None,
+        }
     }
 }
 
@@ -27,28 +32,34 @@ impl Expression for PrefixExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> Box<dyn Object> {
+    fn eval(&mut self, env: &mut Environment) -> &dyn Object {
+        if let Some(evaled) = self.evaled {
+            return evaled.as_ref();
+        }
         let val = self.right.eval(env);
         let a = val.as_any();
         match self.token {
             Token::MINUS => {
                 if a.type_id() == *type_ids::INT {
-                    Box::new(Int::new(-a.downcast_ref::<Int>().unwrap().value))
+                    self.evaled = Some(Box::new(Int::new(-a.downcast_ref::<Int>().unwrap().value)));
                 } else if a.type_id() == *type_ids::FLOAT {
-                    Box::new(Float::new(-a.downcast_ref::<Float>().unwrap().value))
+                    self.evaled = Some(Box::new(Float::new(
+                        -a.downcast_ref::<Float>().unwrap().value,
+                    )));
                 } else {
                     unimplemented!()
                 }
             }
             Token::BANG => {
                 if a.type_id() == *type_ids::BOOL {
-                    Box::new(a.downcast_ref::<Bool>().unwrap().bang())
+                    self.evaled = Some(Box::new(*a.downcast_ref::<Bool>().unwrap().bang()));
                 } else {
                     panic!()
                 }
             }
             _ => panic!(),
         }
+        return self.evaled.unwrap().as_ref();
     }
 }
 
@@ -62,11 +73,17 @@ pub struct InfixExpr {
     pub token: Token,
     pub left: Box<dyn Expression>,
     pub right: Box<dyn Expression>,
+    evaled: Option<Box<dyn Object>>,
 }
 
 impl InfixExpr {
     pub fn new(token: Token, left: Box<dyn Expression>, right: Box<dyn Expression>) -> InfixExpr {
-        InfixExpr { token, left, right }
+        InfixExpr {
+            token,
+            left,
+            right,
+            evaled: None,
+        }
     }
 }
 
@@ -75,7 +92,10 @@ impl Expression for InfixExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> Box<dyn Object> {
+    fn eval(&self, env: &Environment) -> &dyn Object {
+        if let Some(evaled) = self.evaled {
+            return evaled.as_ref();
+        }
         use Token::*;
         let le = self.left.eval(env);
         let re = self.right.eval(env);
@@ -93,7 +113,10 @@ impl Expression for InfixExpr {
                         SLASH => |a, b| a / b,
                         _ => unreachable!(),
                     };
-                    return Box::new(Int::new(op(la.downcast_ref::<Int>().unwrap().value, ra.downcast_ref::<Int>().unwrap().value)));
+                    self.evaled = Some(Box::new(Int::new(op(
+                        la.downcast_ref::<Int>().unwrap().value,
+                        ra.downcast_ref::<Int>().unwrap().value,
+                    ))));
                 } else if la.type_id() == *type_ids::FLOAT && ra.type_id() == *type_ids::FLOAT {
                     let op = match self.token {
                         PLUS => |a, b| a + b,
@@ -102,7 +125,10 @@ impl Expression for InfixExpr {
                         SLASH => |a, b| a / b,
                         _ => unreachable!(),
                     };
-                    return Box::new(Float::new(op(la.downcast_ref::<Float>().unwrap().value, ra.downcast_ref::<Float>().unwrap().value)));
+                    self.evaled = Some(Box::new(Float::new(op(
+                        la.downcast_ref::<Float>().unwrap().value,
+                        ra.downcast_ref::<Float>().unwrap().value,
+                    ))));
                 }
                 let op = match self.token {
                     PLUS => |a, b| a + b,
@@ -111,10 +137,14 @@ impl Expression for InfixExpr {
                     SLASH => |a, b| a / b,
                     _ => unreachable!(),
                 };
-                Box::new(Float::new(op(la.downcast_ref::<Int>().unwrap().value as f64, ra.downcast_ref::<Float>().unwrap().value)))
+                self.evaled = Some(Box::new(Float::new(op(
+                    la.downcast_ref::<Int>().unwrap().value as f64,
+                    ra.downcast_ref::<Float>().unwrap().value,
+                ))));
             }
             _ => unimplemented!(),
         }
+        return self.evaled.unwrap().as_ref();
     }
 }
 
@@ -139,8 +169,8 @@ impl Expression for IdentifierExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> Box<dyn Object> {
-        *env.get(self.ident).unwrap()
+    fn eval(&self, env: &Environment) -> &dyn Object {
+        env.get(self.ident).unwrap().as_ref()
     }
 }
 
@@ -152,12 +182,14 @@ impl Display for IdentifierExpr {
 
 pub struct IntLiteralExpr {
     literal: NixInt,
+    evaled: Option<Int>,
 }
 
 impl IntLiteralExpr {
     pub fn new(s: String) -> IntLiteralExpr {
         IntLiteralExpr {
             literal: s.parse().unwrap(),
+            evaled: None,
         }
     }
 }
@@ -167,8 +199,13 @@ impl Expression for IntLiteralExpr {
         self
     }
 
-    fn eval(&self, _: &Environment) -> Box<dyn Object> {
-        Box::new(Int::new(self.literal))
+    fn eval(&self, _: &Environment) -> &dyn Object {
+        if let Some(evaled) = self.evaled {
+            &evaled
+        } else {
+            self.evaled = Some(Int::new(self.literal));
+            self.evaled.as_ref().unwrap()
+        }
     }
 }
 
@@ -180,12 +217,14 @@ impl Display for IntLiteralExpr {
 
 pub struct FloatLiteralExpr {
     literal: NixFloat,
+    evaled: Option<Float>,
 }
 
 impl FloatLiteralExpr {
     pub fn new(s: String) -> FloatLiteralExpr {
         FloatLiteralExpr {
             literal: s.parse().unwrap(),
+            evaled: None,
         }
     }
 }
@@ -195,8 +234,13 @@ impl Expression for FloatLiteralExpr {
         self
     }
 
-    fn eval(&self, _: &Environment) -> Box<dyn Object> {
-        Box::new(Float::new(self.literal))
+    fn eval(&self, _: &Environment) -> &dyn Object {
+        if let Some(evaled) = self.evaled {
+            &evaled
+        } else {
+            self.evaled = Some(Float::new(self.literal));
+            self.evaled.as_ref().unwrap()
+        }
     }
 }
 
@@ -221,8 +265,8 @@ impl Expression for BoolLiteralExpr {
         self
     }
 
-    fn eval(&self, _: &Environment) -> Box<dyn Object> {
-        Box::new(*Bool::from_bool(self.literal))
+    fn eval(&self, _: &Environment) -> &dyn Object {
+        Bool::from_bool(self.literal)
     }
 }
 
@@ -239,8 +283,8 @@ impl Expression for NullLiteralExpr {
         self
     }
 
-    fn eval(&self, _: &Environment) -> Box<dyn Object> {
-        Box::new(Null {})
+    fn eval(&self, _: &Environment) -> &dyn Object {
+        Null::null()
     }
 }
 
@@ -257,7 +301,7 @@ impl Expression for EllipsisLiteralExpr {
         self
     }
 
-    fn eval(&self, _: &Environment) -> Box<dyn Object> {
+    fn eval(&self, _: &Environment) -> &dyn Object {
         unimplemented!()
     }
 }
@@ -270,14 +314,16 @@ impl Display for EllipsisLiteralExpr {
 
 pub struct StringLiteralExpr {
     pub literal: NixString,
-    pub replaces: Vec<(usize, Vec<Token>)>,
+    pub replaces: Vec<(usize, Box<dyn Expression>)>,
+    evaled: Option<Str>,
 }
 
 impl StringLiteralExpr {
-    pub fn new(s: String, replaces: Vec<(usize, Vec<Token>)>) -> StringLiteralExpr {
+    pub fn new(s: String, replaces: Vec<(usize, Box<dyn Expression>)>) -> StringLiteralExpr {
         StringLiteralExpr {
             literal: s.clone(),
             replaces,
+            evaled: None,
         }
     }
 }
@@ -287,8 +333,16 @@ impl Expression for StringLiteralExpr {
         self
     }
 
-    fn eval(&self, _: &Environment) -> Box<dyn Object> {
-        Box::new(Str::new(self.literal.clone()))
+    fn eval(&self, env: &Environment) -> &dyn Object {
+        if let Some(evaled) = self.evaled {
+            &evaled
+        } else {
+            self.evaled = Some(Str::new(
+                self.literal,
+                self.replaces.iter().map(|r| (r.0, r.1.eval(env))).collect(),
+            ));
+            &self.evaled.unwrap()
+        }
     }
 }
 
@@ -314,8 +368,8 @@ impl Expression for FunctionLiteralExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> Box<dyn Object> {
-        unimplemented!()
+    fn eval(&self, env: &Environment) -> &dyn Object {
+        todo!()
     }
 }
 
@@ -341,8 +395,8 @@ impl Expression for FunctionCallExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> Box<dyn Object> {
-        unimplemented!()
+    fn eval(&self, env: &Environment) -> &dyn Object {
+        todo!()
     }
 }
 
@@ -352,43 +406,53 @@ impl Display for FunctionCallExpr {
     }
 }
 
-pub struct IfExpr {
+pub struct IfExpr<'a> {
     cond: Box<dyn Expression>,
     consq: Box<dyn Expression>,
     alter: Box<dyn Expression>,
+    evaled: Option<&'a dyn Object>,
 }
 
-impl IfExpr {
+impl<'a> IfExpr<'a> {
     pub fn new(
         cond: Box<dyn Expression>,
         consq: Box<dyn Expression>,
         alter: Box<dyn Expression>,
-    ) -> IfExpr {
-        IfExpr { cond, consq, alter }
-    }
-}
-
-impl Expression for IfExpr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn eval(&self, env: &Environment) -> Box<dyn Object> {
-        let cond = self.cond.eval(env);
-        let cond = cond.as_any();
-        if cond.type_id() == *type_ids::BOOL {
-            if cond.downcast_ref::<Bool>().unwrap().value {
-                self.consq.eval(env)
-            } else {
-                self.alter.eval(env)
-            }
-        } else {
-            panic!()
+    ) -> IfExpr<'a> {
+        IfExpr {
+            cond,
+            consq,
+            alter,
+            evaled: None,
         }
     }
 }
 
-impl Display for IfExpr {
+impl Expression for IfExpr<'_> {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn eval(&self, env: &Environment) -> &dyn Object {
+        if let Some(evaled) = self.evaled {
+            evaled
+        } else {
+            let c = self.cond.eval(env);
+            let c = c.as_any();
+            if c.type_id() == *type_ids::BOOL {
+                if c.downcast_ref::<Bool>().unwrap().value {
+                    self.consq.eval(env)
+                } else {
+                    self.alter.eval(env)
+                }
+            } else {
+                unimplemented!()
+            }
+        }
+    }
+}
+
+impl Display for IfExpr<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -414,7 +478,7 @@ impl Expression for BindingExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> Box<dyn Object> {
+    fn eval(&self, env: &Environment) -> &dyn Object {
         unimplemented!()
     }
 }
@@ -441,7 +505,7 @@ impl Expression for AttrsLiteralExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> Box<dyn Object> {
+    fn eval(&self, env: &Environment) -> &dyn Object {
         todo!()
     }
 }
@@ -484,8 +548,8 @@ impl Expression for ArgSetExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> Box<dyn Object> {
-        todo!()
+    fn eval(&self, env: &Environment) -> &dyn Object {
+        unimplemented!()
     }
 }
 
@@ -514,11 +578,12 @@ impl Display for ArgSetExpr {
 
 pub struct ListLiteralExpr {
     items: Vec<Box<dyn Expression>>,
+    evaled: Option<Box<dyn Object>>
 }
 
 impl ListLiteralExpr {
     pub fn new(items: Vec<Box<dyn Expression>>) -> ListLiteralExpr {
-        ListLiteralExpr { items }
+        ListLiteralExpr { items, evaled: None }
     }
 }
 
@@ -527,8 +592,13 @@ impl Expression for ListLiteralExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> Box<dyn Object> {
-        Box::new(List::new(self.items.iter().map(|i| i.eval(env)).collect()))
+    fn eval(&self, env: &Environment) -> &dyn Object {
+        if let Some(evaled) = self.evaled {
+            evaled.as_ref()
+        } else {
+            self.evaled = Some(Box::new(List::new(self.items.iter().map(|i| i.eval(env)).collect())));
+            self.evaled.unwrap().as_ref()
+        }
     }
 }
 
@@ -558,7 +628,7 @@ impl Expression for LetExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> Box<dyn Object> {
+    fn eval(&self, env: &Environment) -> &dyn Object {
         todo!()
     }
 }
@@ -589,7 +659,7 @@ impl Expression for WithExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> Box<dyn Object> {
+    fn eval(&self, env: &Environment) -> &dyn Object {
         todo!()
     }
 }
@@ -616,7 +686,7 @@ impl Expression for AssertExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> Box<dyn Object> {
+    fn eval(&self, env: &Environment) -> &dyn Object {
         let assertion = self.assertion.eval(env);
         let assertion = assertion.as_any();
         if assertion.type_id() == *type_ids::BOOL {
@@ -657,7 +727,7 @@ impl Expression for InheritExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> Box<dyn Object> {
+    fn eval(&self, env: &Environment) -> &dyn Object {
         unimplemented!()
     }
 }
@@ -697,7 +767,7 @@ impl Expression for PathLiteralExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> Box<dyn Object> {
+    fn eval(&self, env: &Environment) -> &dyn Object {
         todo!()
     }
 }
@@ -723,7 +793,7 @@ impl Expression for SearchPathExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> Box<dyn Object> {
+    fn eval(&self, env: &Environment) -> &dyn Object {
         todo!()
     }
 }
@@ -749,7 +819,7 @@ impl Expression for ThunkExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> Box<dyn Object> {
+    fn eval(&self, env: &Environment) -> &dyn Object {
         todo!()
     }
 }

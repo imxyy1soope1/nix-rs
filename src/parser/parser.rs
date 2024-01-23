@@ -30,14 +30,14 @@ enum Precedence {
 }
 
 pub struct Parser {
-    l: Lexer,
+    l: Box<dyn Iterator<Item = Token>>,
 
     cur_token: Option<Token>,
     next_token: Option<Token>,
 }
 
 impl Parser {
-    pub fn new(l: Lexer) -> Parser {
+    pub fn new(l: Box<dyn Iterator<Item = Token>>) -> Parser {
         let mut p = Parser {
             l,
             cur_token: None,
@@ -79,7 +79,13 @@ impl Parser {
             STRING(..) => Some(|s| {
                 if let Token::STRING(string, replaces) = s.cur_token.clone().unwrap() {
                     s.next();
-                    Box::new(StringLiteralExpr::new(string, replaces))
+                    Box::new(StringLiteralExpr::new(
+                        string,
+                        replaces
+                            .iter()
+                            .map(|r| (r.0, Parser::new(Box::new(r.1.into_iter())).parse()))
+                            .collect(),
+                    ))
                 } else {
                     unreachable!()
                 }
@@ -597,6 +603,9 @@ impl Parser {
     }
 
     fn parse_function(&mut self, arg: Box<dyn Expression>) -> Box<dyn Expression> {
+        let a = arg.as_any();
+        assert!(a.is::<IdentifierExpr>() || a.is::<ArgSetExpr>());
+
         self.next();
         Box::new(FunctionLiteralExpr::new(
             arg,

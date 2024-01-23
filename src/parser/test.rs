@@ -4,7 +4,7 @@ mod test {
     use crate::lexer::Lexer;
 
     fn _test_parse(input: &str, expect: &str) {
-        let mut parser = Parser::new(Lexer::new(input));
+        let mut parser = Parser::new(Box::new(Lexer::build(input)));
         assert_eq!(parser.parse().to_string(), expect)
     }
 
