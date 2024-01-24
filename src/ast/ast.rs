@@ -138,6 +138,20 @@ impl Expression for InfixExpr {
                     unimplemented!()
                 }
             }
+            AND => {
+                if la.type_id() == *type_ids::BOOL && ra.type_id() == *type_ids::BOOL {
+                    Box::new(Bool::new(la.downcast_ref::<Bool>().unwrap().value && ra.downcast_ref::<Bool>().unwrap().value))
+                } else {
+                    unimplemented!()
+                }
+            }
+            OR => {
+                if la.type_id() == *type_ids::BOOL && ra.type_id() == *type_ids::BOOL {
+                    Box::new(Bool::new(la.downcast_ref::<Bool>().unwrap().value || ra.downcast_ref::<Bool>().unwrap().value))
+                } else {
+                    unimplemented!()
+                }
+            }
             _ => unimplemented!(),
         }
     }

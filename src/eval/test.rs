@@ -5,6 +5,14 @@ mod test {
     use crate::object::*;
     use crate::parser::Parser;
 
+    macro_rules! test_type {
+        ( $input:expr, $type:tt ) => {
+            let mut e = Eval::new(Parser::new(Box::new(Lexer::build($input))).parse());
+            let e = e.eval();
+            assert!(e.as_any().is::<$type>());
+        };
+    }
+
     macro_rules! test_eq {
         ( $input:expr, $type:tt, $val:expr ) => {
             let mut e = Eval::new(Parser::new(Box::new(Lexer::build($input))).parse());
@@ -12,7 +20,6 @@ mod test {
             assert_eq!(e.as_any().downcast_ref::<$type>().unwrap().value, $val);
         };
     }
-
 
     #[test]
     fn test_int() {
@@ -37,11 +44,15 @@ mod test {
     fn test_infix() {
         test_eq!("1 + 1", Int, 2);
         test_eq!("1.0 + 1", Float, 2f64);
+        test_eq!("true && false", Bool, false);
+        test_eq!("true || false", Bool, true);
     }
 
     #[test]
     fn test_literal() {
         test_eq!(r#""test""#, Str, "test");
-        // test_eq!(r#""""#)
+        test_eq!("true", Bool, true);
+        test_eq!("false", Bool, false);
+        test_type!("null", Null);
     }
 }
