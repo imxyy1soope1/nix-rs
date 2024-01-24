@@ -2,13 +2,13 @@ use super::types::*;
 use crate::eval::Environment;
 use crate::object::*;
 use crate::token::Token;
+use core::f64;
 use std::any::Any;
-use std::env;
+use std::cell::{Cell, RefCell};
 use std::fmt::Display;
 
 pub trait Expression: Display {
     fn as_any(&self) -> &dyn Any;
-    fn eval(&mut self, env: &mut Environment) -> &dyn Object;
 }
 
 pub struct PrefixExpr {
@@ -32,34 +32,33 @@ impl Expression for PrefixExpr {
         self
     }
 
-    fn eval(&mut self, env: &mut Environment) -> &dyn Object {
-        if let Some(evaled) = self.evaled {
-            return evaled.as_ref();
-        }
-        let val = self.right.eval(env);
-        let a = val.as_any();
-        match self.token {
-            Token::MINUS => {
-                if a.type_id() == *type_ids::INT {
-                    self.evaled = Some(Box::new(Int::new(-a.downcast_ref::<Int>().unwrap().value)));
-                } else if a.type_id() == *type_ids::FLOAT {
-                    self.evaled = Some(Box::new(Float::new(
-                        -a.downcast_ref::<Float>().unwrap().value,
-                    )));
-                } else {
-                    unimplemented!()
+    fn eval(&mut self, env: RefCell<Environment>) -> &dyn Object {
+        self.evaled
+            .get_or_insert({
+                let val = self.right.eval(env);
+                let a = val.as_any();
+                use Token::*;
+                match self.token {
+                    MINUS => {
+                        if a.type_id() == *type_ids::INT {
+                            Box::new(Int::new(-a.downcast_ref::<Int>().unwrap().value))
+                        } else if a.type_id() == *type_ids::FLOAT {
+                            Box::new(Float::new(-a.downcast_ref::<Float>().unwrap().value))
+                        } else {
+                            unimplemented!()
+                        }
+                    }
+                    BANG => {
+                        if a.type_id() == *type_ids::BOOL {
+                            Box::new(*a.downcast_ref::<Bool>().unwrap().bang())
+                        } else {
+                            panic!()
+                        }
+                    }
+                    _ => panic!(),
                 }
-            }
-            Token::BANG => {
-                if a.type_id() == *type_ids::BOOL {
-                    self.evaled = Some(Box::new(*a.downcast_ref::<Bool>().unwrap().bang()));
-                } else {
-                    panic!()
-                }
-            }
-            _ => panic!(),
-        }
-        return self.evaled.unwrap().as_ref();
+            })
+            .as_ref()
     }
 }
 
@@ -92,59 +91,134 @@ impl Expression for InfixExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> &dyn Object {
-        if let Some(evaled) = self.evaled {
-            return evaled.as_ref();
-        }
-        use Token::*;
-        let le = self.left.eval(env);
-        let re = self.right.eval(env);
-        let mut la = le.as_any();
-        let mut ra = re.as_any();
-        match self.token {
-            PLUS | MINUS | MUL | SLASH => {
-                if la.type_id() == *type_ids::FLOAT && ra.type_id() == *type_ids::INT {
-                    (ra, la) = (la, ra);
-                } else if la.type_id() == *type_ids::INT && ra.type_id() == *type_ids::INT {
-                    let op = match self.token {
-                        PLUS => |a, b| a + b,
-                        MINUS => |a, b| a - b,
-                        MUL => |a, b| a * b,
-                        SLASH => |a, b| a / b,
-                        _ => unreachable!(),
-                    };
-                    self.evaled = Some(Box::new(Int::new(op(
-                        la.downcast_ref::<Int>().unwrap().value,
-                        ra.downcast_ref::<Int>().unwrap().value,
-                    ))));
-                } else if la.type_id() == *type_ids::FLOAT && ra.type_id() == *type_ids::FLOAT {
-                    let op = match self.token {
-                        PLUS => |a, b| a + b,
-                        MINUS => |a, b| a - b,
-                        MUL => |a, b| a * b,
-                        SLASH => |a, b| a / b,
-                        _ => unreachable!(),
-                    };
-                    self.evaled = Some(Box::new(Float::new(op(
-                        la.downcast_ref::<Float>().unwrap().value,
-                        ra.downcast_ref::<Float>().unwrap().value,
-                    ))));
+    fn eval(&mut self, env: RefCell<Environment>) -> &dyn Object {
+        /* self.evaled.get_or_insert({
+            let le = self.left.eval(env);
+            let re = self.right.eval(env);
+            let mut la = le.as_any();
+            let mut ra = re.as_any();
+            use Token::*;
+            match self.token {
+                PLUS | MINUS | MUL | SLASH => {
+                    let ret: Box<dyn Object>;
+                    (if la.type_id() == *type_ids::FLOAT && ra.type_id() == *type_ids::INT {
+                        let op = match self.token {
+                            PLUS => |a, b| a + b,
+                            MINUS => |a, b| a - b,
+                            MUL => |a, b| a * b,
+                            SLASH => |a, b| a / b,
+                            _ => unreachable!(),
+                        };
+                        let r = (&Float::new(op(
+                            la.downcast_ref::<Float>().unwrap().value,
+                            ra.downcast_ref::<Int>().unwrap().value as f64,
+                        )) as &dyn Object);
+                    } else if la.type_id() == *type_ids::INT && ra.type_id() == *type_ids::FLOAT {
+                        let op = match self.token {
+                            PLUS => |a, b| a + b,
+                            MINUS => |a, b| a - b,
+                            MUL => |a, b| a * b,
+                            SLASH => |a, b| a / b,
+                            _ => unreachable!(),
+                        };
+                        Box::new(Float::new(op(
+                            la.downcast_ref::<Int>().unwrap().value as f64,
+                            ra.downcast_ref::<Float>().unwrap().value,
+                        )))
+                    } else if la.type_id() == *type_ids::INT && ra.type_id() == *type_ids::INT {
+                        let op = match self.token {
+                            PLUS => |a, b| a + b,
+                            MINUS => |a, b| a - b,
+                            MUL => |a, b| a * b,
+                            SLASH => |a, b| a / b,
+                            _ => unreachable!(),
+                        };
+                        Box::new(Int::new(op(
+                            la.downcast_ref::<Int>().unwrap().value,
+                            ra.downcast_ref::<Int>().unwrap().value,
+                        )))
+                    } else if la.type_id() == *type_ids::FLOAT && ra.type_id() == *type_ids::FLOAT {
+                        let op = match self.token {
+                            PLUS => |a, b| a + b,
+                            MINUS => |a, b| a - b,
+                            MUL => |a, b| a * b,
+                            SLASH => |a, b| a / b,
+                            _ => unreachable!(),
+                        };
+                        Box::new(Float::new(op(
+                            la.downcast_ref::<Float>().unwrap().value,
+                            ra.downcast_ref::<Float>().unwrap().value,
+                        )))
+                    } else {
+                        unimplemented!()
+                    }) as Box<dyn Object>
                 }
-                let op = match self.token {
-                    PLUS => |a, b| a + b,
-                    MINUS => |a, b| a - b,
-                    MUL => |a, b| a * b,
-                    SLASH => |a, b| a / b,
-                    _ => unreachable!(),
-                };
-                self.evaled = Some(Box::new(Float::new(op(
-                    la.downcast_ref::<Int>().unwrap().value as f64,
-                    ra.downcast_ref::<Float>().unwrap().value,
-                ))));
+                _ => unimplemented!(),
             }
-            _ => unimplemented!(),
-        }
-        return self.evaled.unwrap().as_ref();
+        }) */
+        self.evaled.get_or_insert_with(|| {
+            let le = self.left.eval(env);
+            let re = self.right.eval(env);
+            let la = le.as_any();
+            let ra = re.as_any();
+            use Token::*;
+            match self.token {
+                PLUS | MINUS | MUL | SLASH => {
+                    if la.type_id() == *type_ids::FLOAT && ra.type_id() == *type_ids::INT {
+                        let op = match self.token {
+                            PLUS => |a, b| a + b,
+                            MINUS => |a, b| a - b,
+                            MUL => |a, b| a * b,
+                            SLASH => |a, b| a / b,
+                            _ => unreachable!(),
+                        };
+                        Box::new(Float::new(op(
+                            la.downcast_ref::<Float>().unwrap().value,
+                            ra.downcast_ref::<Int>().unwrap().value as f64,
+                        )))
+                    } else if la.type_id() == *type_ids::INT && ra.type_id() == *type_ids::FLOAT {
+                        let op = match self.token {
+                            PLUS => |a, b| a + b,
+                            MINUS => |a, b| a - b,
+                            MUL => |a, b| a * b,
+                            SLASH => |a, b| a / b,
+                            _ => unreachable!(),
+                        };
+                        Box::new(Float::new(op(
+                            la.downcast_ref::<Int>().unwrap().value as f64,
+                            ra.downcast_ref::<Float>().unwrap().value,
+                        )))
+                    } else if la.type_id() == *type_ids::INT && ra.type_id() == *type_ids::INT {
+                        let op = match self.token {
+                            PLUS => |a, b| a + b,
+                            MINUS => |a, b| a - b,
+                            MUL => |a, b| a * b,
+                            SLASH => |a, b| a / b,
+                            _ => unreachable!(),
+                        };
+                        Box::new(Int::new(op(
+                            la.downcast_ref::<Int>().unwrap().value,
+                            ra.downcast_ref::<Int>().unwrap().value,
+                        )))
+                    } else if la.type_id() == *type_ids::FLOAT && ra.type_id() == *type_ids::FLOAT {
+                        let op = match self.token {
+                            PLUS => |a, b| a + b,
+                            MINUS => |a, b| a - b,
+                            MUL => |a, b| a * b,
+                            SLASH => |a, b| a / b,
+                            _ => unreachable!(),
+                        };
+                        Box::new(Float::new(op(
+                            la.downcast_ref::<Float>().unwrap().value,
+                            ra.downcast_ref::<Float>().unwrap().value,
+                        )))
+                    } else {
+                        unimplemented!()
+                    }
+                }
+                _ => unimplemented!(),
+            }
+        }).as_ref()
     }
 }
 
@@ -169,8 +243,8 @@ impl Expression for IdentifierExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> &dyn Object {
-        env.get(self.ident).unwrap().as_ref()
+    fn eval(&mut self, env: RefCell<Environment>) -> &dyn Object {
+        env.borrow().get(&self.ident).unwrap().as_ref()
     }
 }
 
@@ -199,13 +273,8 @@ impl Expression for IntLiteralExpr {
         self
     }
 
-    fn eval(&self, _: &Environment) -> &dyn Object {
-        if let Some(evaled) = self.evaled {
-            &evaled
-        } else {
-            self.evaled = Some(Int::new(self.literal));
-            self.evaled.as_ref().unwrap()
-        }
+    fn eval(&mut self, _: RefCell<Environment>) -> &dyn Object {
+        self.evaled.get_or_insert(Int::new(self.literal))
     }
 }
 
@@ -234,13 +303,8 @@ impl Expression for FloatLiteralExpr {
         self
     }
 
-    fn eval(&self, _: &Environment) -> &dyn Object {
-        if let Some(evaled) = self.evaled {
-            &evaled
-        } else {
-            self.evaled = Some(Float::new(self.literal));
-            self.evaled.as_ref().unwrap()
-        }
+    fn eval(&mut self, _: RefCell<Environment>) -> &dyn Object {
+        self.evaled.get_or_insert(Float::new(self.literal))
     }
 }
 
@@ -265,7 +329,7 @@ impl Expression for BoolLiteralExpr {
         self
     }
 
-    fn eval(&self, _: &Environment) -> &dyn Object {
+    fn eval(&mut self, _: RefCell<Environment>) -> &dyn Object {
         Bool::from_bool(self.literal)
     }
 }
@@ -283,7 +347,7 @@ impl Expression for NullLiteralExpr {
         self
     }
 
-    fn eval(&self, _: &Environment) -> &dyn Object {
+    fn eval(&mut self, _: RefCell<Environment>) -> &dyn Object {
         Null::null()
     }
 }
@@ -301,7 +365,7 @@ impl Expression for EllipsisLiteralExpr {
         self
     }
 
-    fn eval(&self, _: &Environment) -> &dyn Object {
+    fn eval(&mut self, _: RefCell<Environment>) -> &dyn Object {
         unimplemented!()
     }
 }
@@ -333,16 +397,11 @@ impl Expression for StringLiteralExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> &dyn Object {
-        if let Some(evaled) = self.evaled {
-            &evaled
-        } else {
-            self.evaled = Some(Str::new(
-                self.literal,
-                self.replaces.iter().map(|r| (r.0, r.1.eval(env))).collect(),
-            ));
-            &self.evaled.unwrap()
-        }
+    fn eval(&mut self, env: RefCell<Environment>) -> &dyn Object {
+        self.evaled.get_or_insert(Str::new(
+            self.literal.clone(),
+            self.replaces.iter().map(|r| (r.0, r.1.eval(env))).collect(),
+        ))
     }
 }
 
@@ -368,7 +427,7 @@ impl Expression for FunctionLiteralExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> &dyn Object {
+    fn eval(&mut self, env: RefCell<Environment>) -> &dyn Object {
         todo!()
     }
 }
@@ -395,7 +454,7 @@ impl Expression for FunctionCallExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> &dyn Object {
+    fn eval(&mut self, env: RefCell<Environment>) -> &dyn Object {
         todo!()
     }
 }
@@ -428,15 +487,13 @@ impl<'a> IfExpr<'a> {
     }
 }
 
-impl Expression for IfExpr<'_> {
+impl<'a> Expression for IfExpr<'a> {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
-    fn eval(&self, env: &Environment) -> &dyn Object {
-        if let Some(evaled) = self.evaled {
-            evaled
-        } else {
+    fn eval(&mut self, env: RefCell<Environment>) -> &'a dyn Object {
+        *self.evaled.get_or_insert({
             let c = self.cond.eval(env);
             let c = c.as_any();
             if c.type_id() == *type_ids::BOOL {
@@ -448,7 +505,7 @@ impl Expression for IfExpr<'_> {
             } else {
                 unimplemented!()
             }
-        }
+        })
     }
 }
 
@@ -478,7 +535,7 @@ impl Expression for BindingExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> &dyn Object {
+    fn eval(&mut self, env: RefCell<Environment>) -> &dyn Object {
         unimplemented!()
     }
 }
@@ -505,7 +562,7 @@ impl Expression for AttrsLiteralExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> &dyn Object {
+    fn eval(&mut self, env: RefCell<Environment>) -> &dyn Object {
         todo!()
     }
 }
@@ -548,7 +605,7 @@ impl Expression for ArgSetExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> &dyn Object {
+    fn eval(&mut self, env: RefCell<Environment>) -> &dyn Object {
         unimplemented!()
     }
 }
@@ -576,33 +633,32 @@ impl Display for ArgSetExpr {
     }
 }
 
-pub struct ListLiteralExpr {
+pub struct ListLiteralExpr<'a> {
     items: Vec<Box<dyn Expression>>,
-    evaled: Option<Box<dyn Object>>
+    evaled: Option<List<'a>>,
 }
 
-impl ListLiteralExpr {
-    pub fn new(items: Vec<Box<dyn Expression>>) -> ListLiteralExpr {
-        ListLiteralExpr { items, evaled: None }
-    }
-}
-
-impl Expression for ListLiteralExpr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn eval(&self, env: &Environment) -> &dyn Object {
-        if let Some(evaled) = self.evaled {
-            evaled.as_ref()
-        } else {
-            self.evaled = Some(Box::new(List::new(self.items.iter().map(|i| i.eval(env)).collect())));
-            self.evaled.unwrap().as_ref()
+impl<'a> ListLiteralExpr<'a> {
+    pub fn new(items: Vec<Box<dyn Expression>>) -> ListLiteralExpr<'a> {
+        ListLiteralExpr {
+            items,
+            evaled: None,
         }
     }
 }
 
-impl Display for ListLiteralExpr {
+impl Expression for ListLiteralExpr<'_> {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn eval(&mut self, env: RefCell<Environment>) -> &dyn Object {
+        self.evaled
+            .get_or_insert(List::new(self.items.iter().map(|i| i.eval(env)).collect()))
+    }
+}
+
+impl Display for ListLiteralExpr<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[ ")?;
         for item in self.items.iter() {
@@ -628,7 +684,7 @@ impl Expression for LetExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> &dyn Object {
+    fn eval(&mut self, env: RefCell<Environment>) -> &dyn Object {
         todo!()
     }
 }
@@ -659,7 +715,7 @@ impl Expression for WithExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> &dyn Object {
+    fn eval(&mut self, env: RefCell<Environment>) -> &dyn Object {
         todo!()
     }
 }
@@ -670,39 +726,42 @@ impl Display for WithExpr {
     }
 }
 
-pub struct AssertExpr {
+pub struct AssertExpr<'a> {
     assertion: Box<dyn Expression>,
     expr: Box<dyn Expression>,
+    evaled: Option<&'a dyn Object>,
 }
 
-impl AssertExpr {
-    pub fn new(assertion: Box<dyn Expression>, expr: Box<dyn Expression>) -> AssertExpr {
-        AssertExpr { assertion, expr }
+impl<'a> AssertExpr<'a> {
+    pub fn new(assertion: Box<dyn Expression>, expr: Box<dyn Expression>) -> AssertExpr<'a> {
+        AssertExpr { assertion, expr, evaled: None }
     }
 }
 
-impl Expression for AssertExpr {
+impl Expression for AssertExpr<'_> {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
-    fn eval(&self, env: &Environment) -> &dyn Object {
-        let assertion = self.assertion.eval(env);
-        let assertion = assertion.as_any();
-        if assertion.type_id() == *type_ids::BOOL {
-            if assertion.downcast_ref::<Bool>().unwrap().value {
-                self.expr.eval(env)
+    fn eval(&mut self, env: RefCell<Environment>) -> &dyn Object {
+        *self.evaled.get_or_insert({
+            let assertion = self.assertion.eval(env);
+            let assertion = assertion.as_any();
+            if assertion.type_id() == *type_ids::BOOL {
+                if assertion.downcast_ref::<Bool>().unwrap().value {
+                    self.expr.eval(env)
+                } else {
+                    // FIXME: error handling
+                    panic!("assert {} failed", self.assertion)
+                }
             } else {
-                // FIXME: error handling
-                panic!("assert {} failed", self.assertion)
+                panic!()
             }
-        } else {
-            panic!()
-        }
+        })
     }
 }
 
-impl Display for AssertExpr {
+impl Display for AssertExpr<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "(assert {}; {})", self.assertion, self.expr)
     }
@@ -727,7 +786,7 @@ impl Expression for InheritExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> &dyn Object {
+    fn eval(&mut self, env: RefCell<Environment>) -> &dyn Object {
         unimplemented!()
     }
 }
@@ -767,7 +826,7 @@ impl Expression for PathLiteralExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> &dyn Object {
+    fn eval(&mut self, env: RefCell<Environment>) -> &dyn Object {
         todo!()
     }
 }
@@ -793,7 +852,7 @@ impl Expression for SearchPathExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> &dyn Object {
+    fn eval(&mut self, env: RefCell<Environment>) -> &dyn Object {
         todo!()
     }
 }
@@ -819,7 +878,7 @@ impl Expression for ThunkExpr {
         self
     }
 
-    fn eval(&self, env: &Environment) -> &dyn Object {
+    fn eval(&mut self, env: RefCell<Environment>) -> &dyn Object {
         todo!()
     }
 }

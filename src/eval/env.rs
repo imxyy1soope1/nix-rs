@@ -1,18 +1,7 @@
-use crate::ast::*;
 use crate::object::Object;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Display;
-
-pub struct Eval {
-    root: Box<dyn Expression>,
-}
-
-impl Eval {
-    pub fn new(root: Box<dyn Expression>) -> Eval {
-        Eval { root }
-    }
-}
 
 pub struct Environment {
     env: HashMap<String, Box<dyn Object>>,
@@ -44,8 +33,8 @@ impl Environment {
         }
     }
 
-    pub fn get(&self, sym: String) -> Result<&Box<dyn Object>, EnvironmentError> {
-        let obj = self.env.get(&sym);
+    pub fn get(&self, sym: &String) -> Result<&Box<dyn Object>, EnvironmentError> {
+        let obj = self.env.get(sym);
         if obj.is_some() {
             Ok(obj.unwrap())
         } else {
@@ -56,12 +45,12 @@ impl Environment {
         }
     }
 
-    pub fn exsits(&self, sym: String) -> bool {
-        self.env.contains_key(&sym)
+    pub fn exsits(&self, sym: &String) -> bool {
+        self.env.contains_key(sym)
     }
 
-    pub fn set(&self, sym: String, obj: Box<dyn Object>) -> Result<(), EnvironmentError> {
-        if self.exsits(sym) {
+    pub fn set(&mut self, sym: String, obj: Box<dyn Object>) -> Result<(), EnvironmentError> {
+        if self.exsits(&sym) {
             Err(EnvironmentError::new(format!(
                 "{sym} exsits in environment!"
             )))
@@ -71,8 +60,8 @@ impl Environment {
         }
     }
 
-    pub fn over(&self, sym: String, obj: Box<dyn Object>) -> Result<(), EnvironmentError> {
-        if self.exsits(sym) {
+    pub fn over(&mut self, sym: String, obj: Box<dyn Object>) -> Result<(), EnvironmentError> {
+        if self.exsits(&sym) {
             self.env.insert(sym, obj);
             Ok(())
         } else {
@@ -82,7 +71,7 @@ impl Environment {
         }
     }
 
-    pub fn set_force(&self, sym: String, obj: Box<dyn Object>) {
+    pub fn set_force(&mut self, sym: String, obj: Box<dyn Object>) {
         self.env.insert(sym, obj);
     }
 }
