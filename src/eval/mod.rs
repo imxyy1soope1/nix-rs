@@ -1,2 +1,4 @@
-mod eval;
 mod env;
+mod eval;
+
+pub use env::Environment;

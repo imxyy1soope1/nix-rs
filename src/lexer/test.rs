@@ -17,6 +17,8 @@ mod test {
                 hello
             ];
             f = 1.0;
+            f1 = 1.;
+            f2 = .1;
             il = 1.0.1;
             s = "test";
             # comments
@@ -87,6 +89,14 @@ mod test {
             IDENT("f".to_string()),
             ASSIGN,
             FLOAT("1.0".to_string()),
+            SEMI,
+            IDENT("f1".to_string()),
+            ASSIGN,
+            FLOAT("1.".to_string()),
+            SEMI,
+            IDENT("f2".to_string()),
+            ASSIGN,
+            FLOAT(".1".to_string()),
             SEMI,
             IDENT("il".to_string()),
             ASSIGN,

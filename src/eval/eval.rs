@@ -1,11 +1,27 @@
-use crate::ast::*;
+use crate::{ast::*, object::*};
 
-pub struct Eval {
-    root: Box<dyn Expression>,
+struct Eval {
+    root: Node
+}
+
+struct Node {
+    expr: Box<dyn Expression>,
+    evaled: Option<Box<dyn Object>>,
 }
 
 impl Eval {
-    pub fn new(root: Box<dyn Expression>) -> Eval {
-        Eval { root }
+    pub fn new(expr: Box<dyn Expression>) -> Eval {
+        let mut e = Eval {
+            root: Node {
+                expr,
+                evaled: None,
+            },
+        };
+
+        e.build();
+
+        e
     }
+
+    fn build(&mut self) {}
 }

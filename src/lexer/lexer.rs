@@ -191,6 +191,15 @@ impl Lexer {
         }
     }
 
+    fn read_float(&mut self) -> Token {
+        let pos = self.pos;
+        while self.next_ch.unwrap_or_default().is_digit(10) {
+            self.read_char();
+        }
+
+        Token::FLOAT(self.input[pos..=self.pos].to_string())
+    }
+
     fn read_string(&mut self) -> Token {
         self.read_char();
         let pos = self.pos;
@@ -339,6 +348,8 @@ impl Iterator for Lexer {
                         self.read_char();
                         PARENT
                     }
+                } else if self.next_ch.unwrap_or_default().is_digit(10) {
+                    self.read_float()
                 } else {
                     DOT
                 }

@@ -83,7 +83,7 @@ impl Parser {
                         string,
                         replaces
                             .iter()
-                            .map(|r| (r.0, Parser::new(Box::new(r.1.into_iter())).parse()))
+                            .map(|r| (r.0, Parser::new(Box::new(r.1.clone().into_iter())).parse()))
                             .collect(),
                     ))
                 } else {
@@ -140,10 +140,6 @@ impl Parser {
             _ => None,
         }
     }
-
-    /* fn parse_path(&mut self) -> Box<dyn Expression> {
-
-    } */
 
     fn parse_prefix(&mut self) -> Box<dyn Expression> {
         let token = self.unwrap_cur().clone();
@@ -555,14 +551,6 @@ impl Parser {
 
         let expr = self.parse_expr(Precedence::HIGHEST);
         let a = expr.as_any();
-        assert!(
-            a.is::<IdentifierExpr>()
-                || (a.is::<StringLiteralExpr>()
-                    && a.downcast_ref::<StringLiteralExpr>()
-                        .unwrap()
-                        .replaces
-                        .is_empty())
-        );
         assert!(self.cur_is(Token::RBRACE));
         self.next();
 

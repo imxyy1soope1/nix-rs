@@ -74,7 +74,7 @@ pub struct Bool {
 }
 
 impl Bool {
-    fn new(value: bool) -> Bool {
+    pub fn new(value: bool) -> Bool {
         Bool { value }
     }
     pub fn bang(&self) -> &'static Bool {
@@ -130,7 +130,7 @@ pub struct Str {
 }
 
 impl Str {
-    pub fn new(value: String, replaces: Vec<(usize, &dyn Object)>) -> Str {
+    pub fn new(value: String, replaces: Vec<(usize, Box<dyn Object>)>) -> Str {
         Str { value }
     }
 }
@@ -147,23 +147,23 @@ impl Display for Str {
     }
 }
 
-pub struct List<'a> {
-    value: Vec<&'a dyn Object>,
+pub struct List {
+    value: Vec<Box<dyn Object>>,
 }
 
-impl<'a> List<'a> {
-    pub fn new(value: Vec<&dyn Object>) -> List<'a> {
+impl List {
+    pub fn new(value: Vec<Box<dyn Object>>) -> List {
         List { value }
     }
 }
 
-impl Object for List<'_> {
+impl Object for List {
     fn as_any(&self) -> &dyn Any {
         self
     }
 }
 
-impl Display for List<'_> {
+impl Display for List {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[ ")?;
         for v in self.value.iter() {
