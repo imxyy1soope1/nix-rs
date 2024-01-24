@@ -550,7 +550,6 @@ impl Parser {
         self.next();
 
         let expr = self.parse_expr(Precedence::HIGHEST);
-        let a = expr.as_any();
         assert!(self.cur_is(Token::RBRACE));
         self.next();
 

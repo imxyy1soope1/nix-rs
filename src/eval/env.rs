@@ -3,12 +3,14 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Display;
 
-pub struct Environment {
+pub struct Environment<'a> {
     env: HashMap<String, Box<dyn Object>>,
+    father: Option<&'a Environment<'a>>,
+    objects: Vec<Box<dyn Object>>,
 }
 
 #[derive(Debug)]
-struct EnvironmentError {
+pub struct EnvironmentError {
     text: String,
 }
 
@@ -26,11 +28,18 @@ impl Display for EnvironmentError {
 
 impl Error for EnvironmentError {}
 
-impl Environment {
-    pub fn new() -> Environment {
+impl<'a> Environment<'a> {
+    pub fn new(father: Option<&'a Environment<'a>>) -> Environment<'a> {
         Environment {
             env: HashMap::new(),
+            father,
+            objects: Vec::new(),
         }
+    }
+
+    pub fn new_obj(&'a mut self, obj: Box<dyn Object>) -> &'a dyn Object {
+        self.objects.push(obj);
+        self.objects[self.objects.len() - 1].as_ref()
     }
 
     pub fn get(&self, sym: &String) -> Result<&Box<dyn Object>, EnvironmentError> {

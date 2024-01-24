@@ -5,8 +5,8 @@ use crate::token::Token;
 use core::f64;
 use std::any::Any;
 use std::cell::RefCell;
-use std::rc::Rc;
 use std::fmt::Display;
+use std::rc::Rc;
 
 pub trait Expression: Display {
     fn as_any(&self) -> &dyn Any;
@@ -150,7 +150,7 @@ impl Display for InfixExpr {
 }
 
 pub struct IdentifierExpr {
-    ident: String,
+    pub ident: String,
 }
 
 impl IdentifierExpr {
@@ -315,7 +315,10 @@ impl Expression for StringLiteralExpr {
     fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
         Box::new(Str::new(
             self.literal.clone(),
-            self.replaces.iter().map(|r| (r.0, r.1.eval(env.clone()))).collect(),
+            self.replaces
+                .iter()
+                .map(|r| (r.0, r.1.eval(env.clone())))
+                .collect(),
         ))
     }
 }
@@ -556,7 +559,9 @@ impl Expression for ListLiteralExpr {
     }
 
     fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
-        Box::new(List::new(self.items.iter().map(|i| i.eval(env.clone())).collect()))
+        Box::new(List::new(
+            self.items.iter().map(|i| i.eval(env.clone())).collect(),
+        ))
     }
 }
 

@@ -1,8 +1,6 @@
-use std::{any::Any, fmt::Display};
+use std::{any::Any, fmt::Debug, fmt::Display};
 
-use crate::ast::Expression;
-
-pub trait Object: Display {
+pub trait Object: Display + Debug {
     fn as_any(&self) -> &dyn Any;
 }
 
@@ -13,12 +11,13 @@ pub mod type_ids {
     lazy_static! {
         pub static ref INT: TypeId = Int::new(0).type_id();
         pub static ref FLOAT: TypeId = Float::new(0f64).type_id();
-        pub static ref BOOL: TypeId = TRUE.type_id();
+        pub static ref BOOL: TypeId = Bool::new(false).type_id();
         pub static ref NULL: TypeId = super::NULL.type_id();
         pub static ref STRING: TypeId = Str::new("".to_string(), Vec::new()).type_id();
     }
 }
 
+#[derive(Debug)]
 pub struct Int {
     pub value: i64,
 }
@@ -41,6 +40,7 @@ impl Display for Int {
     }
 }
 
+#[derive(Debug)]
 pub struct Float {
     pub value: f64,
 }
@@ -69,6 +69,7 @@ lazy_static! {
     pub static ref NULL: Null = Null {};
 }
 
+#[derive(Debug)]
 pub struct Bool {
     pub value: bool,
 }
@@ -105,6 +106,7 @@ impl Display for Bool {
     }
 }
 
+#[derive(Debug)]
 pub struct Null {}
 
 impl Null {
@@ -125,8 +127,9 @@ impl Display for Null {
     }
 }
 
+#[derive(Debug)]
 pub struct Str {
-    value: String,
+    pub value: String,
 }
 
 impl Str {
@@ -147,6 +150,7 @@ impl Display for Str {
     }
 }
 
+#[derive(Debug)]
 pub struct List {
     value: Vec<Box<dyn Object>>,
 }

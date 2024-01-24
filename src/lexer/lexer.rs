@@ -349,6 +349,7 @@ impl Iterator for Lexer {
                         PARENT
                     }
                 } else if self.next_ch.unwrap_or_default().is_digit(10) {
+                    println!("{}", self.next_ch.unwrap_or_default());
                     self.read_float()
                 } else {
                     DOT
