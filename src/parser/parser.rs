@@ -1,8 +1,9 @@
+use core::panic;
 use std::error::Error;
+use std::rc::Rc;
 
-use crate::ast::*;
-use crate::lexer::Lexer;
 use crate::token::Token;
+use crate::{ast::*, convany};
 
 type PrefixParseFn = fn(&mut Parser) -> Box<dyn Expression>;
 type InfixParseFn = fn(&mut Parser, Box<dyn Expression>) -> Box<dyn Expression>;
@@ -16,14 +17,20 @@ enum Precedence {
     ASSIGN,
     FDLOWER,
     FUNCDEF,
+    IMPLLOWER,
+    IMPL,
+    OR,
+    AND,
     EQ,
-    BOOL,
     CMP,
+    UPDATE,
+    NOT,
     SUM,
     MUL,
-    PREFIX,
-    CALL,
+    CONCAT,
     HASATTR,
+    NEG,
+    CALL,
     ATTR,
 
     HIGHEST,
@@ -132,7 +139,7 @@ impl Parser {
         use Token::*;
         match t {
             PLUS | MINUS | MUL | SLASH | EQ | NEQ | LANGLE | RANGLE | LEQ | GEQ | CONCAT
-            | UPDATE | IMPL | AND | OR | QUEST | DOT => parser!(parse_infix),
+            | UPDATE | IMPL | AND | OR | QUEST | DOT | ORKW => parser!(parse_infix),
             ASSIGN => parser!(parse_binding),
             COLON => parser!(parse_function),
             AT => parser!(parse_argset_with_alias),
@@ -144,7 +151,14 @@ impl Parser {
     fn parse_prefix(&mut self) -> Box<dyn Expression> {
         let token = self.unwrap_cur().clone();
         self.next();
-        Box::new(PrefixExpr::new(token, self.parse_expr(Precedence::PREFIX)))
+        Box::new(PrefixExpr::new(
+            token.clone(),
+            self.parse_expr(match token {
+                Token::MINUS => Precedence::NEG,
+                Token::BANG => Precedence::NOT,
+                _ => unreachable!(),
+            }),
+        ))
     }
 
     fn parse_group(&mut self) -> Box<dyn Expression> {
@@ -211,6 +225,7 @@ impl Parser {
 
         self.next();
         let mut bindings: Vec<Box<dyn Expression>> = Vec::new();
+        let mut args: Vec<(String, Option<Rc<dyn Expression>>)> = Vec::new();
 
         let is_attrs = {
             match self.unwrap_next() {
@@ -222,7 +237,13 @@ impl Parser {
                     true
                 }
                 COMMA | QUEST => false,
-                _ => panic!(),
+                _ => {
+                    if self.cur_is(RBRACE) {
+                        true
+                    } else {
+                        panic!()
+                    }
+                }
             }
         };
         let mut allow_more = false;
@@ -231,7 +252,6 @@ impl Parser {
                 let expr = self.parse_expr(Precedence::LOWEST);
                 let a = expr.as_any();
                 assert!(a.is::<BindingExpr>() || a.is::<InheritExpr>());
-                println!("{} {}", self.unwrap_cur(), &expr);
                 bindings.push(expr);
                 if !self.cur_is(SEMI) {
                     panic!()
@@ -240,16 +260,19 @@ impl Parser {
             } else {
                 let expr = self.parse_expr(Precedence::LOWEST);
                 let a = expr.as_any();
-                assert!(
-                    a.is::<IdentifierExpr>()
-                        || a.is::<EllipsisLiteralExpr>()
-                        || (a.is::<InfixExpr>()
-                            && a.downcast_ref::<InfixExpr>().unwrap().token == QUEST)
-                );
-                if a.is::<EllipsisLiteralExpr>() {
+                if a.is::<IdentifierExpr>() {
+                    args.push((convany!(a, IdentifierExpr).ident.clone(), None));
+                } else if a.is::<InfixExpr>() {
+                    let e = convany!(a, InfixExpr);
+                    assert_eq!(e.token, Token::QUEST);
+                    args.push((
+                        convany!(e.left.as_any(), IdentifierExpr).ident.clone(),
+                        Some(e.right.clone()),
+                    ));
+                } else if a.is::<EllipsisLiteralExpr>() {
                     allow_more = true;
                 } else {
-                    bindings.push(expr);
+                    panic!()
                 }
                 match self.unwrap_cur() {
                     COMMA => {
@@ -274,12 +297,19 @@ impl Parser {
                     IDENT(_) => (),
                     _ => panic!(),
                 }
-                Some(self.parse_expr(Precedence::HIGHEST))
+                Some(
+                    convany!(
+                        self.parse_expr(Precedence::HIGHEST).as_any(),
+                        IdentifierExpr
+                    )
+                    .ident
+                    .clone(),
+                )
             } else {
                 None
             };
 
-            Box::new(ArgSetExpr::new(bindings, allow_more, alias))
+            Box::new(ArgSetExpr::new(args, allow_more, alias))
         }
     }
 
@@ -289,22 +319,25 @@ impl Parser {
         self.next();
         self.next();
 
-        let mut args: Vec<Box<dyn Expression>> = Vec::new();
+        let mut args: Vec<(String, Option<Rc<dyn Expression>>)> = Vec::new();
         let mut allow_more = false;
 
         while !self.cur_is(RBRACE) {
             let expr = self.parse_expr(Precedence::LOWEST);
             let a = expr.as_any();
-            assert!(
-                a.is::<IdentifierExpr>()
-                    || a.is::<EllipsisLiteralExpr>()
-                    || (a.is::<InfixExpr>()
-                        && a.downcast_ref::<InfixExpr>().unwrap().token == QUEST)
-            );
-            if a.is::<EllipsisLiteralExpr>() {
+            if a.is::<IdentifierExpr>() {
+                args.push((convany!(a, IdentifierExpr).ident.clone(), None));
+            } else if a.is::<InfixExpr>() {
+                let e = convany!(a, InfixExpr);
+                assert_eq!(e.token, Token::QUEST);
+                args.push((
+                    convany!(e.left.as_any(), IdentifierExpr).ident.clone(),
+                    Some(e.right.clone()),
+                ));
+            } else if a.is::<EllipsisLiteralExpr>() {
                 allow_more = true;
             } else {
-                args.push(expr);
+                panic!()
             }
             match self.unwrap_cur() {
                 COMMA => {
@@ -319,7 +352,11 @@ impl Parser {
         }
         self.next();
 
-        Box::new(ArgSetExpr::new(args, allow_more, Some(alias)))
+        Box::new(ArgSetExpr::new(
+            args,
+            allow_more,
+            Some(convany!(alias.as_any(), IdentifierExpr).ident.clone()),
+        ))
     }
 
     fn parse_list(&mut self) -> Box<dyn Expression> {
@@ -437,7 +474,14 @@ impl Parser {
 
         use Token::*;
         while match self.unwrap_cur() {
-            IDENT(_) | STRING(..) => true,
+            IDENT(_) => true,
+            STRING(_, v) => {
+                if v.is_empty() {
+                    true
+                } else {
+                    panic!()
+                }
+            }
             SEMI => false,
             _ => panic!(),
         } {
@@ -470,7 +514,6 @@ impl Parser {
         }
 
         if literal.len() <= 2 {
-            println!("{}", literal);
             panic!("unexpected '.'")
         }
 
@@ -560,13 +603,15 @@ impl Parser {
         use Token::*;
         match t {
             EQ | NEQ => Precedence::EQ,
-            AND | OR | IMPL => Precedence::BOOL,
+            AND => Precedence::AND,
+            OR => Precedence::OR,
+            IMPL => Precedence::IMPL,
             LANGLE | RANGLE | LEQ | GEQ => Precedence::CMP,
             PLUS | MINUS => Precedence::SUM,
             SLASH | MUL => Precedence::MUL,
             ASSIGN => Precedence::ASSIGN,
             QUEST => Precedence::HASATTR,
-            DOT => Precedence::ATTR,
+            DOT | ORKW => Precedence::ATTR,
             COLON | AT => Precedence::FUNCDEF,
 
             _ => Precedence::LOWEST,
@@ -586,7 +631,15 @@ impl Parser {
         let precedence = self.cur_precedence();
         self.next();
 
-        Box::new(InfixExpr::new(token, left, self.parse_expr(precedence)))
+        Box::new(InfixExpr::new(
+            token.clone(),
+            left,
+            self.parse_expr(if token == Token::IMPL {
+                Precedence::IMPLLOWER
+            } else {
+                precedence
+            }),
+        ))
     }
 
     fn parse_function(&mut self, arg: Box<dyn Expression>) -> Box<dyn Expression> {

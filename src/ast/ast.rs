@@ -1,3 +1,5 @@
+use crate::convany;
+
 use super::types::*;
 use crate::eval::Environment;
 use crate::object::*;
@@ -5,14 +7,15 @@ use crate::token::Token;
 use core::f64;
 use std::any::Any;
 use std::cell::RefCell;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::rc::Rc;
 
-pub trait Expression: Display {
+pub trait Expression: Display + Debug {
     fn as_any(&self) -> &dyn Any;
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object>;
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object>;
 }
 
+#[derive(Debug)]
 pub struct PrefixExpr {
     pub token: Token,
     pub right: Box<dyn Expression>,
@@ -29,23 +32,23 @@ impl Expression for PrefixExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         let val = self.right.eval(env);
         let a = val.as_any();
         use Token::*;
         match self.token {
             MINUS => {
                 if a.type_id() == *type_ids::INT {
-                    Box::new(Int::new(-a.downcast_ref::<Int>().unwrap().value))
+                    Rc::new(Int::new(-a.downcast_ref::<Int>().unwrap().value))
                 } else if a.type_id() == *type_ids::FLOAT {
-                    Box::new(Float::new(-a.downcast_ref::<Float>().unwrap().value))
+                    Rc::new(Float::new(-convany!(a, Float).value))
                 } else {
                     unimplemented!()
                 }
             }
             BANG => {
                 if a.type_id() == *type_ids::BOOL {
-                    Box::new(Bool::new(!a.downcast_ref::<Bool>().unwrap().value))
+                    Rc::new(Bool::new(!a.downcast_ref::<Bool>().unwrap().value))
                 } else {
                     panic!()
                 }
@@ -61,15 +64,20 @@ impl Display for PrefixExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct InfixExpr {
     pub token: Token,
-    pub left: Box<dyn Expression>,
-    pub right: Box<dyn Expression>,
+    pub left: Rc<dyn Expression>,
+    pub right: Rc<dyn Expression>,
 }
 
 impl InfixExpr {
     pub fn new(token: Token, left: Box<dyn Expression>, right: Box<dyn Expression>) -> InfixExpr {
-        InfixExpr { token, left, right }
+        InfixExpr {
+            token,
+            left: Rc::from(left),
+            right: Rc::from(right),
+        }
     }
 }
 
@@ -78,7 +86,7 @@ impl Expression for InfixExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         let le = self.left.eval(env.clone());
         let re = self.right.eval(env);
         let la = le.as_any();
@@ -94,7 +102,7 @@ impl Expression for InfixExpr {
                         SLASH => |a, b| a / b,
                         _ => unreachable!(),
                     };
-                    Box::new(Float::new(op(
+                    Rc::new(Float::new(op(
                         la.downcast_ref::<Float>().unwrap().value,
                         ra.downcast_ref::<Int>().unwrap().value as f64,
                     )))
@@ -106,7 +114,7 @@ impl Expression for InfixExpr {
                         SLASH => |a, b| a / b,
                         _ => unreachable!(),
                     };
-                    Box::new(Float::new(op(
+                    Rc::new(Float::new(op(
                         la.downcast_ref::<Int>().unwrap().value as f64,
                         ra.downcast_ref::<Float>().unwrap().value,
                     )))
@@ -118,7 +126,7 @@ impl Expression for InfixExpr {
                         SLASH => |a, b| a / b,
                         _ => unreachable!(),
                     };
-                    Box::new(Int::new(op(
+                    Rc::new(Int::new(op(
                         la.downcast_ref::<Int>().unwrap().value,
                         ra.downcast_ref::<Int>().unwrap().value,
                     )))
@@ -130,7 +138,7 @@ impl Expression for InfixExpr {
                         SLASH => |a, b| a / b,
                         _ => unreachable!(),
                     };
-                    Box::new(Float::new(op(
+                    Rc::new(Float::new(op(
                         la.downcast_ref::<Float>().unwrap().value,
                         ra.downcast_ref::<Float>().unwrap().value,
                     )))
@@ -140,14 +148,20 @@ impl Expression for InfixExpr {
             }
             AND => {
                 if la.type_id() == *type_ids::BOOL && ra.type_id() == *type_ids::BOOL {
-                    Box::new(Bool::new(la.downcast_ref::<Bool>().unwrap().value && ra.downcast_ref::<Bool>().unwrap().value))
+                    Rc::new(Bool::new(
+                        la.downcast_ref::<Bool>().unwrap().value
+                            && ra.downcast_ref::<Bool>().unwrap().value,
+                    ))
                 } else {
                     unimplemented!()
                 }
             }
             OR => {
                 if la.type_id() == *type_ids::BOOL && ra.type_id() == *type_ids::BOOL {
-                    Box::new(Bool::new(la.downcast_ref::<Bool>().unwrap().value || ra.downcast_ref::<Bool>().unwrap().value))
+                    Rc::new(Bool::new(
+                        la.downcast_ref::<Bool>().unwrap().value
+                            || ra.downcast_ref::<Bool>().unwrap().value,
+                    ))
                 } else {
                     unimplemented!()
                 }
@@ -163,6 +177,7 @@ impl Display for InfixExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct IdentifierExpr {
     pub ident: String,
 }
@@ -178,8 +193,8 @@ impl Expression for IdentifierExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
-        unimplemented!()
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+        env.borrow().get(&self.ident).unwrap()
     }
 }
 
@@ -189,6 +204,7 @@ impl Display for IdentifierExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct IntLiteralExpr {
     literal: NixInt,
 }
@@ -206,8 +222,8 @@ impl Expression for IntLiteralExpr {
         self
     }
 
-    fn eval(&self, _: Rc<RefCell<Environment>>) -> Box<dyn Object> {
-        Box::new(Int::new(self.literal))
+    fn eval(&self, _: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+        Rc::new(Int::new(self.literal))
     }
 }
 
@@ -217,6 +233,7 @@ impl Display for IntLiteralExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct FloatLiteralExpr {
     literal: NixFloat,
 }
@@ -234,8 +251,8 @@ impl Expression for FloatLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
-        Box::new(Float::new(self.literal))
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+        Rc::new(Float::new(self.literal))
     }
 }
 
@@ -245,6 +262,7 @@ impl Display for FloatLiteralExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct BoolLiteralExpr {
     literal: NixBool,
 }
@@ -260,8 +278,8 @@ impl Expression for BoolLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
-        Box::new(Bool::new(self.literal))
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+        Rc::new(Bool::new(self.literal))
     }
 }
 
@@ -271,6 +289,7 @@ impl Display for BoolLiteralExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct NullLiteralExpr;
 
 impl Expression for NullLiteralExpr {
@@ -278,8 +297,8 @@ impl Expression for NullLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
-        Box::new(Null {})
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+        Rc::new(Null {})
     }
 }
 
@@ -289,6 +308,7 @@ impl Display for NullLiteralExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct EllipsisLiteralExpr;
 
 impl Expression for EllipsisLiteralExpr {
@@ -296,7 +316,7 @@ impl Expression for EllipsisLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         unimplemented!()
     }
 }
@@ -307,6 +327,7 @@ impl Display for EllipsisLiteralExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct StringLiteralExpr {
     pub literal: NixString,
     pub replaces: Vec<(usize, Box<dyn Expression>)>,
@@ -326,8 +347,8 @@ impl Expression for StringLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
-        Box::new(Str::new(
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+        Rc::new(Str::new(
             self.literal.clone(),
             self.replaces
                 .iter()
@@ -343,14 +364,18 @@ impl Display for StringLiteralExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct FunctionLiteralExpr {
-    arg: Box<dyn Expression>,
-    body: Box<dyn Expression>,
+    arg: Rc<dyn Expression>,
+    body: Rc<dyn Expression>,
 }
 
 impl FunctionLiteralExpr {
     pub fn new(arg: Box<dyn Expression>, body: Box<dyn Expression>) -> FunctionLiteralExpr {
-        FunctionLiteralExpr { arg, body }
+        FunctionLiteralExpr {
+            arg: Rc::from(arg),
+            body: Rc::from(body),
+        }
     }
 }
 
@@ -359,8 +384,12 @@ impl Expression for FunctionLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
-        todo!()
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+        Rc::new(Lambda::new(
+            self.arg.clone(),
+            self.body.clone(),
+            env.clone(),
+        ))
     }
 }
 
@@ -370,6 +399,7 @@ impl Display for FunctionLiteralExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct FunctionCallExpr {
     func: Box<dyn Expression>,
     arg: Box<dyn Expression>,
@@ -386,8 +416,12 @@ impl Expression for FunctionCallExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
-        todo!()
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+        let e = self.func.eval(env.clone());
+        let fa = e.as_any();
+        fa.downcast_ref::<Lambda>()
+            .unwrap()
+            .call(self.arg.eval(env))
     }
 }
 
@@ -397,6 +431,7 @@ impl Display for FunctionCallExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct IfExpr {
     cond: Box<dyn Expression>,
     consq: Box<dyn Expression>,
@@ -418,7 +453,7 @@ impl Expression for IfExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         let c = self.cond.eval(env.clone());
         let c = c.as_any();
         if c.type_id() == *type_ids::BOOL {
@@ -443,14 +478,34 @@ impl Display for IfExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct BindingExpr {
     pub name: Box<dyn Expression>,
-    pub value: Box<dyn Expression>,
+    pub value: Rc<dyn Expression>,
 }
 
 impl BindingExpr {
     pub fn new(name: Box<dyn Expression>, value: Box<dyn Expression>) -> BindingExpr {
-        BindingExpr { name, value }
+        BindingExpr {
+            name,
+            value: Rc::from(value),
+        }
+    }
+
+    pub fn string(&self, env: Rc<RefCell<Environment>>) -> String {
+        let a = self.name.as_any();
+        if a.is::<IdentifierExpr>() {
+            a.downcast_ref::<IdentifierExpr>().unwrap().ident.clone()
+        } else {
+            // StringLiteralExpr
+            self.name
+                .eval(env)
+                .as_any()
+                .downcast_ref::<Str>()
+                .unwrap()
+                .value
+                .clone()
+        }
     }
 }
 
@@ -459,7 +514,7 @@ impl Expression for BindingExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         unimplemented!()
     }
 }
@@ -470,6 +525,7 @@ impl Display for BindingExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct AttrsLiteralExpr {
     bindings: Vec<Box<dyn Expression>>,
     rec: bool,
@@ -486,8 +542,82 @@ impl Expression for AttrsLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
-        todo!()
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+        let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
+        for b in self.bindings.iter() {
+            if b.as_any().is::<BindingExpr>() {
+                let b = b.as_any().downcast_ref::<BindingExpr>().unwrap();
+                let env = if self.rec {
+                    newenv.clone()
+                } else {
+                    env.clone()
+                };
+                newenv
+                    .borrow_mut()
+                    .set(b.string(env.clone()), EvaledOr::expr(env, b.value.clone()))
+                    .unwrap();
+            } else {
+                // InheritExpr
+                let inherit = b.as_any().downcast_ref::<InheritExpr>().unwrap();
+                let env = inherit.from.clone().map_or(env.clone(), |f| {
+                    env.clone()
+                        .borrow_mut()
+                        .get(&if f.as_any().is::<IdentifierExpr>() {
+                            f.as_any()
+                                .downcast_ref::<IdentifierExpr>()
+                                .unwrap()
+                                .ident
+                                .clone()
+                        } else {
+                            // StringLiteralExpr
+                            f.eval(env.clone())
+                                .as_any()
+                                .downcast_ref::<Str>()
+                                .unwrap()
+                                .value
+                                .clone()
+                        })
+                        .unwrap()
+                        .as_any()
+                        .downcast_ref::<Attrs>()
+                        .unwrap()
+                        .env
+                        .clone()
+                });
+                for i in b
+                    .as_any()
+                    .downcast_ref::<InheritExpr>()
+                    .unwrap()
+                    .inherits
+                    .iter()
+                {
+                    let string = if i.as_any().is::<IdentifierExpr>() {
+                        b.as_any()
+                            .downcast_ref::<IdentifierExpr>()
+                            .unwrap()
+                            .ident
+                            .clone()
+                    } else {
+                        // StringLiteralExpr
+                        b.eval(env.clone())
+                            .as_any()
+                            .downcast_ref::<Str>()
+                            .unwrap()
+                            .value
+                            .clone()
+                    }
+                    .clone();
+                    newenv
+                        .borrow_mut()
+                        .set(
+                            string.clone(),
+                            EvaledOr::evaled((*env.borrow_mut()).get(&string).unwrap()),
+                        )
+                        .unwrap();
+                }
+            }
+        }
+        Rc::new(Attrs::new(newenv))
     }
 }
 
@@ -504,17 +634,19 @@ impl Display for AttrsLiteralExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct ArgSetExpr {
-    args: Vec<Box<dyn Expression>>,
-    allow_more: bool,
-    alias: Option<Box<dyn Expression>>,
+    // pub args: Vec<Box<dyn Expression>>,
+    pub args: Vec<(String, Option<Rc<dyn Expression>>)>,
+    pub allow_more: bool,
+    pub alias: Option<String>,
 }
 
 impl ArgSetExpr {
     pub fn new(
-        args: Vec<Box<dyn Expression>>,
+        args: Vec<(String, Option<Rc<dyn Expression>>)>,
         allow_more: bool,
-        alias: Option<Box<dyn Expression>>,
+        alias: Option<String>,
     ) -> ArgSetExpr {
         ArgSetExpr {
             args,
@@ -529,7 +661,7 @@ impl Expression for ArgSetExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         unimplemented!()
     }
 }
@@ -544,7 +676,10 @@ impl Display for ArgSetExpr {
             } else {
                 write!(f, ", ")?;
             }
-            write!(f, "{arg}")?;
+            write!(f, "{}", arg.0)?;
+            if arg.1.is_some() {
+                write!(f, " ? {}", arg.1.clone().unwrap())?;
+            }
         }
         if self.allow_more {
             write!(f, ", ...")?;
@@ -557,6 +692,7 @@ impl Display for ArgSetExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct ListLiteralExpr {
     items: Vec<Box<dyn Expression>>,
 }
@@ -572,8 +708,8 @@ impl Expression for ListLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
-        Box::new(List::new(
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+        Rc::new(List::new(
             self.items.iter().map(|i| i.eval(env.clone())).collect(),
         ))
     }
@@ -589,6 +725,7 @@ impl Display for ListLiteralExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct LetExpr {
     bindings: Vec<Box<dyn Expression>>,
     expr: Box<dyn Expression>,
@@ -605,8 +742,78 @@ impl Expression for LetExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
-        todo!()
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+        let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
+        for b in self.bindings.iter() {
+            if b.as_any().is::<BindingExpr>() {
+                let b = b.as_any().downcast_ref::<BindingExpr>().unwrap();
+                let env = newenv.clone();
+                newenv
+                    .borrow_mut()
+                    .set(b.string(env.clone()), EvaledOr::expr(env, b.value.clone()))
+                    .unwrap();
+            } else {
+                // InheritExpr
+                let inherit = b.as_any().downcast_ref::<InheritExpr>().unwrap();
+                let env = inherit.from.clone().map_or(env.clone(), |f| {
+                    env.clone()
+                        .borrow_mut()
+                        .get(&if f.as_any().is::<IdentifierExpr>() {
+                            f.as_any()
+                                .downcast_ref::<IdentifierExpr>()
+                                .unwrap()
+                                .ident
+                                .clone()
+                        } else {
+                            // StringLiteralExpr
+                            f.eval(env.clone())
+                                .as_any()
+                                .downcast_ref::<Str>()
+                                .unwrap()
+                                .value
+                                .clone()
+                        })
+                        .unwrap()
+                        .as_any()
+                        .downcast_ref::<Attrs>()
+                        .unwrap()
+                        .env
+                        .clone()
+                });
+                for i in b
+                    .as_any()
+                    .downcast_ref::<InheritExpr>()
+                    .unwrap()
+                    .inherits
+                    .iter()
+                {
+                    let string = if i.as_any().is::<IdentifierExpr>() {
+                        b.as_any()
+                            .downcast_ref::<IdentifierExpr>()
+                            .unwrap()
+                            .ident
+                            .clone()
+                    } else {
+                        // StringLiteralExpr
+                        b.eval(env.clone())
+                            .as_any()
+                            .downcast_ref::<Str>()
+                            .unwrap()
+                            .value
+                            .clone()
+                    }
+                    .clone();
+                    newenv
+                        .borrow_mut()
+                        .set(
+                            string.clone(),
+                            EvaledOr::evaled((*env.borrow_mut()).get(&string).unwrap()),
+                        )
+                        .unwrap();
+                }
+            }
+        }
+        self.expr.eval(newenv)
     }
 }
 
@@ -620,6 +827,7 @@ impl Display for LetExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct WithExpr {
     attrs: Box<dyn Expression>,
     expr: Box<dyn Expression>,
@@ -636,8 +844,11 @@ impl Expression for WithExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
-        todo!()
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+        let e = self.attrs.eval(env.clone());
+        let newenv = convany!(e.as_any(), Attrs).env.clone();
+        newenv.borrow_mut().father = Some(env);
+        self.expr.eval(newenv)
     }
 }
 
@@ -647,6 +858,7 @@ impl Display for WithExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct AssertExpr {
     assertion: Box<dyn Expression>,
     expr: Box<dyn Expression>,
@@ -663,7 +875,7 @@ impl Expression for AssertExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         let assertion = self.assertion.eval(env.clone());
         let assertion = assertion.as_any();
         if assertion.type_id() == *type_ids::BOOL {
@@ -685,9 +897,10 @@ impl Display for AssertExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct InheritExpr {
     inherits: Vec<Box<dyn Expression>>,
-    from: Option<Box<dyn Expression>>,
+    from: Option<Rc<dyn Expression>>,
 }
 
 impl InheritExpr {
@@ -695,7 +908,10 @@ impl InheritExpr {
         inherits: Vec<Box<dyn Expression>>,
         from: Option<Box<dyn Expression>>,
     ) -> InheritExpr {
-        InheritExpr { inherits, from }
+        InheritExpr {
+            inherits,
+            from: from.map_or(None, |f| Some(Rc::from(f))),
+        }
     }
 }
 
@@ -704,7 +920,7 @@ impl Expression for InheritExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         unimplemented!()
     }
 }
@@ -728,6 +944,7 @@ impl Display for InheritExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct PathLiteralExpr {
     literal: NixPath,
     relative: bool,
@@ -744,7 +961,7 @@ impl Expression for PathLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         todo!()
     }
 }
@@ -755,6 +972,7 @@ impl Display for PathLiteralExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct SearchPathExpr {
     path: Box<dyn Expression>,
 }
@@ -770,7 +988,7 @@ impl Expression for SearchPathExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         todo!()
     }
 }
@@ -781,6 +999,7 @@ impl Display for SearchPathExpr {
     }
 }
 
+#[derive(Debug)]
 pub struct ThunkExpr {
     pub ident: Box<dyn Expression>,
 }
@@ -796,7 +1015,7 @@ impl Expression for ThunkExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Box<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         todo!()
     }
 }

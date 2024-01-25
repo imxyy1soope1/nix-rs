@@ -26,12 +26,13 @@ mod test {
 
     #[test]
     fn test_parse_null() {
-        _test_parse("null", "null")
+        _test_parse("null", "null");
     }
 
     #[test]
     fn test_parse_string() {
-        _test_parse(r#""test""#, r#""test""#)
+        _test_parse(r#""test""#, r#""test""#);
+        _test_parse(r#""${test}""#, r#""""#);
     }
 
     #[test]

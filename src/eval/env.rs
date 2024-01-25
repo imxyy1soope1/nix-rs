@@ -1,12 +1,14 @@
-use crate::object::Object;
+use crate::object::{EvaledOr, Object};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Display;
+use std::rc::Rc;
 
-pub struct Environment<'a> {
-    env: HashMap<String, Box<dyn Object>>,
-    father: Option<&'a Environment<'a>>,
-    objects: Vec<Box<dyn Object>>,
+#[derive(Debug, Clone)]
+pub struct Environment {
+    pub env: HashMap<String, EvaledOr>,
+    pub father: Option<Rc<RefCell<Environment>>>,
 }
 
 #[derive(Debug)]
@@ -28,24 +30,19 @@ impl Display for EnvironmentError {
 
 impl Error for EnvironmentError {}
 
-impl<'a> Environment<'a> {
-    pub fn new(father: Option<&'a Environment<'a>>) -> Environment<'a> {
+impl Environment {
+    pub fn new(father: Option<Rc<RefCell<Environment>>>) -> Environment {
         Environment {
             env: HashMap::new(),
             father,
-            objects: Vec::new(),
         }
     }
 
-    pub fn new_obj(&'a mut self, obj: Box<dyn Object>) -> &'a dyn Object {
-        self.objects.push(obj);
-        self.objects[self.objects.len() - 1].as_ref()
-    }
-
-    pub fn get(&self, sym: &String) -> Result<&Box<dyn Object>, EnvironmentError> {
-        let obj = self.env.get(sym);
-        if obj.is_some() {
-            Ok(obj.unwrap())
+    pub fn get(&self, sym: &String) -> Result<Rc<dyn Object>, EnvironmentError> {
+        if let Some(val) = self.env.get(sym) {
+            Ok(val.eval())
+        } else if let Some(father) = &self.father {
+            father.borrow().get(sym)
         } else {
             Err(EnvironmentError::new(format!(
                 "undefined variable '{}'",
@@ -58,7 +55,7 @@ impl<'a> Environment<'a> {
         self.env.contains_key(sym)
     }
 
-    pub fn set(&mut self, sym: String, obj: Box<dyn Object>) -> Result<(), EnvironmentError> {
+    pub fn set(&mut self, sym: String, obj: EvaledOr) -> Result<(), EnvironmentError> {
         if self.exsits(&sym) {
             Err(EnvironmentError::new(format!(
                 "{sym} exsits in environment!"
@@ -69,18 +66,7 @@ impl<'a> Environment<'a> {
         }
     }
 
-    pub fn over(&mut self, sym: String, obj: Box<dyn Object>) -> Result<(), EnvironmentError> {
-        if self.exsits(&sym) {
-            self.env.insert(sym, obj);
-            Ok(())
-        } else {
-            Err(EnvironmentError::new(format!(
-                "{sym} does not exsit in environment!"
-            )))
-        }
-    }
-
-    pub fn set_force(&mut self, sym: String, obj: Box<dyn Object>) {
+    pub fn over(&mut self, sym: String, obj: EvaledOr) {
         self.env.insert(sym, obj);
     }
 }

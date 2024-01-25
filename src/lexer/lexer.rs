@@ -52,6 +52,7 @@ fn escape_string(s: String) -> (String, Vec<(usize, Vec<Token>)>) {
                     'n' => '\n',
                     't' => '\t',
                     'r' => '\r',
+                    '$' => '$',
                     '\\' => '\\',
                     '\0' => panic!("string not closed"),
                     _ => panic!(),
@@ -66,6 +67,7 @@ fn escape_string(s: String) -> (String, Vec<(usize, Vec<Token>)>) {
                         loop {
                             match l.next().unwrap() {
                                 Token::RBRACE => {
+                                    tokens.push(Token::EOF);
                                     replaces.push((i, tokens));
                                     while c.unwrap() != '}' {
                                         c = chars.next();

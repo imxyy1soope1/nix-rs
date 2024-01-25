@@ -147,8 +147,8 @@ mod test {
             STRING(
                 "test".to_string(),
                 vec![
-                    (0, vec![IDENT("test".to_string())]),
-                    (4, vec![IDENT("test".to_string())]),
+                    (0, vec![IDENT("test".to_string()), EOF]),
+                    (4, vec![IDENT("test".to_string()), EOF]),
                 ],
             ),
             SEMI,
