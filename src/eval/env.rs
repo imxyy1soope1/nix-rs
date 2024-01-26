@@ -5,6 +5,8 @@ use std::error::Error;
 use std::fmt::Display;
 use std::rc::Rc;
 
+pub type Env = Rc<RefCell<Environment>>;
+
 #[derive(Debug, Clone)]
 pub struct Environment {
     pub env: HashMap<String, EvaledOr>,

@@ -1,5 +1,5 @@
 use super::env::Environment;
-use crate::{ast::*, convany, object::*};
+use crate::{ast::*, object::*};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -9,14 +9,21 @@ pub struct Eval {
 
 impl Eval {
     pub fn new(expr: Box<dyn Expression>) -> Eval {
-        let e = Eval {
+        Eval {
             root: EvaledOr::expr(
                 Rc::new(RefCell::new(Environment::new(None))),
                 Rc::from(expr),
             ),
-        };
+        }
+    }
 
-        e
+    pub fn with_env(env: Rc<RefCell<Environment>>, expr: Box<dyn Expression>) -> Eval {
+        Eval {
+            root: EvaledOr::expr(
+                env,
+                Rc::from(expr),
+            ),
+        }
     }
 
     pub fn eval(&mut self) -> Rc<dyn Object> {
