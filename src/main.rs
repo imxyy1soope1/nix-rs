@@ -7,10 +7,14 @@ use crate::nix_rs::*;
 fn main() {
     let env = new_env();
     loop {
-        print!(">> ");
+        print!("nix-rs-eval> ");
         std::io::stdout().flush().unwrap();
         let mut input = String::new();
         std::io::stdin().read_line(&mut input).unwrap();
+        if input.is_empty() {
+            println!();
+            return;
+        }
         println!("{}", eval_with_env(env.clone(), input));
     }
 }

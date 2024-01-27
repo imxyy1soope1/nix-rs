@@ -1,9 +1,59 @@
 use crate::token::Token;
+use std::{path::Path, fmt::Display};
+
+/* pub enum SourcePath {
+    None,
+    String,
+    Stdin,
+    Path(Box<Path>),
+}
+
+impl Display for SourcePath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => write!(f, "«none»"),
+            Self::String => write!(f, "«string»"),
+            Self::Stdin => write!(f, "«stdin»"),
+            Self::Path(path) => write!(f, "")
+        }
+    }
+} */
+
+#[derive(Clone, Copy)]
+pub struct Pos {
+    line: i64,
+    ch: i64,
+}
+
+impl Display for Pos {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.line, self.ch)
+    }
+}
+
+impl Pos {
+    fn new() -> Pos {
+        Pos { line: 1, ch: 0 }
+    }
+
+    fn nextline(&mut self) {
+        self.line += 1;
+    }
+
+    fn nextchar(&mut self) {
+        self.ch += 1;
+    }
+
+    fn clearchar(&mut self) {
+        self.ch = 0;
+    }
+}
 
 #[allow(unused)]
 pub struct Lexer {
     input: String,
     chars: Vec<char>,
+    hpos: Pos,
     pos: usize,
     next_pos: usize,
     cur_ch: Option<char>,
@@ -109,6 +159,7 @@ impl Lexer {
             input,
             chars: s.chars().collect(),
             pos: 0,
+            hpos: Pos::new(),
             next_pos: 0,
             cur_ch: None,
             next_ch: None,
@@ -131,6 +182,12 @@ impl Lexer {
         self.pos = self.next_pos;
         self.next_pos += 1;
         self.next_ch = self._read_wrap();
+        if self.cur_ch.unwrap_or_default() == '\n' {
+            self.hpos.nextline();
+            self.hpos.clearchar();
+        } else if self.cur_ch.is_some() {
+            self.hpos.nextchar();
+        }
     }
 
     fn peek(&self) -> Option<char> {

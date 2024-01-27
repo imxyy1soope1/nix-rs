@@ -1,4 +1,4 @@
-use std::{any::Any, cell::RefCell, fmt::Debug, fmt::Display, rc::Rc};
+use std::{any::Any, cell::RefCell, fmt::Debug, fmt::Display, rc::Rc, sync::Arc};
 
 use crate::{
     ast::{ArgSetExpr, Expression, IdentifierExpr},
@@ -68,25 +68,19 @@ pub mod type_ids {
     use super::*;
     use std::any::TypeId;
 
-    lazy_static! {
-        pub static ref INT: TypeId = Int::new(0).type_id();
-        pub static ref FLOAT: TypeId = Float::new(0f64).type_id();
-        pub static ref BOOL: TypeId = Bool::new(false).type_id();
-        pub static ref NULL: TypeId = super::NULL.type_id();
-        pub static ref STRING: TypeId = Str::new("".to_string(), Vec::new()).type_id();
-    }
+    pub static INT: TypeId = TypeId::of::<Int>();
+    pub static FLOAT: TypeId = TypeId::of::<Float>();
+    pub static BOOL: TypeId = TypeId::of::<Bool>();
+    pub static NULL: TypeId = TypeId::of::<Null>();
+    pub static STRING: TypeId = TypeId::of::<Str>();
 }
 
-#[derive(Debug)]
+/* #[derive(Debug)]
 pub struct Int {
     pub value: i64,
-}
+} */
 
-impl Int {
-    pub fn new(value: i64) -> Int {
-        Int { value }
-    }
-}
+pub type Int = i64;
 
 impl Object for Int {
     fn as_any(&self) -> &dyn Any {
@@ -94,22 +88,7 @@ impl Object for Int {
     }
 }
 
-impl Display for Int {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.value)
-    }
-}
-
-#[derive(Debug)]
-pub struct Float {
-    pub value: f64,
-}
-
-impl Float {
-    pub fn new(value: f64) -> Float {
-        Float { value }
-    }
-}
+pub type Float = f64;
 
 impl Object for Float {
     fn as_any(&self) -> &dyn Any {
@@ -117,52 +96,17 @@ impl Object for Float {
     }
 }
 
-impl Display for Float {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.value)
-    }
-}
-
 lazy_static! {
-    pub static ref TRUE: Bool = Bool::new(true);
-    pub static ref FALSE: Bool = Bool::new(false);
-    pub static ref NULL: Null = Null {};
+    // pub static ref TRUE: Arc<Bool> = Arc::new(Bool::new(true));
+    // pub static ref FALSE: Arc<Bool> = Arc::new(Bool::new(false));
+    pub static ref NULL: Arc<Null> = Arc::new(Null {});
 }
 
-#[derive(Debug)]
-pub struct Bool {
-    pub value: bool,
-}
+pub type Bool = bool;
 
-impl Bool {
-    pub fn new(value: bool) -> Bool {
-        Bool { value }
-    }
-    pub fn bang(&self) -> &'static Bool {
-        if self.value {
-            &TRUE
-        } else {
-            &FALSE
-        }
-    }
-    pub fn from_bool(value: bool) -> &'static Bool {
-        if value {
-            &TRUE
-        } else {
-            &FALSE
-        }
-    }
-}
-
-impl Object for Bool {
+impl Object for bool {
     fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-impl Display for Bool {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.value)
+        return self;
     }
 }
 

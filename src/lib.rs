@@ -1,12 +1,15 @@
+#![feature(const_type_id)]
+
 mod ast;
+mod error;
 mod eval;
 mod lexer;
 mod object;
 mod parser;
 mod token;
 
-use std::{rc::Rc, cell::RefCell};
 use eval::{Environment, Eval};
+use std::{cell::RefCell, rc::Rc};
 
 pub use eval::Env;
 use lexer::Lexer;

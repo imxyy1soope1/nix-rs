@@ -19,10 +19,7 @@ impl Eval {
 
     pub fn with_env(env: Rc<RefCell<Environment>>, expr: Box<dyn Expression>) -> Eval {
         Eval {
-            root: EvaledOr::expr(
-                env,
-                Rc::from(expr),
-            ),
+            root: EvaledOr::expr(env, Rc::from(expr)),
         }
     }
 
