@@ -4,7 +4,7 @@ use super::types::*;
 use crate::eval::Environment;
 use crate::object::*;
 use crate::token::Token;
-use core::f64;
+
 use std::any::Any;
 use std::cell::RefCell;
 use std::fmt::{Debug, Display};
@@ -322,7 +322,7 @@ impl Expression for NullLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+    fn eval(&self, _env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         Rc::new(Null {})
     }
 }
@@ -341,7 +341,7 @@ impl Expression for EllipsisLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+    fn eval(&self, _env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         unimplemented!()
     }
 }
@@ -539,7 +539,7 @@ impl Expression for BindingExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+    fn eval(&self, _env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         unimplemented!()
     }
 }
@@ -686,7 +686,7 @@ impl Expression for ArgSetExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+    fn eval(&self, _env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         unimplemented!()
     }
 }
@@ -935,7 +935,7 @@ impl InheritExpr {
     ) -> InheritExpr {
         InheritExpr {
             inherits,
-            from: from.map_or(None, |f| Some(Rc::from(f))),
+            from: from.map(Rc::from),
         }
     }
 }
@@ -945,7 +945,7 @@ impl Expression for InheritExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+    fn eval(&self, _env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         unimplemented!()
     }
 }
@@ -986,7 +986,7 @@ impl Expression for PathLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+    fn eval(&self, _env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         todo!()
     }
 }
@@ -1013,7 +1013,7 @@ impl Expression for SearchPathExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+    fn eval(&self, _env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         todo!()
     }
 }
@@ -1040,7 +1040,7 @@ impl Expression for ThunkExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+    fn eval(&self, _env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         todo!()
     }
 }

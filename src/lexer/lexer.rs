@@ -1,5 +1,5 @@
 use crate::token::Token;
-use std::{path::Path, fmt::Display};
+use std::{fmt::Display};
 
 /* pub enum SourcePath {
     None,
@@ -63,7 +63,7 @@ pub struct Lexer {
 
 #[inline]
 fn is_letter(ch: char) -> bool {
-    'a' <= ch && ch <= 'z' || 'A' <= ch && ch <= 'Z' || ch == '_' || ch == '-'
+    ch.is_ascii_lowercase() || ch.is_ascii_uppercase() || ch == '_' || ch == '-'
 }
 
 #[inline]
@@ -134,7 +134,7 @@ fn escape_string(s: String) -> (String, Vec<(usize, Vec<Token>)>) {
                 }
             }
             '\r' => {
-                c = chars.peek().as_deref().copied();
+                c = chars.peek().copied();
                 match c.unwrap_or_default() {
                     '\n' => {
                         c = chars.next();
@@ -232,7 +232,7 @@ impl Lexer {
     fn read_number(&mut self) -> Token {
         let pos = self.pos;
         let mut is_float = false;
-        while self.next_ch.unwrap_or_default().is_digit(10)
+        while self.next_ch.unwrap_or_default().is_ascii_digit()
             || (if self.next_ch.unwrap_or_default() == '.' && !is_float {
                 is_float = true;
                 true
@@ -252,7 +252,7 @@ impl Lexer {
 
     fn read_float(&mut self) -> Token {
         let pos = self.pos;
-        while self.next_ch.unwrap_or_default().is_digit(10) {
+        while self.next_ch.unwrap_or_default().is_ascii_digit() {
             self.read_char();
         }
 
@@ -407,7 +407,7 @@ impl Iterator for Lexer {
                         self.read_char();
                         PARENT
                     }
-                } else if self.next_ch.unwrap_or_default().is_digit(10) {
+                } else if self.next_ch.unwrap_or_default().is_ascii_digit() {
                     println!("{}", self.next_ch.unwrap_or_default());
                     self.read_float()
                 } else {
@@ -451,7 +451,7 @@ impl Iterator for Lexer {
             ch => {
                 if is_letter(ch) {
                     self.read_ident()
-                } else if ch.is_digit(10) {
+                } else if ch.is_ascii_digit() {
                     self.read_number()
                 } else {
                     ILLEGAL

@@ -29,7 +29,7 @@ impl _EvaledOr {
         match &*self {
             Evaled(o) => o.clone(),
             Expr(env, e) => {
-                self.set(Evaled(e.eval((&*env).clone())));
+                self.set(Evaled(e.eval((*env).clone())));
                 self.eval()
             }
             Ref(r) => r.clone(),
@@ -106,7 +106,7 @@ pub type Bool = bool;
 
 impl Object for bool {
     fn as_any(&self) -> &dyn Any {
-        return self;
+        self
     }
 }
 
@@ -229,7 +229,7 @@ impl Lambda {
         {
             let ident = a.0.clone();
             let e = {
-                let t = (&mut *(*self.env.clone()).borrow_mut()).get(&ident);
+                let t = (*self.env.clone()).borrow_mut().get(&ident);
                 if let Ok(o) = t {
                     EvaledOr::evaled(o)
                 } else {

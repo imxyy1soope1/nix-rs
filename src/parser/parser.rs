@@ -676,7 +676,7 @@ impl Parser {
     fn parse_expr(&mut self, precedence: Precedence) -> Box<dyn Expression> {
         let mut left =
             self.prefix_parser(self.unwrap_cur())
-                .expect(&format!("unexpected token: {}", self.unwrap_cur()))(self);
+                .unwrap_or_else(|| panic!("unexpected token: {}", self.unwrap_cur()))(self);
 
         while !self.cur_is(Token::SEMI)
             && !self.cur_is(Token::EOF)
@@ -710,7 +710,7 @@ impl Parser {
     }
 
     pub fn parse(&mut self) -> Box<dyn Expression> {
-        let expr = self.parse_expr(Precedence::LOWEST);
-        expr
+        
+        (self.parse_expr(Precedence::LOWEST)) as _
     }
 }
