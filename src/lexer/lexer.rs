@@ -1,5 +1,5 @@
 use crate::token::Token;
-use std::{fmt::Display};
+use std::fmt::Display;
 
 /* pub enum SourcePath {
     None,
@@ -209,11 +209,10 @@ impl Lexer {
         }
 
         match &self.input[pos..=self.pos] {
-            "true" => TRUE,
-            "false" => FALSE,
-
-            "null" => NULL,
-
+            // "true" => TRUE,
+            // "false" => FALSE,
+            //
+            // "null" => NULL,
             "if" => IF,
             "then" => THEN,
             "else" => ELSE,
@@ -260,6 +259,7 @@ impl Lexer {
     }
 
     fn read_string(&mut self) -> Token {
+        // FIXME
         self.read_char();
         let pos = self.pos;
         while self.cur_ch.map_or(false, |c| c != '"') {
@@ -270,14 +270,19 @@ impl Lexer {
         Token::STRING(s, r)
     }
 
-    /* fn read_lines(&mut self) -> Token {
+    fn read_lines(&mut self) -> Token {
+        // FIXME
+        unimplemented!();
+        /*
         self.read_char();
         self.read_char();
         let pos = self.pos;
-        while self.next_ch.map_or(false, |c| c != '\'') || self.cur_ch.map_or(false, |c| c != '\''|) {
+        while self.next_ch.map_or(false, |c| c != '\'') || self.cur_ch.map_or(false, |c| c != '\'') {
             self.read_char();
         }
-    } */
+
+        Token::ILLEGAL */
+    }
 
     fn skip_comment(&mut self) {
         while self.cur_ch.unwrap_or_default() != '\n' {
@@ -424,7 +429,7 @@ impl Iterator for Lexer {
             '{' => LBRACE,
             '}' => RBRACE,
             '$' => {
-                if self.next_ch.unwrap() == '{' {
+                if self.next_ch.unwrap_or_default() == '{' {
                     self.read_char();
                     DOLLARCURLY
                 } else {
@@ -433,16 +438,18 @@ impl Iterator for Lexer {
             }
 
             '\0' => {
-                if !self.finished {
-                    self.finished = true;
-                    EOF
-                } else {
-                    unreachable!()
-                }
+                self.finished = true;
+                EOF
             }
 
             '"' => self.read_string(),
-
+            /* '\'' => {
+                if self.next_ch.unwrap_or_default() == '\'' {
+                    self.read_lines()
+                } else {
+                    ILLEGAL
+                }
+            } */
             '#' => {
                 self.skip_comment();
                 return self.next();

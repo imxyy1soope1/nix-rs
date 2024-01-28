@@ -1,4 +1,5 @@
 use super::env::Environment;
+use crate::builtins::new_builtins_env;
 use crate::{ast::*, object::*};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -11,7 +12,7 @@ impl Eval {
     pub fn new(expr: Box<dyn Expression>) -> Eval {
         Eval {
             root: EvaledOr::expr(
-                Rc::new(RefCell::new(Environment::new(None))),
+                Rc::new(RefCell::new(Environment::new(Some(new_builtins_env())))),
                 Rc::from(expr),
             ),
         }

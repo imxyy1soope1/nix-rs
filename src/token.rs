@@ -47,11 +47,10 @@ pub enum Token {
     RANGLE,
     DOLLARCURLY,
 
-    TRUE,
-    FALSE,
+    // TRUE,
+    // FALSE,
 
-    NULL,
-
+    // NULL,
     IF,
     THEN,
     ELSE,
@@ -112,11 +111,10 @@ impl fmt::Display for Token {
             RANGLE => write!(f, ">"),
             DOLLARCURLY => write!(f, "${{"),
 
-            TRUE => write!(f, "true"),
-            FALSE => write!(f, "false"),
+            // TRUE => write!(f, "true"),
+            // FALSE => write!(f, "false"),
 
-            NULL => write!(f, "null"),
-
+            // NULL => write!(f, "null"),
             IF => write!(f, "if"),
             THEN => write!(f, "then"),
             ELSE => write!(f, "else"),

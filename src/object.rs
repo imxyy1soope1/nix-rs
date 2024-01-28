@@ -27,13 +27,10 @@ impl _EvaledOr {
     }
     fn eval(&mut self) -> Rc<dyn Object> {
         match &*self {
-            Evaled(o) => o.clone(),
-            Expr(env, e) => {
-                self.set(Evaled(e.eval((*env).clone())));
-                self.eval()
-            }
-            Ref(r) => r.clone(),
+            Expr(env, e) => self.set(Evaled(e.eval((*env).clone()))),
+            _ => (),
         }
+        self.get()
     }
 }
 
@@ -73,6 +70,7 @@ pub mod type_ids {
     pub static BOOL: TypeId = TypeId::of::<Bool>();
     pub static NULL: TypeId = TypeId::of::<Null>();
     pub static STRING: TypeId = TypeId::of::<Str>();
+    pub static ATTRS: TypeId = TypeId::of::<Attrs>();
 }
 
 /* #[derive(Debug)]

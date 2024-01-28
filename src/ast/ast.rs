@@ -1,6 +1,7 @@
 use crate::convany;
 
 use super::types::*;
+use crate::builtins::{BuiltinFunction, BuiltinFunctionApp};
 use crate::eval::Environment;
 use crate::object::*;
 use crate::token::Token;
@@ -88,95 +89,48 @@ impl Expression for InfixExpr {
 
     fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         let le = self.left.eval(env.clone());
+        if le.as_any().type_id() == type_ids::ATTRS {
+            if self.token == Token::DOT && self.right.as_any().is::<IdentifierExpr>() {
+                // println!("{:?}", convany!(le.as_any(), Attrs));
+                return convany!(le.as_any(), Attrs)
+                    .env
+                    .borrow_mut()
+                    .get(&convany!(self.right.as_any(), IdentifierExpr).ident)
+                    .unwrap();
+            }
+        }
         let re = self.right.eval(env);
         let la = le.as_any();
         let ra = re.as_any();
         use Token::*;
+        macro_rules! num {
+            ($op:expr) => {
+                if la.type_id() == type_ids::INT {
+                    if ra.type_id() == type_ids::INT {
+                        Rc::new($op(convany!(la, Int), convany!(ra, Int)))
+                    } else if ra.type_id() == type_ids::FLOAT {
+                        Rc::new($op(*convany!(la, Int) as Float, convany!(ra, Float)))
+                    } else {
+                        unimplemented!()
+                    }
+                } else if la.type_id() == type_ids::FLOAT {
+                    if ra.type_id() == type_ids::INT {
+                        Rc::new($op(convany!(la, Float), *convany!(ra, Int) as Float))
+                    } else if ra.type_id() == type_ids::FLOAT {
+                        Rc::new($op(convany!(la, Float), convany!(ra, Float)))
+                    } else {
+                        unimplemented!()
+                    }
+                } else {
+                    unimplemented!()
+                }
+            };
+        }
         match self.token {
-            PLUS => {
-                if la.type_id() == type_ids::INT {
-                    if ra.type_id() == type_ids::INT {
-                        Rc::new(convany!(la, Int) + convany!(ra, Int))
-                    } else if ra.type_id() == type_ids::FLOAT {
-                        Rc::new(*convany!(la, Int) as Float + convany!(ra, Float))
-                    } else {
-                        unimplemented!()
-                    }
-                } else if la.type_id() == type_ids::FLOAT {
-                    if ra.type_id() == type_ids::INT {
-                        Rc::new(convany!(la, Float) + *convany!(ra, Int) as Float)
-                    } else if ra.type_id() == type_ids::FLOAT {
-                        Rc::new(convany!(la, Float) + convany!(ra, Float))
-                    } else {
-                        unimplemented!()
-                    }
-                } else {
-                    unimplemented!()
-                }
-            }
-            MINUS => {
-                if la.type_id() == type_ids::INT {
-                    if ra.type_id() == type_ids::INT {
-                        Rc::new(convany!(la, Int) - convany!(ra, Int))
-                    } else if ra.type_id() == type_ids::FLOAT {
-                        Rc::new(*convany!(la, Int) as Float - convany!(ra, Float))
-                    } else {
-                        unimplemented!()
-                    }
-                } else if la.type_id() == type_ids::FLOAT {
-                    if ra.type_id() == type_ids::INT {
-                        Rc::new(convany!(la, Float) - *convany!(ra, Int) as Float)
-                    } else if ra.type_id() == type_ids::FLOAT {
-                        Rc::new(convany!(la, Float) - convany!(ra, Float))
-                    } else {
-                        unimplemented!()
-                    }
-                } else {
-                    unimplemented!()
-                }
-            }
-            MUL => {
-                if la.type_id() == type_ids::INT {
-                    if ra.type_id() == type_ids::INT {
-                        Rc::new(convany!(la, Int) * convany!(ra, Int))
-                    } else if ra.type_id() == type_ids::FLOAT {
-                        Rc::new(*convany!(la, Int) as Float * convany!(ra, Float))
-                    } else {
-                        unimplemented!()
-                    }
-                } else if la.type_id() == type_ids::FLOAT {
-                    if ra.type_id() == type_ids::INT {
-                        Rc::new(convany!(la, Float) * *convany!(ra, Int) as Float)
-                    } else if ra.type_id() == type_ids::FLOAT {
-                        Rc::new(convany!(la, Float) * convany!(ra, Float))
-                    } else {
-                        unimplemented!()
-                    }
-                } else {
-                    unimplemented!()
-                }
-            }
-            SLASH => {
-                if la.type_id() == type_ids::INT {
-                    if ra.type_id() == type_ids::INT {
-                        Rc::new(convany!(la, Int) / convany!(ra, Int))
-                    } else if ra.type_id() == type_ids::FLOAT {
-                        Rc::new(*convany!(la, Int) as Float / convany!(ra, Float))
-                    } else {
-                        unimplemented!()
-                    }
-                } else if la.type_id() == type_ids::FLOAT {
-                    if ra.type_id() == type_ids::INT {
-                        Rc::new(convany!(la, Float) / *convany!(ra, Int) as Float)
-                    } else if ra.type_id() == type_ids::FLOAT {
-                        Rc::new(convany!(la, Float) / convany!(ra, Float))
-                    } else {
-                        unimplemented!()
-                    }
-                } else {
-                    unimplemented!()
-                }
-            }
+            PLUS => num!(|a, b| a + b),
+            MINUS => num!(|a, b| a - b),
+            MUL => num!(|a, b| a * b),
+            SLASH => num!(|a, b| a / b),
             AND => {
                 if la.type_id() == type_ids::BOOL && ra.type_id() == type_ids::BOOL {
                     Rc::new(*convany!(la, Bool) && *convany!(ra, Bool))
@@ -444,9 +398,15 @@ impl Expression for FunctionCallExpr {
     fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         let e = self.func.eval(env.clone());
         let fa = e.as_any();
-        fa.downcast_ref::<Lambda>()
-            .unwrap()
-            .call(self.arg.eval(env))
+        if fa.is::<BuiltinFunction>() {
+            convany!(fa, BuiltinFunction).call(self.arg.eval(env))
+        } else if fa.is::<BuiltinFunctionApp>() {
+            convany!(fa, BuiltinFunctionApp).call(self.arg.eval(env))
+        } else {
+            fa.downcast_ref::<Lambda>()
+                .unwrap()
+                .call(self.arg.eval(env))
+        }
     }
 }
 

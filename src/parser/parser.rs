@@ -97,7 +97,7 @@ impl Parser {
                     unreachable!()
                 }
             }),
-            TRUE | FALSE => Some(|s| {
+            /*TRUE | FALSE => Some(|s| {
                 let b = s.cur_is(TRUE);
                 s.next();
                 Box::new(BoolLiteralExpr::new(b))
@@ -105,7 +105,7 @@ impl Parser {
             NULL => Some(|s| {
                 s.next();
                 Box::new(NullLiteralExpr)
-            }),
+            }),*/
             ELLIPSIS => Some(|s| {
                 s.next();
                 Box::new(EllipsisLiteralExpr)
@@ -434,7 +434,7 @@ impl Parser {
 
         while !self.cur_is(RBRACE) {
             match self.unwrap_cur() {
-                IDENT(_) | STRING(..) | NULL | TRUE | FALSE => (),
+                IDENT(_) | STRING(..) /*| NULL | TRUE | FALSE*/ => (),
                 INHERIT => {
                     bindings.push(self.parse_inherit());
                     continue;
@@ -498,7 +498,7 @@ impl Parser {
         use Token::*;
 
         let mut literal = String::new();
-        literal.push_str(&format!("{}", self.unwrap_cur()));
+        literal.push_str(&self.unwrap_cur().to_string());
         self.next();
 
         while self.cur_is(SLASH) {
@@ -507,7 +507,7 @@ impl Parser {
                 IDENT(s) => literal.push_str(s),
                 DOT => literal.push('.'),
                 PARENT => literal.push_str(".."),
-                _ => panic!("unexpected '.'"),
+                _ => panic!("unexpected '{literal}'"),
             }
             self.next();
             self.next();
@@ -611,6 +611,8 @@ impl Parser {
             SLASH | MUL => Precedence::MUL,
             ASSIGN => Precedence::ASSIGN,
             QUEST => Precedence::HASATTR,
+            UPDATE => Precedence::UPDATE,
+            CONCAT => Precedence::CONCAT,
             DOT | ORKW => Precedence::ATTR,
             COLON | AT => Precedence::FUNCDEF,
 
@@ -674,9 +676,11 @@ impl Parser {
     }
 
     fn parse_expr(&mut self, precedence: Precedence) -> Box<dyn Expression> {
-        let mut left =
-            self.prefix_parser(self.unwrap_cur())
-                .unwrap_or_else(|| panic!("unexpected token: {}", self.unwrap_cur()))(self);
+        let mut left = self
+            .prefix_parser(self.unwrap_cur())
+            .unwrap_or_else(|| panic!("unexpected token: {}", self.unwrap_cur()))(
+            self
+        );
 
         while !self.cur_is(Token::SEMI)
             && !self.cur_is(Token::EOF)
@@ -690,15 +694,16 @@ impl Parser {
             }
         }
 
-        while !self.cur_is(Token::SEMI)
-            && !self.cur_is(Token::EOF)
-            && Precedence::CALL > precedence
-            && self.prefix_parser(self.unwrap_cur()).is_some()
-        {
-            left = Box::new(FunctionCallExpr::new(
-                left,
-                self.parse_expr(Precedence::CALL),
-            ));
+        if precedence < Precedence::CALL {
+            while !self.cur_is(Token::SEMI)
+                && !self.cur_is(Token::EOF)
+                && self.prefix_parser(self.unwrap_cur()).is_some()
+            {
+                left = Box::new(FunctionCallExpr::new(
+                    left,
+                    self.parse_expr(Precedence::CALL),
+                ));
+            }
         }
 
         left
@@ -710,7 +715,6 @@ impl Parser {
     }
 
     pub fn parse(&mut self) -> Box<dyn Expression> {
-        
         (self.parse_expr(Precedence::LOWEST)) as _
     }
 }
