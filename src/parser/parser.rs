@@ -97,21 +97,11 @@ impl Parser {
                     unreachable!()
                 }
             }),
-            /*TRUE | FALSE => Some(|s| {
-                let b = s.cur_is(TRUE);
-                s.next();
-                Box::new(BoolLiteralExpr::new(b))
-            }),
-            NULL => Some(|s| {
-                s.next();
-                Box::new(NullLiteralExpr)
-            }),*/
             ELLIPSIS => Some(|s| {
                 s.next();
                 Box::new(EllipsisLiteralExpr)
             }),
             MINUS | BANG => parser!(parse_prefix),
-            // LANGLE => |s| s.parse_spath(,
             LPAREN => parser!(parse_group),
             IF => parser!(parse_if),
             LBRACE => parser!(parse_attrs),
@@ -208,8 +198,6 @@ impl Parser {
         assert!(
             a.is::<IdentifierExpr>()
                 || a.is::<StringLiteralExpr>()
-                || a.is::<NullLiteralExpr>()
-                || a.is::<BoolLiteralExpr>()
                 || a.is::<InheritExpr>()
                 || (a.is::<InfixExpr>()
                     && a.downcast_ref::<InfixExpr>().unwrap().token == Token::DOT)
@@ -217,14 +205,14 @@ impl Parser {
         self.next();
         let expr = self.parse_expr(Precedence::ASSIGN);
         assert!(!expr.as_any().is::<BindingExpr>());
-        Box::new(BindingExpr::new(name, expr))
+        Box::new(BindingExpr::new(Rc::from(name), Rc::from(expr)))
     }
 
     fn parse_attrs(&mut self) -> Box<dyn Expression> {
         use Token::*;
 
         self.next();
-        let mut bindings: Vec<Box<dyn Expression>> = Vec::new();
+        let mut bindings: Vec<Rc<dyn Expression>> = Vec::new();
         let mut args: Vec<(String, Option<Rc<dyn Expression>>)> = Vec::new();
 
         let is_attrs = {
@@ -252,7 +240,7 @@ impl Parser {
                 let expr = self.parse_expr(Precedence::LOWEST);
                 let a = expr.as_any();
                 assert!(a.is::<BindingExpr>() || a.is::<InheritExpr>());
-                bindings.push(expr);
+                bindings.push(Rc::from(expr));
                 if !self.cur_is(SEMI) {
                     panic!()
                 }
@@ -430,13 +418,13 @@ impl Parser {
         }
         self.next();
         self.next();
-        let mut bindings: Vec<Box<dyn Expression>> = Vec::new();
+        let mut bindings: Vec<Rc<dyn Expression>> = Vec::new();
 
         while !self.cur_is(RBRACE) {
             match self.unwrap_cur() {
                 IDENT(_) | STRING(..) /*| NULL | TRUE | FALSE*/ => (),
                 INHERIT => {
-                    bindings.push(self.parse_inherit());
+                    bindings.push(Rc::from(self.parse_inherit()));
                     continue;
                 }
                 _ => panic!(),
@@ -445,7 +433,7 @@ impl Parser {
                 panic!()
             }
             let ident = self.parse_expr(Precedence::CALL);
-            bindings.push(self.parse_binding(ident));
+            bindings.push(Rc::from(self.parse_binding(ident)));
             if !self.cur_is(SEMI) {
                 panic!()
             }
@@ -622,10 +610,6 @@ impl Parser {
 
     fn cur_precedence(&self) -> Precedence {
         Self::_precedence(self.unwrap_cur())
-    }
-
-    fn next_precedence(&self) -> Precedence {
-        Self::_precedence(self.unwrap_next())
     }
 
     fn parse_infix(&mut self, left: Box<dyn Expression>) -> Box<dyn Expression> {

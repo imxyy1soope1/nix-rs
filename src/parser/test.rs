@@ -80,6 +80,10 @@ mod test {
             r#"{ test = "test"; "123" = "asdf"; }"#,
         );
         _test_parse(
+            r#"{a.b="test";"123"."456"="asdf";}"#,
+            r#"{ (a . b) = "test"; ("123" . "456") = "asdf"; }"#,
+        );
+        _test_parse(
             "{a, b, ...} @ d: { c = a + b; }",
             "({ a, b, ... } @ d: { c = (a + b); })",
         );

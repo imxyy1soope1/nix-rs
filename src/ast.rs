@@ -1,6 +1,4 @@
 use crate::convany;
-
-use super::types::*;
 use crate::builtins::{BuiltinFunction, BuiltinFunctionApp};
 use crate::eval::Environment;
 use crate::object::*;
@@ -39,16 +37,16 @@ impl Expression for PrefixExpr {
         use Token::*;
         match self.token {
             MINUS => {
-                if a.type_id() == type_ids::INT {
+                if a.is::<Int>() {
                     Rc::new(-convany!(a, Int))
-                } else if a.type_id() == type_ids::FLOAT {
+                } else if a.is::<Float>() {
                     Rc::new(-convany!(a, Float))
                 } else {
                     unimplemented!()
                 }
             }
             BANG => {
-                if a.type_id() == type_ids::BOOL {
+                if a.is::<Bool>() {
                     Rc::new(!a.downcast_ref::<bool>().unwrap())
                 } else {
                     panic!()
@@ -89,7 +87,7 @@ impl Expression for InfixExpr {
 
     fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         let le = self.left.eval(env.clone());
-        if le.as_any().type_id() == type_ids::ATTRS {
+        if le.as_any().is::<Attrs>() {
             if self.token == Token::DOT && self.right.as_any().is::<IdentifierExpr>() {
                 // println!("{:?}", convany!(le.as_any(), Attrs));
                 return convany!(le.as_any(), Attrs)
@@ -105,22 +103,31 @@ impl Expression for InfixExpr {
         use Token::*;
         macro_rules! num {
             ($op:expr) => {
-                if la.type_id() == type_ids::INT {
-                    if ra.type_id() == type_ids::INT {
+                if la.is::<Int>() {
+                    if ra.is::<Int>() {
                         Rc::new($op(convany!(la, Int), convany!(ra, Int)))
-                    } else if ra.type_id() == type_ids::FLOAT {
+                    } else if ra.is::<Float>() {
                         Rc::new($op(*convany!(la, Int) as Float, convany!(ra, Float)))
                     } else {
                         unimplemented!()
                     }
-                } else if la.type_id() == type_ids::FLOAT {
-                    if ra.type_id() == type_ids::INT {
+                } else if la.is::<Float>() {
+                    if ra.is::<Int>() {
                         Rc::new($op(convany!(la, Float), *convany!(ra, Int) as Float))
-                    } else if ra.type_id() == type_ids::FLOAT {
+                    } else if ra.is::<Float>() {
                         Rc::new($op(convany!(la, Float), convany!(ra, Float)))
                     } else {
                         unimplemented!()
                     }
+                } else {
+                    unimplemented!()
+                }
+            };
+        }
+        macro_rules! infix {
+            ($t1:tt, $t2:tt, $op:expr) => {
+                if la.is::<$t1>() && ra.is::<$t2>() {
+                    Rc::from($op(convany!(la, $t1), convany!(ra, $t2)))
                 } else {
                     unimplemented!()
                 }
@@ -131,20 +138,11 @@ impl Expression for InfixExpr {
             MINUS => num!(|a, b| a - b),
             MUL => num!(|a, b| a * b),
             SLASH => num!(|a, b| a / b),
-            AND => {
-                if la.type_id() == type_ids::BOOL && ra.type_id() == type_ids::BOOL {
-                    Rc::new(*convany!(la, Bool) && *convany!(ra, Bool))
-                } else {
-                    unimplemented!()
-                }
-            }
-            OR => {
-                if la.type_id() == type_ids::BOOL && ra.type_id() == type_ids::BOOL {
-                    Rc::new(*convany!(la, Bool) || *convany!(ra, Bool))
-                } else {
-                    unimplemented!()
-                }
-            }
+            AND => infix!(Bool, Bool, |a: &Bool, b: &Bool| *a && *b),
+            OR => infix!(Bool, Bool, |a: &Bool, b: &Bool| *a || *b),
+            IMPL => infix!(Bool, Bool, |a: &Bool, b: &Bool| !*a || *b),
+            UPDATE => infix!(Attrs, Attrs, |a: &Attrs, _| a.update(re.clone())),
+            CONCAT => infix!(List, List, |a: &List, _| a.concat(re.clone())),
             _ => unimplemented!(),
         }
     }
@@ -185,7 +183,7 @@ impl Display for IdentifierExpr {
 
 #[derive(Debug)]
 pub struct IntLiteralExpr {
-    literal: NixInt,
+    literal: i64,
 }
 
 impl IntLiteralExpr {
@@ -214,7 +212,7 @@ impl Display for IntLiteralExpr {
 
 #[derive(Debug)]
 pub struct FloatLiteralExpr {
-    literal: NixFloat,
+    literal: f64,
 }
 
 impl FloatLiteralExpr {
@@ -242,52 +240,6 @@ impl Display for FloatLiteralExpr {
 }
 
 #[derive(Debug)]
-pub struct BoolLiteralExpr {
-    literal: NixBool,
-}
-
-impl BoolLiteralExpr {
-    pub fn new(v: bool) -> BoolLiteralExpr {
-        BoolLiteralExpr { literal: v }
-    }
-}
-
-impl Expression for BoolLiteralExpr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn eval(&self, _: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
-        Rc::new(self.literal)
-    }
-}
-
-impl Display for BoolLiteralExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.literal)
-    }
-}
-
-#[derive(Debug)]
-pub struct NullLiteralExpr;
-
-impl Expression for NullLiteralExpr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn eval(&self, _env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
-        Rc::new(Null {})
-    }
-}
-
-impl Display for NullLiteralExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "null")
-    }
-}
-
-#[derive(Debug)]
 pub struct EllipsisLiteralExpr;
 
 impl Expression for EllipsisLiteralExpr {
@@ -308,7 +260,7 @@ impl Display for EllipsisLiteralExpr {
 
 #[derive(Debug)]
 pub struct StringLiteralExpr {
-    pub literal: NixString,
+    pub literal: String,
     pub replaces: Vec<(usize, Box<dyn Expression>)>,
 }
 
@@ -441,7 +393,7 @@ impl Expression for IfExpr {
     fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         let c = self.cond.eval(env.clone());
         let c = c.as_any();
-        if c.type_id() == type_ids::BOOL {
+        if c.is::<Bool>() {
             if *convany!(c, Bool) {
                 self.consq.eval(env)
             } else {
@@ -465,16 +417,13 @@ impl Display for IfExpr {
 
 #[derive(Debug)]
 pub struct BindingExpr {
-    pub name: Box<dyn Expression>,
+    pub name: Rc<dyn Expression>,
     pub value: Rc<dyn Expression>,
 }
 
 impl BindingExpr {
-    pub fn new(name: Box<dyn Expression>, value: Box<dyn Expression>) -> BindingExpr {
-        BindingExpr {
-            name,
-            value: Rc::from(value),
-        }
+    pub fn new(name: Rc<dyn Expression>, value: Rc<dyn Expression>) -> BindingExpr {
+        BindingExpr { name, value }
     }
 
     pub fn string(&self, env: Rc<RefCell<Environment>>) -> String {
@@ -490,6 +439,41 @@ impl BindingExpr {
                 .unwrap()
                 .value
                 .clone()
+        }
+    }
+
+    pub fn pair(&self, env: Rc<RefCell<Environment>>) -> (String, Rc<dyn Object>) {
+        let a = self.name.as_any();
+        if a.is::<IdentifierExpr>() {
+            (
+                a.downcast_ref::<IdentifierExpr>().unwrap().ident.clone(),
+                self.value.eval(env),
+            )
+        } else if a.is::<StringLiteralExpr>() {
+            (
+                self.name
+                    .eval(env.clone())
+                    .as_any()
+                    .downcast_ref::<Str>()
+                    .unwrap()
+                    .value
+                    .clone(),
+                self.value.eval(env),
+            )
+        } else if a.is::<InfixExpr>() && convany!(a, InfixExpr).token == Token::DOT {
+            BindingExpr::new(
+                convany!(a, InfixExpr).left.clone(),
+                Rc::new(AttrsLiteralExpr::new(
+                    vec![Rc::new(BindingExpr::new(
+                        convany!(a, InfixExpr).right.clone(),
+                        self.value.clone(),
+                    ))],
+                    false,
+                )),
+            )
+            .pair(env)
+        } else {
+            unimplemented!()
         }
     }
 }
@@ -512,12 +496,12 @@ impl Display for BindingExpr {
 
 #[derive(Debug)]
 pub struct AttrsLiteralExpr {
-    bindings: Vec<Box<dyn Expression>>,
+    bindings: Vec<Rc<dyn Expression>>,
     rec: bool,
 }
 
 impl AttrsLiteralExpr {
-    pub fn new(bindings: Vec<Box<dyn Expression>>, rec: bool) -> AttrsLiteralExpr {
+    pub fn new(bindings: Vec<Rc<dyn Expression>>, rec: bool) -> AttrsLiteralExpr {
         AttrsLiteralExpr { bindings, rec }
     }
 }
@@ -531,16 +515,12 @@ impl Expression for AttrsLiteralExpr {
         let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
         for b in self.bindings.iter() {
             if b.as_any().is::<BindingExpr>() {
-                let b = b.as_any().downcast_ref::<BindingExpr>().unwrap();
-                let env = if self.rec {
-                    newenv.clone()
-                } else {
-                    env.clone()
-                };
-                newenv
-                    .borrow_mut()
-                    .set(b.string(env.clone()), EvaledOr::expr(env, b.value.clone()))
-                    .unwrap();
+                let (name, value) = convany!(b.as_any(), BindingExpr).pair(env.clone());
+                let ret = newenv.borrow_mut().set(name.clone(), EvaledOr::evaled(value.clone()));
+                if ret.is_err() {
+                    drop(ret);
+                    convany!(newenv.borrow().get(&name).unwrap().as_any(), Attrs).merge(value)
+                }
             } else {
                 // InheritExpr
                 let inherit = b.as_any().downcast_ref::<InheritExpr>().unwrap();
@@ -863,7 +843,7 @@ impl Expression for AssertExpr {
     fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         let assertion = self.assertion.eval(env.clone());
         let assertion = assertion.as_any();
-        if assertion.type_id() == type_ids::BOOL {
+        if assertion.is::<Bool>() {
             if *convany!(assertion, Bool) {
                 self.expr.eval(env)
             } else {
@@ -931,12 +911,12 @@ impl Display for InheritExpr {
 
 #[derive(Debug)]
 pub struct PathLiteralExpr {
-    literal: NixPath,
+    literal: String,
     relative: bool,
 }
 
 impl PathLiteralExpr {
-    pub fn new(literal: NixPath, relative: bool) -> PathLiteralExpr {
+    pub fn new(literal: String, relative: bool) -> PathLiteralExpr {
         PathLiteralExpr { literal, relative }
     }
 }

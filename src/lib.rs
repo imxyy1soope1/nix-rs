@@ -1,5 +1,3 @@
-#![feature(const_type_id)]
-
 mod ast;
 mod builtins;
 mod error;
@@ -29,9 +27,6 @@ pub fn new_env() -> Env {
 pub fn eval_with_env(e: Env, s: String) -> Rc<dyn Object> {
     Eval::with_env(e, Parser::new(Box::new(Lexer::build(&s))).parse()).eval()
 }
-
-#[macro_use]
-extern crate lazy_static;
 
 #[macro_export]
 macro_rules! convany {

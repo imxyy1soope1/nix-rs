@@ -1,6 +1,6 @@
 use crate::object::{EvaledOr, Object};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::hash_map::{HashMap, Iter};
 use std::error::Error;
 use std::fmt::Display;
 use std::rc::Rc;
@@ -70,5 +70,9 @@ impl Environment {
 
     pub fn over(&mut self, sym: String, obj: EvaledOr) {
         self.env.insert(sym, obj);
+    }
+
+    pub fn iter(&self) -> Iter<String, EvaledOr> {
+        self.env.iter()
     }
 }

@@ -1,4 +1,4 @@
-use std::{any::Any, cell::RefCell, fmt::Debug, fmt::Display, rc::Rc, sync::Arc};
+use std::{any::Any, cell::RefCell, fmt::Debug, fmt::Display, rc::Rc};
 
 use crate::{
     ast::{ArgSetExpr, Expression, IdentifierExpr},
@@ -61,23 +61,6 @@ pub trait Object: Display + Debug {
     fn as_any(&self) -> &dyn Any;
 }
 
-pub mod type_ids {
-    use super::*;
-    use std::any::TypeId;
-
-    pub static INT: TypeId = TypeId::of::<Int>();
-    pub static FLOAT: TypeId = TypeId::of::<Float>();
-    pub static BOOL: TypeId = TypeId::of::<Bool>();
-    pub static NULL: TypeId = TypeId::of::<Null>();
-    pub static STRING: TypeId = TypeId::of::<Str>();
-    pub static ATTRS: TypeId = TypeId::of::<Attrs>();
-}
-
-/* #[derive(Debug)]
-pub struct Int {
-    pub value: i64,
-} */
-
 pub type Int = i64;
 
 impl Object for Int {
@@ -94,12 +77,6 @@ impl Object for Float {
     }
 }
 
-lazy_static! {
-    // pub static ref TRUE: Arc<Bool> = Arc::new(Bool::new(true));
-    // pub static ref FALSE: Arc<Bool> = Arc::new(Bool::new(false));
-    pub static ref NULL: Arc<Null> = Arc::new(Null {});
-}
-
 pub type Bool = bool;
 
 impl Object for bool {
@@ -110,12 +87,6 @@ impl Object for bool {
 
 #[derive(Debug)]
 pub struct Null {}
-
-impl Null {
-    pub fn null() -> &'static Null {
-        &NULL
-    }
-}
 
 impl Object for Null {
     fn as_any(&self) -> &dyn Any {
@@ -160,7 +131,7 @@ impl Display for Str {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct List {
     value: Vec<Rc<dyn Object>>,
 }
@@ -168,6 +139,12 @@ pub struct List {
 impl List {
     pub fn new(value: Vec<Rc<dyn Object>>) -> List {
         List { value }
+    }
+
+    pub fn concat(&self, other: Rc<dyn Object>) -> List {
+        let mut new = self.clone();
+        new.value.extend(convany!(other.as_any(), List).value.clone().into_iter());
+        new
     }
 }
 
@@ -258,7 +235,7 @@ impl Display for Lambda {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Attrs {
     pub env: Rc<RefCell<Environment>>,
 }
@@ -266,6 +243,37 @@ pub struct Attrs {
 impl Attrs {
     pub fn new(env: Rc<RefCell<Environment>>) -> Attrs {
         Attrs { env }
+    }
+
+    pub fn merge(&self, other: Rc<dyn Object>) {
+        let other = convany!(other.as_any(), Attrs);
+        for (k, v) in other.env.borrow().iter() {
+            let ret = self.env.borrow_mut().set(k.clone(), v.clone());
+            if ret.is_err() {
+                drop(ret);
+                convany!(self.env.borrow().get(k).unwrap().as_any(), Attrs).merge(v.eval())
+            }
+        }
+    }
+
+    pub fn update(&self, other: Rc<dyn Object>) -> Attrs {
+        let new = self.clone();
+        let other = convany!(other.as_any(), Attrs);
+        for (k, v) in other.env.borrow().iter() {
+            let ret = new.env.borrow_mut().set(k.clone(), v.clone());
+            if ret.is_err() {
+                drop(ret);
+                let o = new.env.borrow().get(k).unwrap();
+                let o = o.as_any();
+                let v = v.eval();
+                if o.is::<Attrs>() && v.as_any().is::<Attrs>() {
+                    convany!(o, Attrs).update(v);
+                } else {
+                    new.env.borrow_mut().over(k.clone(), EvaledOr::evaled(v));
+                }
+            }
+        }
+        new
     }
 }
 

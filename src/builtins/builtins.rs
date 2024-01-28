@@ -1,6 +1,5 @@
 use crate::convany;
 use crate::object::*;
-use std::cell::{Cell, RefCell};
 use std::fmt::Display;
 use std::rc::Rc;
 
@@ -75,8 +74,14 @@ impl Display for BuiltinFunction {
 }
 
 pub fn builtin_fns() -> Vec<(String, BuiltinFunction)> {
-    vec![(
-        "ceil".to_string(),
-        BuiltinFunction::new(1, |a| Rc::new(convany!(a[0].as_any(), Float).ceil())),
-    )]
+    vec![
+        (
+            "ceil".to_string(),
+            BuiltinFunction::new(1, |a| Rc::new(convany!(a[0].as_any(), Float).ceil())),
+        ),
+        (
+            "floor".to_string(),
+            BuiltinFunction::new(1, |a| Rc::new(convany!(a[0].as_any(), Float).floor())),
+        ),
+    ]
 }
