@@ -1,5 +1,5 @@
-use nix_rs::Parser;
 use nix_rs::Lexer;
+use nix_rs::Parser;
 
 fn _test_parse(input: &str, expect: &str) {
     let mut parser = Parser::new(Box::new(Lexer::build(input)));

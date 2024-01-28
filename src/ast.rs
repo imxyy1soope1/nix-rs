@@ -1,5 +1,5 @@
-use crate::convany;
 use crate::builtins::{BuiltinFunction, BuiltinFunctionApp};
+use crate::convany;
 use crate::eval::Environment;
 use crate::object::*;
 use crate::token::Token;
@@ -87,15 +87,16 @@ impl Expression for InfixExpr {
 
     fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         let le = self.left.eval(env.clone());
-        if le.as_any().is::<Attrs>() {
-            if self.token == Token::DOT && self.right.as_any().is::<IdentifierExpr>() {
-                // println!("{:?}", convany!(le.as_any(), Attrs));
-                return convany!(le.as_any(), Attrs)
-                    .env
-                    .borrow_mut()
-                    .get(&convany!(self.right.as_any(), IdentifierExpr).ident)
-                    .unwrap();
-            }
+        if le.as_any().is::<Attrs>()
+            && self.token == Token::DOT
+            && self.right.as_any().is::<IdentifierExpr>()
+        {
+            // println!("{:?}", convany!(le.as_any(), Attrs));
+            return convany!(le.as_any(), Attrs)
+                .env
+                .borrow_mut()
+                .get(&convany!(self.right.as_any(), IdentifierExpr).ident)
+                .unwrap();
         }
         let re = self.right.eval(env);
         let la = le.as_any();
@@ -516,7 +517,9 @@ impl Expression for AttrsLiteralExpr {
         for b in self.bindings.iter() {
             if b.as_any().is::<BindingExpr>() {
                 let (name, value) = convany!(b.as_any(), BindingExpr).pair(env.clone());
-                let ret = newenv.borrow_mut().set(name.clone(), EvaledOr::evaled(value.clone()));
+                let ret = newenv
+                    .borrow_mut()
+                    .set(name.clone(), EvaledOr::evaled(value.clone()));
                 if ret.is_err() {
                     drop(ret);
                     convany!(newenv.borrow().get(&name).unwrap().as_any(), Attrs).merge(value)

@@ -143,7 +143,8 @@ impl List {
 
     pub fn concat(&self, other: Rc<dyn Object>) -> List {
         let mut new = self.clone();
-        new.value.extend(convany!(other.as_any(), List).value.clone().into_iter());
+        new.value
+            .extend(convany!(other.as_any(), List).value.clone());
         new
     }
 }

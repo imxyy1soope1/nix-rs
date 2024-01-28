@@ -1,6 +1,4 @@
 use nix_rs::convany;
-use nix_rs::Lexer;
-use nix_rs::Parser;
 use nix_rs::eval;
 use nix_rs::object::*;
 

@@ -23,7 +23,7 @@ impl BuiltinFunctionApp {
         let a = self.argsleft - 1;
         if a == 0 {
             let f = self.func;
-            return f(args);
+            f(args)
         } else {
             Rc::new(BuiltinFunctionApp {
                 args,
