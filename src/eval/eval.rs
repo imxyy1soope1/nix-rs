@@ -13,14 +13,14 @@ impl Eval {
         Eval {
             root: EvaledOr::expr(
                 Rc::new(RefCell::new(Environment::new(Some(new_builtins_env())))),
-                Rc::from(expr),
+                expr,
             ),
         }
     }
 
     pub fn with_env(env: Rc<RefCell<Environment>>, expr: Rc<dyn Expression>) -> Eval {
         Eval {
-            root: EvaledOr::expr(env, Rc::from(expr)),
+            root: EvaledOr::expr(env, expr),
         }
     }
 

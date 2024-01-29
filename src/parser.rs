@@ -86,7 +86,7 @@ impl Parser {
             STRING(..) => Some(|s| {
                 if let Token::STRING(string, interpolates) = s.cur_token.clone().unwrap() {
                     s.next();
-                    if interpolates.len() > 0 {
+                    if !interpolates.is_empty() {
                         Rc::new(InterpolateStringExpr::new(
                             string,
                             interpolates
@@ -211,7 +211,7 @@ impl Parser {
         self.next();
         let expr = self.parse_expr(Precedence::ASSIGN);
         assert!(!expr.as_any().is::<BindingExpr>());
-        Rc::new(BindingExpr::new(Rc::from(name), Rc::from(expr)))
+        Rc::new(BindingExpr::new(name, expr))
     }
 
     fn parse_attrs(&mut self) -> Rc<dyn Expression> {
@@ -246,7 +246,7 @@ impl Parser {
                 let expr = self.parse_expr(Precedence::LOWEST);
                 let a = expr.as_any();
                 assert!(a.is::<BindingExpr>() || a.is::<InheritExpr>());
-                bindings.push(Rc::from(expr));
+                bindings.push(expr);
                 if !self.cur_is(SEMI) {
                     panic!()
                 }
@@ -358,7 +358,7 @@ impl Parser {
         let mut items: Vec<Rc<dyn Expression>> = Vec::new();
 
         while !self.cur_is(Token::RBRACKET) {
-            items.push(Rc::from(self.parse_expr(Precedence::HIGHEST)));
+            items.push(self.parse_expr(Precedence::HIGHEST));
         }
         self.next();
 
@@ -430,7 +430,7 @@ impl Parser {
             match self.unwrap_cur() {
                 IDENT(_) | STRING(..) /*| NULL | TRUE | FALSE*/ => (),
                 INHERIT => {
-                    bindings.push(Rc::from(self.parse_inherit()));
+                    bindings.push(self.parse_inherit());
                     continue;
                 }
                 _ => panic!(),
@@ -439,7 +439,7 @@ impl Parser {
                 panic!()
             }
             let ident = self.parse_expr(Precedence::CALL);
-            bindings.push(Rc::from(self.parse_binding(ident)));
+            bindings.push(self.parse_binding(ident));
             if !self.cur_is(SEMI) {
                 panic!()
             }
@@ -625,12 +625,12 @@ impl Parser {
 
         Rc::new(InfixExpr::new(
             token.clone(),
-            Rc::from(left),
-            Rc::from(self.parse_expr(if token == Token::IMPL {
+            left,
+            self.parse_expr(if token == Token::IMPL {
                 Precedence::IMPLLOWER
             } else {
                 precedence
-            })),
+            }),
         ))
     }
 

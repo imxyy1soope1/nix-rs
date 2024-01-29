@@ -277,7 +277,7 @@ impl Expression for StringLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+    fn eval(&self, _env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
         Rc::new(self.literal.clone())
     }
 }
@@ -334,8 +334,8 @@ pub struct FunctionLiteralExpr {
 impl FunctionLiteralExpr {
     pub fn new(arg: Rc<dyn Expression>, body: Rc<dyn Expression>) -> FunctionLiteralExpr {
         FunctionLiteralExpr {
-            arg: Rc::from(arg),
-            body: Rc::from(body),
+            arg,
+            body,
         }
     }
 }
@@ -370,7 +370,7 @@ impl FunctionCallExpr {
     pub fn new(func: Rc<dyn Expression>, arg: Rc<dyn Expression>) -> FunctionCallExpr {
         FunctionCallExpr {
             func,
-            arg: Rc::from(arg),
+            arg,
         }
     }
 }
@@ -547,7 +547,7 @@ impl Expression for AttrsLiteralExpr {
                 // InheritExpr
                 let inherit = b.as_any().downcast_ref::<InheritExpr>().unwrap();
                 for (k, v) in inherit.apply(env.clone()) {
-                    newenv.borrow_mut().set(k, v);
+                    newenv.borrow_mut().set(k, v).unwrap();
                 }
             }
         }
