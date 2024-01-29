@@ -1,4 +1,4 @@
-use crate::object::{EvaledOr, Object};
+use crate::object::EvaledOr;
 use std::cell::RefCell;
 use std::collections::hash_map::{HashMap, Iter};
 use std::error::Error;
@@ -40,9 +40,9 @@ impl Environment {
         }
     }
 
-    pub fn get(&self, sym: &String) -> Result<Rc<dyn Object>, EnvironmentError> {
+    pub fn get(&self, sym: &String) -> Result<EvaledOr, EnvironmentError> {
         if let Some(val) = self.env.get(sym) {
-            Ok(val.eval())
+            Ok(val.clone())
         } else if let Some(father) = &self.father {
             father.borrow().get(sym)
         } else {
@@ -74,5 +74,9 @@ impl Environment {
 
     pub fn iter(&self) -> Iter<String, EvaledOr> {
         self.env.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.env.len()
     }
 }

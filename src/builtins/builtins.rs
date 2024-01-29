@@ -6,18 +6,18 @@ use std::rc::Rc;
 #[derive(Debug)]
 pub struct BuiltinFunction {
     argscount: u8,
-    func: fn(Vec<Rc<dyn Object>>) -> Rc<dyn Object>,
+    func: fn(Vec<EvaledOr>) -> Rc<dyn Object>,
 }
 
 #[derive(Debug)]
 pub struct BuiltinFunctionApp {
-    args: Vec<Rc<dyn Object>>,
+    args: Vec<EvaledOr>,
     argsleft: u8,
-    func: fn(Vec<Rc<dyn Object>>) -> Rc<dyn Object>,
+    func: fn(Vec<EvaledOr>) -> Rc<dyn Object>,
 }
 
 impl BuiltinFunctionApp {
-    pub fn call(&self, arg: Rc<dyn Object>) -> Rc<dyn Object> {
+    pub fn call(&self, arg: EvaledOr) -> Rc<dyn Object> {
         let mut args = self.args.clone();
         args.push(arg);
         let a = self.argsleft - 1;
@@ -47,11 +47,11 @@ impl Display for BuiltinFunctionApp {
 }
 
 impl BuiltinFunction {
-    pub fn new(argscount: u8, func: fn(Vec<Rc<dyn Object>>) -> Rc<dyn Object>) -> BuiltinFunction {
+    pub fn new(argscount: u8, func: fn(Vec<EvaledOr>) -> Rc<dyn Object>) -> BuiltinFunction {
         BuiltinFunction { argscount, func }
     }
 
-    pub fn call(&self, arg: Rc<dyn Object>) -> Rc<dyn Object> {
+    pub fn call(&self, arg: EvaledOr) -> Rc<dyn Object> {
         let b = BuiltinFunctionApp {
             args: Vec::new(),
             argsleft: self.argscount,
@@ -73,15 +73,114 @@ impl Display for BuiltinFunction {
     }
 }
 
-pub fn builtin_fns() -> Vec<(String, BuiltinFunction)> {
+pub fn builtin_fns() -> Vec<(&'static str, bool, BuiltinFunction)> {
     vec![
         (
-            "ceil".to_string(),
-            BuiltinFunction::new(1, |a| Rc::new(convany!(a[0].as_any(), Float).ceil())),
+            "ceil",
+            false,
+            BuiltinFunction::new(1, |a| {
+                if a[0].eval().as_any().is::<Float>() {
+                    Rc::new(convany!(a[0].eval().as_any(), Float).ceil())
+                } else {
+                    Rc::new(*convany!(a[0].eval().as_any(), Int))
+                }
+            }),
         ),
         (
-            "floor".to_string(),
-            BuiltinFunction::new(1, |a| Rc::new(convany!(a[0].as_any(), Float).floor())),
+            "floor",
+            false,
+            BuiltinFunction::new(1, |a| {
+                if a[0].eval().as_any().is::<Float>() {
+                    Rc::new(convany!(a[0].eval().as_any(), Float).floor())
+                } else {
+                    Rc::new(*convany!(a[0].eval().as_any(), Int))
+                }
+            }),
+        ),
+        (
+            "typeOf",
+            false,
+            BuiltinFunction::new(1, |a| {
+                let a = a[0].eval();
+                let a = a.as_any();
+                macro_rules! is {
+                    ($t:tt) => {
+                        a.is::<$t>()
+                    };
+                }
+                if is!(Int) {
+                    Rc::new("int".to_string())
+                } else if is!(Float) {
+                    Rc::new("float".to_string())
+                } else if is!(Str) {
+                    Rc::new("string".to_string())
+                } else if is!(Bool) {
+                    Rc::new("bool".to_string())
+                } else if is!(Null) {
+                    Rc::new("null".to_string())
+                } else if is!(Attrs) {
+                    Rc::new("set".to_string())
+                } else if is!(List) {
+                    Rc::new("list".to_string())
+                } else if is!(Lambda) {
+                    Rc::new("lambda".to_string())
+                } else if is!(Lambda) {
+                    Rc::new("lambda".to_string())
+                } else {
+                    unreachable!()
+                }
+            }),
+        ),
+        (
+            "isNull",
+            false,
+            BuiltinFunction::new(1, |a| Rc::new(a[0].eval().as_any().is::<Null>())),
+        ),
+        (
+            "isFunction",
+            false,
+            BuiltinFunction::new(1, |a| Rc::new(a[0].eval().as_any().is::<Lambda>())),
+        ),
+        (
+            "isInt",
+            false,
+            BuiltinFunction::new(1, |a| Rc::new(a[0].eval().as_any().is::<Int>())),
+        ),
+        (
+            "isFloat",
+            false,
+            BuiltinFunction::new(1, |a| Rc::new(a[0].eval().as_any().is::<Float>())),
+        ),
+        (
+            "isString",
+            false,
+            BuiltinFunction::new(1, |a| Rc::new(a[0].eval().as_any().is::<Str>())),
+        ),
+        (
+            "isBool",
+            false,
+            BuiltinFunction::new(1, |a| Rc::new(a[0].eval().as_any().is::<Bool>())),
+        ),
+        /* (
+            "isPath",
+            false,
+            BuiltinFunction::new(1, |a| Rc::new(a[0].eval().as_any().is::<Path>()))
+        ), */
+        (
+            "seq",
+            false,
+            BuiltinFunction::new(2, |a| {
+                a[0].eval();
+                a[1].eval()
+            }),
+        ),
+        (
+            "deepSeq",
+            false,
+            BuiltinFunction::new(2, |a| {
+                a[0].eval();
+                a[1].eval()
+            }),
         ),
     ]
 }

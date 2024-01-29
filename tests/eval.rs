@@ -53,8 +53,8 @@ fn test_infix() {
 
 #[test]
 fn test_literal() {
-    test_eq!(r#""test""#, Str, "test");
-    test_eq!(r#"let test = "a"; in "${test}""#, Str, "a");
+    test_raw!(r#""test""#, Str, "test");
+    test_raw!(r#"let test = "a"; in "${test}""#, Str, "a");
     test_raw!("true", Bool, true);
     test_raw!("false", Bool, false);
     test_type!("null", Null);
@@ -71,7 +71,7 @@ fn test_function() {
     test_raw!("(a: b: a + b) 1 2", Int, 3);
     test_raw!("(let b = 1; in {a?b}: a) {}", Int, 1);
     test_type!("let f = args@{a?42, ...}: [a args]; in f {b = 1;}", List);
-    // test_eq!("({b?1, c?b}: b + c) {b=2;}", Int, 4);
+    // test_raw!("({b?1, c?b}: b + c) {b=2;}", Int, 4);
 }
 
 #[test]

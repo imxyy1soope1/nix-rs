@@ -28,7 +28,13 @@ pub fn new_builtins_env() -> Env {
     );
 
     for b in builtin_fns().into_iter() {
-        bset!(b.0, EvaledOr::evaled(Rc::new(b.1)));
+        let v = Rc::new(b.2);
+        if b.1 {
+            set!(b.0.to_string(), EvaledOr::evaled(v.clone()));
+        } else {
+            set!("__".to_string() + b.0, EvaledOr::evaled(v.clone()));
+        }
+        bset!(b.0.to_string(), EvaledOr::evaled(v));
     }
 
     env

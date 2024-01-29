@@ -9,7 +9,7 @@ pub struct Eval {
 }
 
 impl Eval {
-    pub fn new(expr: Box<dyn Expression>) -> Eval {
+    pub fn new(expr: Rc<dyn Expression>) -> Eval {
         Eval {
             root: EvaledOr::expr(
                 Rc::new(RefCell::new(Environment::new(Some(new_builtins_env())))),
@@ -18,7 +18,7 @@ impl Eval {
         }
     }
 
-    pub fn with_env(env: Rc<RefCell<Environment>>, expr: Box<dyn Expression>) -> Eval {
+    pub fn with_env(env: Rc<RefCell<Environment>>, expr: Rc<dyn Expression>) -> Eval {
         Eval {
             root: EvaledOr::expr(env, Rc::from(expr)),
         }
