@@ -4,22 +4,15 @@ use nix_rs::object::*;
 
 macro_rules! test_type {
     ( $input:expr, $type:tt ) => {
-        let e = eval($input.to_string());
+        let e = eval($input.to_string()).unwrap();
         println!("{e}");
         assert!(e.as_any().is::<$type>());
     };
 }
 
-macro_rules! test_eq {
-    ( $input:expr, $type:tt, $val:expr ) => {
-        let e = eval($input.to_string());
-        assert_eq!(e.as_any().downcast_ref::<$type>().unwrap().value, $val);
-    };
-}
-
 macro_rules! test_raw {
     ( $input:expr, $type:tt, $val:expr ) => {
-        let e = eval($input.to_string());
+        let e = eval($input.to_string()).unwrap();
         assert_eq!(convany!(e.as_any(), $type), &$val);
     };
 }
@@ -71,7 +64,8 @@ fn test_function() {
     test_raw!("(a: b: a + b) 1 2", Int, 3);
     test_raw!("(let b = 1; in {a?b}: a) {}", Int, 1);
     test_type!("let f = args@{a?42, ...}: [a args]; in f {b = 1;}", List);
-    // test_raw!("({b?1, c?b}: b + c) {b=2;}", Int, 4);
+    test_raw!("({b?1, c?b}: b + c) {b=2;}", Int, 4);
+    test_raw!("({c?b, b?1}: b + c) {b=2;}", Int, 4);
 }
 
 #[test]

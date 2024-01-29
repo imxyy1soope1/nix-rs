@@ -7,7 +7,7 @@ pub mod object;
 mod parser;
 mod token;
 
-use eval::{Environment, Eval};
+use eval::{Environment, Eval, EvalResult};
 use std::{cell::RefCell, rc::Rc};
 
 pub use ast::Expression;
@@ -18,7 +18,7 @@ pub use object::Object;
 pub use parser::Parser;
 pub use token::Token;
 
-pub fn eval(s: String) -> Rc<dyn object::Object> {
+pub fn eval(s: String) -> EvalResult {
     Eval::new(Parser::new(Box::new(Lexer::build(&s))).parse()).eval()
 }
 
@@ -26,7 +26,7 @@ pub fn new_env() -> Env {
     Rc::new(RefCell::new(Environment::new(Some(new_builtins_env()))))
 }
 
-pub fn eval_with_env(e: Env, s: String) -> Rc<dyn Object> {
+pub fn eval_with_env(e: Env, s: String) -> EvalResult {
     Eval::with_env(e, Parser::new(Box::new(Lexer::build(&s))).parse()).eval()
 }
 

@@ -15,6 +15,6 @@ fn main() {
             println!();
             return;
         }
-        println!("{}", eval_with_env(env.clone(), input));
+        println!("{}", eval_with_env(env.clone(), input).unwrap());
     }
 }

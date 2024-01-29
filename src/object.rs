@@ -1,16 +1,21 @@
+use crate::{
+    ast::{AttrsLiteralExpr, ListLiteralExpr},
+    eval::EvalResult,
+};
 use std::{any::Any, cell::RefCell, fmt::Debug, fmt::Display, rc::Rc};
 
 use crate::{
     ast::{ArgSetExpr, Expression, IdentifierExpr},
     convany,
+    error::*,
     eval::Environment,
 };
 
 #[derive(Debug, Clone)]
 pub enum _EvaledOr {
-    Expr(Rc<RefCell<Environment>>, Rc<dyn Expression>),
+    Expr(Rc<RefCell<Environment>>, Rc<dyn Expression>, ErrorCtx),
     Evaled(Rc<dyn Object>),
-    Ref(Rc<dyn Object>),
+    Error(Rc<dyn NixRsError>),
 }
 
 pub use _EvaledOr::*;
@@ -19,15 +24,16 @@ impl _EvaledOr {
     fn set(&mut self, new: Self) {
         *self = new
     }
-    fn get(&self) -> Rc<dyn Object> {
+    fn get(&self) -> EvalResult {
         match self {
-            Evaled(r) | Ref(r) => r.clone(),
+            Evaled(r) => Ok(r.clone()),
+            Error(e) => Err(e.clone()),
             _ => unreachable!(),
         }
     }
-    fn eval(&mut self) -> Rc<dyn Object> {
+    fn eval(&mut self) -> EvalResult {
         match &*self {
-            Expr(env, e) => self.set(Evaled(e.eval((*env).clone()))),
+            Expr(env, e, ctx) => self.set(Evaled(e.eval(env.clone(), ctx.clone())?)),
             _ => (),
         }
         self.get()
@@ -42,18 +48,29 @@ pub struct EvaledOr {
 impl EvaledOr {
     pub fn evaled(r: Rc<dyn Object>) -> EvaledOr {
         EvaledOr {
-            val: RefCell::new(_EvaledOr::Ref(r)),
+            val: RefCell::new(_EvaledOr::Evaled(r)),
         }
     }
 
-    pub fn expr(env: Rc<RefCell<Environment>>, expr: Rc<dyn Expression>) -> EvaledOr {
+    pub fn expr(
+        env: Rc<RefCell<Environment>>,
+        expr: Rc<dyn Expression>,
+        ctx: ErrorCtx,
+    ) -> EvaledOr {
         EvaledOr {
-            val: RefCell::new(_EvaledOr::Expr(env, expr)),
+            val: RefCell::new(_EvaledOr::Expr(env, expr, ctx)),
         }
     }
 
-    pub fn eval(&self) -> Rc<dyn Object> {
+    pub fn eval(&self) -> EvalResult {
         self.val.borrow_mut().eval()
+    }
+
+    pub fn expr_is<T: 'static>(&self) -> bool {
+        match &*self.val.borrow() {
+            _EvaledOr::Error(_) | _EvaledOr::Evaled(_) => false,
+            _EvaledOr::Expr(_, e, _) => e.as_any().is::<T>(),
+        }
     }
 }
 
@@ -108,8 +125,7 @@ impl Object for Str {
     }
 }
 
-pub struct InterpolateStr {
-}
+pub struct InterpolateStr {}
 
 impl InterpolateStr {
     pub fn new(value: String, replaces: Vec<(usize, Rc<dyn Object>)>) -> Str {
@@ -153,7 +169,15 @@ impl Display for List {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "[ ")?;
         for v in self.value.iter() {
-            write!(f, "{} ", v.eval())?;
+            write!(f, "{} ", {
+                if v.expr_is::<AttrsLiteralExpr>() {
+                    "...".to_string()
+                } else if v.expr_is::<ListLiteralExpr>() {
+                    "[ ... ]".to_string()
+                } else {
+                    v.eval().unwrap().to_string()
+                }
+            })?;
         }
         write!(f, "]")
     }
@@ -175,8 +199,8 @@ impl Lambda {
         Lambda { arg, body, env }
     }
 
-    pub fn call(&self, arg: Rc<dyn Object>) -> Rc<dyn Object> {
-        let callenv = RefCell::new(Environment::new(Some(self.env.clone())));
+    pub fn call(&self, arg: Rc<dyn Object>, ctx: ErrorCtx) -> EvalResult {
+        let callenv = Rc::new(RefCell::new(Environment::new(Some(self.env.clone()))));
         if !self.arg.as_any().is::<ArgSetExpr>() {
             // IdentifierExpr
             callenv
@@ -186,17 +210,18 @@ impl Lambda {
                     EvaledOr::evaled(arg),
                 )
                 .unwrap();
-            return self.body.eval(Rc::new(callenv));
+            return self.body.eval(callenv, ctx);
         }
         for a in convany!(self.arg.as_any(), ArgSetExpr).args.iter() {
             let ident = a.0.clone();
             let e = {
-                let t = (*self.env.clone()).borrow_mut().get(&ident);
+                let t = convany!(arg.as_any(), Attrs).env.borrow().get(&ident);
                 if let Ok(o) = t {
                     o
                 } else {
                     drop(t); // to prevent multiple borrow of env (from `t` above)
-                    EvaledOr::expr(self.env.clone(), a.1.clone().unwrap())
+                    println!("default {ident}");
+                    EvaledOr::expr(callenv.clone(), a.1.clone().unwrap(), ctx.clone())
                 }
             };
 
@@ -206,7 +231,7 @@ impl Lambda {
             .alias
             .clone()
             .map(|a| callenv.borrow_mut().set(a, EvaledOr::evaled(arg.clone())));
-        self.body.eval(Rc::new(callenv))
+        self.body.eval(callenv, ctx)
     }
 }
 
@@ -232,18 +257,20 @@ impl Attrs {
         Attrs { env }
     }
 
-    pub fn merge(&self, other: Rc<dyn Object>) {
+    pub fn merge(&self, other: Rc<dyn Object>) -> Result<(), Rc<dyn NixRsError>> {
         let other = convany!(other.as_any(), Attrs);
         for (k, v) in other.env.borrow().iter() {
             let ret = self.env.borrow_mut().set(k.clone(), v.clone());
             if ret.is_err() {
                 drop(ret);
-                convany!(self.env.borrow().get(k).unwrap().eval().as_any(), Attrs).merge(v.eval())
+                convany!(self.env.borrow().get(k).unwrap().eval()?.as_any(), Attrs)
+                    .merge(v.eval()?)?;
             }
         }
+        Ok(())
     }
 
-    pub fn update(&self, other: Rc<dyn Object>) -> Attrs {
+    pub fn update(&self, other: Rc<dyn Object>) -> EvalResult {
         let new = self.clone();
         let other = convany!(other.as_any(), Attrs);
         for (k, v) in other.env.borrow().iter() {
@@ -251,17 +278,17 @@ impl Attrs {
             if ret.is_err() {
                 drop(ret);
                 let o = new.env.borrow().get(k).unwrap();
-                let o = o.eval();
+                let o = o.eval()?;
                 let o = o.as_any();
-                let v = v.eval();
+                let v = v.eval()?;
                 if o.is::<Attrs>() && v.as_any().is::<Attrs>() {
-                    convany!(o, Attrs).update(v);
+                    convany!(o, Attrs).update(v)?;
                 } else {
                     new.env.borrow_mut().over(k.clone(), EvaledOr::evaled(v));
                 }
             }
         }
-        new
+        Ok(Rc::new(new))
     }
 }
 
@@ -277,10 +304,25 @@ impl Display for Attrs {
     }
 }
 
-pub fn objeq(obj1: Rc<dyn Object>, obj2: Rc<dyn Object>) -> bool {
+#[derive(Debug)]
+pub struct Path {
+    path: String,
+}
+
+impl Path {
+    pub fn new(path: String) -> Path {
+        Path { path }
+    }
+}
+
+pub fn objeq(
+    obj1: Rc<dyn Object>,
+    obj2: Rc<dyn Object>,
+    ctx: ErrorCtx,
+) -> Result<bool, Rc<dyn NixRsError>> {
     let a1 = obj1.as_any();
     let a2 = obj2.as_any();
-    if a1.is::<Int>() {
+    Ok(if a1.is::<Int>() {
         if a2.is::<Int>() {
             convany!(a1, Int) == convany!(a2, Int)
         } else if a2.is::<Float>() {
@@ -304,17 +346,31 @@ pub fn objeq(obj1: Rc<dyn Object>, obj2: Rc<dyn Object>) -> bool {
         }
     } else if a1.is::<List>() {
         if a2.is::<List>() {
-            std::iter::zip(
-                convany!(a1, List).value.iter().map(|o| o.eval()),
-                convany!(a2, List).value.iter().map(|o| o.eval()),
-            )
-            .all(|a| objeq(a.0, a.1))
+            let mut tmp = convany!(a1, List).value.len() == convany!(a1, List).value.len();
+            for (o1, o2) in std::iter::zip(
+                convany!(a1, List)
+                    .value
+                    .iter()
+                    .map(|o| -> EvalResult { o.eval() }),
+                convany!(a2, List)
+                    .value
+                    .iter()
+                    .map(|o| -> EvalResult { o.eval() }),
+            ) {
+                if !tmp {
+                    break;
+                }
+                tmp = tmp && *convany!(objeq(o1?, o2?, ctx.clone())?.as_any(), Bool);
+            }
+            tmp
         } else {
             false
         }
     } else if a1.is::<Attrs>() {
         if a2.is::<Attrs>() {
-            std::iter::zip(
+            let mut tmp =
+                convany!(a1, Attrs).env.borrow().len() == convany!(a2, Attrs).env.borrow().len();
+            for ((k1, v1), (k2, v2)) in std::iter::zip(
                 convany!(a1, Attrs)
                     .env
                     .borrow()
@@ -325,9 +381,13 @@ pub fn objeq(obj1: Rc<dyn Object>, obj2: Rc<dyn Object>) -> bool {
                     .borrow()
                     .iter()
                     .map(|(k, v)| (k, v.eval())),
-            )
-            .any(|a| a.0 .0 == a.1 .0 && objeq(a.0 .1, a.1 .1))
-                && convany!(a1, Attrs).env.borrow().len() == convany!(a2, Attrs).env.borrow().len()
+            ) {
+                if !tmp {
+                    break;
+                }
+                tmp = tmp && k1 == k2 && *convany!(objeq(v1?, v2?, ctx.clone())?.as_any(), Bool);
+            }
+            tmp
         } else {
             false
         }
@@ -342,14 +402,22 @@ pub fn objeq(obj1: Rc<dyn Object>, obj2: Rc<dyn Object>) -> bool {
     } else if a1.is::<Lambda>() {
         false
     } else {
-        unimplemented!()
-    }
+        return Err(ctx.unwind(EvalError::new("unsupported type")));
+    })
 }
 
-pub fn objlt(obj1: Rc<dyn Object>, obj2: Rc<dyn Object>) -> bool {
+/* pub fn objneq(obj1: Rc<dyn Object>, obj2: Rc<dyn Object>, ctx: ErrorCtx) -> EvalResult {
+
+} */
+
+pub fn objlt(
+    obj1: Rc<dyn Object>,
+    obj2: Rc<dyn Object>,
+    ctx: ErrorCtx,
+) -> Result<bool, Rc<dyn NixRsError>> {
     let a1 = obj1.as_any();
     let a2 = obj2.as_any();
-    if a1.is::<Int>() {
+    Ok(if a1.is::<Int>() {
         if a2.is::<Int>() {
             convany!(a1, Int) < convany!(a2, Int)
         } else if a2.is::<Float>() {
@@ -373,17 +441,39 @@ pub fn objlt(obj1: Rc<dyn Object>, obj2: Rc<dyn Object>) -> bool {
         }
     } else if a1.is::<List>() {
         if a2.is::<List>() {
-            std::iter::zip(
+            let mut tmp = false;
+            for (o1, o2) in std::iter::zip(
                 convany!(a1, List).value.iter().map(|o| o.eval()),
                 convany!(a2, List).value.iter().map(|o| o.eval()),
-            )
-            .any(|a| objlt(a.0, a.1))
-                || (objeq(obj1.clone(), obj2.clone())
-                    && convany!(a1, List).value.len() < convany!(a2, List).value.len())
+            ) {
+                if tmp {
+                    break;
+                }
+                tmp = tmp || objlt(o1?, o2?, ctx.clone())?;
+            }
+            tmp || {
+                let mut tmp = true;
+                for (o1, o2) in std::iter::zip(
+                    convany!(a1, List)
+                        .value
+                        .iter()
+                        .map(|o| -> EvalResult { o.eval() }),
+                    convany!(a2, List)
+                        .value
+                        .iter()
+                        .map(|o| -> EvalResult { o.eval() }),
+                ) {
+                    if !tmp {
+                        break;
+                    }
+                    tmp = tmp && *convany!(objeq(o1?, o2?, ctx.clone())?.as_any(), Bool);
+                }
+                tmp
+            }
         } else {
             false
         }
     } else {
-        unimplemented!()
-    }
+        return Err(ctx.unwind(EvalError::new("unsupported operation")));
+    })
 }

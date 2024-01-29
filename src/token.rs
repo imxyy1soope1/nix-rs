@@ -36,6 +36,7 @@ pub enum Token {
     DOT,
     PARENT,
     ELLIPSIS,
+    WAVY,
 
     LPAREN,
     RPAREN,
@@ -47,10 +48,6 @@ pub enum Token {
     RANGLE,
     DOLLARCURLY,
 
-    // TRUE,
-    // FALSE,
-
-    // NULL,
     IF,
     THEN,
     ELSE,
@@ -100,6 +97,7 @@ impl fmt::Display for Token {
             DOT => write!(f, "."),
             PARENT => write!(f, ".."),
             ELLIPSIS => write!(f, "..."),
+            WAVY => write!(f, "~"),
 
             LPAREN => write!(f, "("),
             RPAREN => write!(f, ")"),
@@ -111,10 +109,6 @@ impl fmt::Display for Token {
             RANGLE => write!(f, ">"),
             DOLLARCURLY => write!(f, "${{"),
 
-            // TRUE => write!(f, "true"),
-            // FALSE => write!(f, "false"),
-
-            // NULL => write!(f, "null"),
             IF => write!(f, "if"),
             THEN => write!(f, "then"),
             ELSE => write!(f, "else"),

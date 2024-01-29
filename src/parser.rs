@@ -1,4 +1,3 @@
-use core::panic;
 use std::error::Error;
 use std::rc::Rc;
 
@@ -119,6 +118,7 @@ impl Parser {
             INHERIT => parser!(parse_inherit),
             DOT => parser!(parse_rel_path),
             PARENT => parser!(parse_rel_path),
+            WAVY => parser!(parse_rel_path),
             SLASH => parser!(parse_abs_path),
             LANGLE => parser!(parse_search_path),
             DOLLARCURLY => parser!(parse_interpolate),

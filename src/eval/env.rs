@@ -1,3 +1,4 @@
+use crate::error::NixRsError;
 use crate::object::EvaledOr;
 use std::cell::RefCell;
 use std::collections::hash_map::{HashMap, Iter};
@@ -29,6 +30,8 @@ impl Display for EnvironmentError {
         write!(f, "{}", self.text)
     }
 }
+
+impl NixRsError for EnvironmentError {}
 
 impl Error for EnvironmentError {}
 

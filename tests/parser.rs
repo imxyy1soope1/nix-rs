@@ -45,7 +45,7 @@ fn test_parse_infix() {
     _test_parse("5 - 5", "(5 - 5)");
     _test_parse("5 * 5", "(5 * 5)");
     _test_parse("5 * 5 + 5", "((5 * 5) + 5)");
-    // _test_parse("5 / 5", "(5 / 5)");
+    _test_parse("5 / 5", "(5 / 5)");
     _test_parse("true && false", "(true && false)");
     _test_parse("true || false", "(true || false)");
     _test_parse("true -> false", "(true -> false)");
@@ -54,7 +54,7 @@ fn test_parse_infix() {
 
 #[test]
 fn test_parse_group() {
-    // _test_parse("(5 + 5) * 5", "(5 + 5) * 5");
+    _test_parse("(5 + 5) * 5", "((5 + 5) * 5)");
     _test_parse("5 * (5 + 5)", "(5 * (5 + 5))");
 }
 

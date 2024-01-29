@@ -1,4 +1,5 @@
 use crate::convany;
+use crate::eval::EvalResult;
 use crate::object::*;
 use std::fmt::Display;
 use std::rc::Rc;
@@ -6,18 +7,18 @@ use std::rc::Rc;
 #[derive(Debug)]
 pub struct BuiltinFunction {
     argscount: u8,
-    func: fn(Vec<EvaledOr>) -> Rc<dyn Object>,
+    func: fn(Vec<EvaledOr>) -> EvalResult,
 }
 
 #[derive(Debug)]
 pub struct BuiltinFunctionApp {
     args: Vec<EvaledOr>,
     argsleft: u8,
-    func: fn(Vec<EvaledOr>) -> Rc<dyn Object>,
+    func: fn(Vec<EvaledOr>) -> EvalResult,
 }
 
 impl BuiltinFunctionApp {
-    pub fn call(&self, arg: EvaledOr) -> Rc<dyn Object> {
+    pub fn call(&self, arg: EvaledOr) -> EvalResult {
         let mut args = self.args.clone();
         args.push(arg);
         let a = self.argsleft - 1;
@@ -25,11 +26,11 @@ impl BuiltinFunctionApp {
             let f = self.func;
             f(args)
         } else {
-            Rc::new(BuiltinFunctionApp {
+            Ok(Rc::new(BuiltinFunctionApp {
                 args,
                 argsleft: a,
                 func: self.func,
-            })
+            }))
         }
     }
 }
@@ -47,11 +48,11 @@ impl Display for BuiltinFunctionApp {
 }
 
 impl BuiltinFunction {
-    pub fn new(argscount: u8, func: fn(Vec<EvaledOr>) -> Rc<dyn Object>) -> BuiltinFunction {
+    pub fn new(argscount: u8, func: fn(Vec<EvaledOr>) -> EvalResult) -> BuiltinFunction {
         BuiltinFunction { argscount, func }
     }
 
-    pub fn call(&self, arg: EvaledOr) -> Rc<dyn Object> {
+    pub fn call(&self, arg: EvaledOr) -> EvalResult {
         let b = BuiltinFunctionApp {
             args: Vec::new(),
             argsleft: self.argscount,
@@ -79,36 +80,36 @@ pub fn builtin_fns() -> Vec<(&'static str, bool, BuiltinFunction)> {
             "ceil",
             false,
             BuiltinFunction::new(1, |a| {
-                if a[0].eval().as_any().is::<Float>() {
-                    Rc::new(convany!(a[0].eval().as_any(), Float).ceil())
+                Ok(if a[0].eval()?.as_any().is::<Float>() {
+                    Rc::new(convany!(a[0].eval()?.as_any(), Float).ceil())
                 } else {
-                    Rc::new(*convany!(a[0].eval().as_any(), Int))
-                }
+                    Rc::new(*convany!(a[0].eval()?.as_any(), Int))
+                })
             }),
         ),
         (
             "floor",
             false,
             BuiltinFunction::new(1, |a| {
-                if a[0].eval().as_any().is::<Float>() {
-                    Rc::new(convany!(a[0].eval().as_any(), Float).floor())
+                Ok(if a[0].eval()?.as_any().is::<Float>() {
+                    Rc::new(convany!(a[0].eval()?.as_any(), Float).floor())
                 } else {
-                    Rc::new(*convany!(a[0].eval().as_any(), Int))
-                }
+                    Rc::new(*convany!(a[0].eval()?.as_any(), Int))
+                })
             }),
         ),
         (
             "typeOf",
             false,
             BuiltinFunction::new(1, |a| {
-                let a = a[0].eval();
+                let a = a[0].eval()?;
                 let a = a.as_any();
                 macro_rules! is {
                     ($t:tt) => {
                         a.is::<$t>()
                     };
                 }
-                if is!(Int) {
+                Ok(if is!(Int) {
                     Rc::new("int".to_string())
                 } else if is!(Float) {
                     Rc::new("float".to_string())
@@ -124,53 +125,51 @@ pub fn builtin_fns() -> Vec<(&'static str, bool, BuiltinFunction)> {
                     Rc::new("list".to_string())
                 } else if is!(Lambda) {
                     Rc::new("lambda".to_string())
-                } else if is!(Lambda) {
-                    Rc::new("lambda".to_string())
                 } else {
                     unreachable!()
-                }
+                })
             }),
         ),
         (
             "isNull",
             false,
-            BuiltinFunction::new(1, |a| Rc::new(a[0].eval().as_any().is::<Null>())),
+            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Null>()))),
         ),
         (
             "isFunction",
             false,
-            BuiltinFunction::new(1, |a| Rc::new(a[0].eval().as_any().is::<Lambda>())),
+            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Lambda>()))),
         ),
         (
             "isInt",
             false,
-            BuiltinFunction::new(1, |a| Rc::new(a[0].eval().as_any().is::<Int>())),
+            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Int>()))),
         ),
         (
             "isFloat",
             false,
-            BuiltinFunction::new(1, |a| Rc::new(a[0].eval().as_any().is::<Float>())),
+            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Float>()))),
         ),
         (
             "isString",
             false,
-            BuiltinFunction::new(1, |a| Rc::new(a[0].eval().as_any().is::<Str>())),
+            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Str>()))),
         ),
         (
             "isBool",
             false,
-            BuiltinFunction::new(1, |a| Rc::new(a[0].eval().as_any().is::<Bool>())),
+            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Bool>()))),
         ),
         /* (
             "isPath",
             false,
-            BuiltinFunction::new(1, |a| Rc::new(a[0].eval().as_any().is::<Path>()))
+            BuiltinFunction::new(1, |a| Rc::new(a[0].eval()?.as_any().is::<Path>()))
         ), */
         (
             "seq",
             false,
             BuiltinFunction::new(2, |a| {
-                a[0].eval();
+                a[0].eval()?;
                 a[1].eval()
             }),
         ),
@@ -178,7 +177,7 @@ pub fn builtin_fns() -> Vec<(&'static str, bool, BuiltinFunction)> {
             "deepSeq",
             false,
             BuiltinFunction::new(2, |a| {
-                a[0].eval();
+                a[0].eval()?;
                 a[1].eval()
             }),
         ),

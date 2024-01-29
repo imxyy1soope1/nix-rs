@@ -209,10 +209,6 @@ impl Lexer {
         }
 
         match &self.input[pos..=self.pos] {
-            // "true" => TRUE,
-            // "false" => FALSE,
-            //
-            // "null" => NULL,
             "if" => IF,
             "then" => THEN,
             "else" => ELSE,
@@ -419,6 +415,7 @@ impl Iterator for Lexer {
                     DOT
                 }
             }
+            '~' => WAVY,
             '?' => QUEST,
             '@' => AT,
 

@@ -1,6 +1,7 @@
 use crate::builtins::{BuiltinFunction, BuiltinFunctionApp};
 use crate::convany;
-use crate::eval::Environment;
+use crate::error::*;
+use crate::eval::{Environment, EvalResult};
 use crate::object::*;
 use crate::token::Token;
 
@@ -11,7 +12,7 @@ use std::rc::Rc;
 
 pub trait Expression: Display + Debug {
     fn as_any(&self) -> &dyn Any;
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object>;
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult;
 }
 
 #[derive(Debug)]
@@ -31,28 +32,31 @@ impl Expression for PrefixExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
-        let val = self.right.eval(env);
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+        let val = self.right.eval(
+            env,
+            ctx.with(EvalError::new("while evaluating prefix expr")),
+        )?;
         let a = val.as_any();
         use Token::*;
         match self.token {
             MINUS => {
                 if a.is::<Int>() {
-                    Rc::new(-convany!(a, Int))
+                    Ok(Rc::new(-convany!(a, Int)))
                 } else if a.is::<Float>() {
-                    Rc::new(-convany!(a, Float))
+                    Ok(Rc::new(-convany!(a, Float)))
                 } else {
-                    unimplemented!()
+                    Err(ctx.unwind(EvalError::new("unsupported operation")))
                 }
             }
             BANG => {
                 if a.is::<Bool>() {
-                    Rc::new(!a.downcast_ref::<bool>().unwrap())
+                    Ok(Rc::new(!a.downcast_ref::<bool>().unwrap()))
                 } else {
-                    panic!()
+                    Err(ctx.unwind(EvalError::new("unsupported operation")))
                 }
             }
-            _ => panic!(),
+            _ => Err(ctx.unwind(EvalError::new("unsupported operation"))),
         }
     }
 }
@@ -81,20 +85,27 @@ impl Expression for InfixExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
-        let le = self.left.eval(env.clone());
-        if le.as_any().is::<Attrs>()
-            && self.token == Token::DOT
-            && self.right.as_any().is::<IdentifierExpr>()
-        {
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+        let ctx = ctx.with(EvalError::new("while evaluating infix expr"));
+        let le = self.left.eval(env.clone(), ctx.clone())?;
+        if le.as_any().is::<Attrs>() && self.token == Token::DOT {
             let ret = convany!(le.as_any(), Attrs)
                 .env
                 .borrow_mut()
-                .get(&convany!(self.right.as_any(), IdentifierExpr).ident)
+                .get(&if self.right.as_any().is::<IdentifierExpr>() {
+                    convany!(self.right.as_any(), IdentifierExpr).ident.clone()
+                } else if self.right.as_any().is::<StringLiteralExpr>()
+                    || self.right.as_any().is::<InterpolateStringExpr>()
+                {
+                    let e = self.right.eval(env.clone(), ctx)?;
+                    convany!(e.as_any(), Str).clone()
+                } else {
+                    return Err(ctx.unwind(EvalError::new("unsupported operation")));
+                })
                 .unwrap();
             return ret.eval();
         }
-        let re = self.right.eval(env.clone());
+        let re = self.right.eval(env.clone(), ctx.clone())?;
         let la = le.as_any();
         let ra = re.as_any();
         use Token::*;
@@ -102,31 +113,37 @@ impl Expression for InfixExpr {
             ($op:expr) => {
                 if la.is::<Int>() {
                     if ra.is::<Int>() {
-                        Rc::new($op(convany!(la, Int), convany!(ra, Int)))
+                        Ok(Rc::new($op(convany!(la, Int), convany!(ra, Int))))
                     } else if ra.is::<Float>() {
-                        Rc::new($op(*convany!(la, Int) as Float, convany!(ra, Float)))
+                        Ok(Rc::new($op(
+                            *convany!(la, Int) as Float,
+                            convany!(ra, Float),
+                        )))
                     } else {
-                        unimplemented!()
+                        Err(ctx.unwind(EvalError::new("unsupported operation")))
                     }
                 } else if la.is::<Float>() {
                     if ra.is::<Int>() {
-                        Rc::new($op(convany!(la, Float), *convany!(ra, Int) as Float))
+                        Ok(Rc::new($op(
+                            convany!(la, Float),
+                            *convany!(ra, Int) as Float,
+                        )))
                     } else if ra.is::<Float>() {
-                        Rc::new($op(convany!(la, Float), convany!(ra, Float)))
+                        Ok(Rc::new($op(convany!(la, Float), convany!(ra, Float))))
                     } else {
-                        unimplemented!()
+                        Err(ctx.unwind(EvalError::new("unsupported operation")))
                     }
                 } else {
-                    unimplemented!()
+                    Err(ctx.unwind(EvalError::new("unsupported operation")))
                 }
             };
         }
         macro_rules! infix {
             ($t1:tt, $t2:tt, $op:expr) => {
                 if la.is::<$t1>() && ra.is::<$t2>() {
-                    Rc::from($op(convany!(la, $t1), convany!(ra, $t2)))
+                    Ok(Rc::from($op(convany!(la, $t1), convany!(ra, $t2))))
                 } else {
-                    unimplemented!()
+                    Err(ctx.unwind(EvalError::new("unsupported type")))
                 }
             };
         }
@@ -138,15 +155,24 @@ impl Expression for InfixExpr {
             AND => infix!(Bool, Bool, |a: &Bool, b: &Bool| *a && *b),
             OR => infix!(Bool, Bool, |a: &Bool, b: &Bool| *a || *b),
             IMPL => infix!(Bool, Bool, |a: &Bool, b: &Bool| !*a || *b),
-            UPDATE => infix!(Attrs, Attrs, |a: &Attrs, _| a.update(re.clone())),
+            UPDATE => {
+                if la.is::<Attrs>() && ra.is::<Attrs>() {
+                    Ok(convany!(la, Attrs).update(re.clone())?)
+                } else {
+                    Err(ctx.unwind(EvalError::new("unsupported operation")))
+                }
+            }
             CONCAT => infix!(List, List, |a: &List, _| a.concat(re.clone())),
-            EQ => Rc::new(objeq(le.clone(), re.clone())),
-            NEQ => Rc::new(!objeq(le.clone(), re.clone())),
-            LANGLE => Rc::new(objlt(le.clone(), re.clone())),
-            RANGLE => Rc::new(objlt(re.clone(), le.clone())),
-            LEQ => Rc::new(!objlt(re.clone(), le.clone())),
-            GEQ => Rc::new(!objlt(le.clone(), re.clone())),
-            _ => unimplemented!(),
+            EQ => Ok(Rc::new(objeq(le.clone(), re.clone(), ctx)?)),
+            NEQ => Ok(Rc::new(!(objeq(le.clone(), re.clone(), ctx)?))),
+            LANGLE => Ok(Rc::new(objlt(le.clone(), re.clone(), ctx)?)),
+            RANGLE => Ok(Rc::new(objlt(re.clone(), le.clone(), ctx)?)),
+            LEQ => Ok(Rc::new(!objlt(re.clone(), le.clone(), ctx)?)),
+            GEQ => Ok(Rc::new(!objlt(le.clone(), re.clone(), ctx)?)),
+            _ => Err(ctx.unwind(EvalError::from_string(format!(
+                "unsupported operation: {}",
+                self.token
+            )))),
         }
     }
 }
@@ -173,7 +199,7 @@ impl Expression for IdentifierExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
         env.borrow().get(&self.ident).unwrap().eval()
     }
 }
@@ -202,8 +228,8 @@ impl Expression for IntLiteralExpr {
         self
     }
 
-    fn eval(&self, _: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
-        Rc::new(self.literal)
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+        Ok(Rc::new(self.literal))
     }
 }
 
@@ -231,8 +257,8 @@ impl Expression for FloatLiteralExpr {
         self
     }
 
-    fn eval(&self, _: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
-        Rc::new(self.literal)
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+        Ok(Rc::new(self.literal))
     }
 }
 
@@ -250,7 +276,7 @@ impl Expression for EllipsisLiteralExpr {
         self
     }
 
-    fn eval(&self, _env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
         unimplemented!()
     }
 }
@@ -277,8 +303,8 @@ impl Expression for StringLiteralExpr {
         self
     }
 
-    fn eval(&self, _env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
-        Rc::new(self.literal.clone())
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+        Ok(Rc::new(self.literal.clone()))
     }
 }
 
@@ -308,14 +334,19 @@ impl Expression for InterpolateStringExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
-        Rc::new(InterpolateStr::new(
-            self.literal.clone(),
-            self.replaces
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+        let ctx = ctx.with(EvalError::new("while evaluating string literal"));
+        Ok(Rc::new(InterpolateStr::new(self.literal.clone(), {
+            let mut t = Vec::new();
+            for (idx, r) in self
+                .replaces
                 .iter()
-                .map(|r| (r.0, r.1.eval(env.clone())))
-                .collect(),
-        ))
+                .map(|(idx, r)| (idx, r.eval(env.clone(), ctx.clone())))
+            {
+                t.push((*idx, r?))
+            }
+            t
+        })))
     }
 }
 
@@ -333,10 +364,7 @@ pub struct FunctionLiteralExpr {
 
 impl FunctionLiteralExpr {
     pub fn new(arg: Rc<dyn Expression>, body: Rc<dyn Expression>) -> FunctionLiteralExpr {
-        FunctionLiteralExpr {
-            arg,
-            body,
-        }
+        FunctionLiteralExpr { arg, body }
     }
 }
 
@@ -345,12 +373,12 @@ impl Expression for FunctionLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
-        Rc::new(Lambda::new(
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+        Ok(Rc::new(Lambda::new(
             self.arg.clone(),
             self.body.clone(),
             env.clone(),
-        ))
+        )))
     }
 }
 
@@ -368,10 +396,7 @@ pub struct FunctionCallExpr {
 
 impl FunctionCallExpr {
     pub fn new(func: Rc<dyn Expression>, arg: Rc<dyn Expression>) -> FunctionCallExpr {
-        FunctionCallExpr {
-            func,
-            arg,
-        }
+        FunctionCallExpr { func, arg }
     }
 }
 
@@ -380,17 +405,22 @@ impl Expression for FunctionCallExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
-        let e = self.func.eval(env.clone());
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+        let ctx = ctx.with(EvalError::new("while evaluating function call"));
+        let e = self.func.eval(env.clone(), ctx.clone())?;
         let fa = e.as_any();
         if fa.is::<BuiltinFunction>() {
-            convany!(fa, BuiltinFunction).call(EvaledOr::expr(env, self.arg.clone()))
+            convany!(fa, BuiltinFunction).call(EvaledOr::expr(env, self.arg.clone(), ctx.clone()))
         } else if fa.is::<BuiltinFunctionApp>() {
-            convany!(fa, BuiltinFunctionApp).call(EvaledOr::expr(env, self.arg.clone()))
+            convany!(fa, BuiltinFunctionApp).call(EvaledOr::expr(
+                env,
+                self.arg.clone(),
+                ctx.clone(),
+            ))
         } else {
             fa.downcast_ref::<Lambda>()
                 .unwrap()
-                .call(self.arg.eval(env))
+                .call(self.arg.eval(env, ctx.clone())?, ctx)
         }
     }
 }
@@ -423,14 +453,15 @@ impl Expression for IfExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
-        let c = self.cond.eval(env.clone());
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+        let ctx = ctx.with(EvalError::new("while evaluating if expr"));
+        let c = self.cond.eval(env.clone(), ctx.clone())?;
         let c = c.as_any();
         if c.is::<Bool>() {
             if *convany!(c, Bool) {
-                self.consq.eval(env)
+                self.consq.eval(env, ctx)
             } else {
-                self.alter.eval(env)
+                self.alter.eval(env, ctx)
             }
         } else {
             unimplemented!()
@@ -459,23 +490,27 @@ impl BindingExpr {
         BindingExpr { name, value }
     }
 
-    pub fn pair(&self, env: Rc<RefCell<Environment>>) -> (String, EvaledOr) {
+    pub fn pair(
+        &self,
+        env: Rc<RefCell<Environment>>,
+        ctx: ErrorCtx,
+    ) -> Result<(String, EvaledOr), Rc<dyn NixRsError>> {
+        let ctx = ctx.with(EvalError::new("while evaluating binding expr"));
         let a = self.name.as_any();
-        if a.is::<IdentifierExpr>() {
+        Ok(if a.is::<IdentifierExpr>() {
             (
                 a.downcast_ref::<IdentifierExpr>().unwrap().ident.clone(),
-                EvaledOr::expr(env, self.value.clone()),
+                EvaledOr::expr(env, self.value.clone(), ctx),
             )
         } else if a.is::<StringLiteralExpr>() {
             (
                 convany!(a, StringLiteralExpr).literal.clone(),
-                EvaledOr::expr(env, self.value.clone()),
+                EvaledOr::expr(env, self.value.clone(), ctx),
             )
         } else if a.is::<InterpolateStringExpr>() {
             (
-                convany!(self.name.eval(env.clone()).as_any(), Str)
-                    .clone(),
-                EvaledOr::expr(env, self.value.clone()),
+                convany!(self.name.eval(env.clone(), ctx.clone())?.as_any(), Str).clone(),
+                EvaledOr::expr(env, self.value.clone(), ctx),
             )
         } else if a.is::<InfixExpr>() && convany!(a, InfixExpr).token == Token::DOT {
             BindingExpr::new(
@@ -488,10 +523,12 @@ impl BindingExpr {
                     false,
                 )),
             )
-            .pair(env)
+            .pair(env, ctx)?
         } else {
-            unimplemented!()
-        }
+            return Err(ctx.unwind(EvalError::from_string(
+                "invalid binding: ".to_owned() + &self.to_string(),
+            )));
+        })
     }
 }
 
@@ -500,7 +537,7 @@ impl Expression for BindingExpr {
         self
     }
 
-    fn eval(&self, _env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
         unimplemented!()
     }
 }
@@ -528,30 +565,36 @@ impl Expression for AttrsLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
         let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
         for b in self.bindings.iter() {
             if b.as_any().is::<BindingExpr>() {
-                let (name, value) = convany!(b.as_any(), BindingExpr).pair(if self.rec {
-                    newenv.clone()
-                } else {
-                    env.clone()
-                });
+                let (name, value) = convany!(b.as_any(), BindingExpr).pair(
+                    if self.rec {
+                        newenv.clone()
+                    } else {
+                        env.clone()
+                    },
+                    ctx.with(EvalError::new("while evaluating attrs expr")),
+                )?;
                 let ret = newenv.borrow_mut().set(name.clone(), value.clone());
                 if ret.is_err() {
                     drop(ret);
-                    convany!(newenv.borrow().get(&name).unwrap().eval().as_any(), Attrs)
-                        .merge(value.eval())
+                    convany!(newenv.borrow().get(&name).unwrap().eval()?.as_any(), Attrs)
+                        .merge(value.eval()?)?;
                 }
             } else {
                 // InheritExpr
                 let inherit = b.as_any().downcast_ref::<InheritExpr>().unwrap();
-                for (k, v) in inherit.apply(env.clone()) {
+                for (k, v) in inherit.apply(
+                    env.clone(),
+                    ctx.with(EvalError::new("while evaluating attrs expr")),
+                )? {
                     newenv.borrow_mut().set(k, v).unwrap();
                 }
             }
         }
-        Rc::new(Attrs::new(newenv))
+        Ok(Rc::new(Attrs::new(newenv)))
     }
 }
 
@@ -570,7 +613,6 @@ impl Display for AttrsLiteralExpr {
 
 #[derive(Debug)]
 pub struct ArgSetExpr {
-    // pub args: Vec<Rc<dyn Expression>>,
     pub args: Vec<(String, Option<Rc<dyn Expression>>)>,
     pub allow_more: bool,
     pub alias: Option<String>,
@@ -595,7 +637,7 @@ impl Expression for ArgSetExpr {
         self
     }
 
-    fn eval(&self, _env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
         unimplemented!()
     }
 }
@@ -642,13 +684,14 @@ impl Expression for ListLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
-        Rc::new(List::new(
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+        let ctx = ctx.with(EvalError::new("while evaluating list"));
+        Ok(Rc::new(List::new(
             self.items
                 .iter()
-                .map(|i| EvaledOr::expr(env.clone(), i.clone()))
+                .map(|i| EvaledOr::expr(env.clone(), i.clone(), ctx.clone()))
                 .collect(),
-        ))
+        )))
     }
 }
 
@@ -679,24 +722,21 @@ impl Expression for LetExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+        let ctx = ctx.with(EvalError::new("while evaluating let expr"));
         let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
         for b in self.bindings.iter() {
-            if b.as_any().is::<BindingExpr>() {
-                let b = b.as_any().downcast_ref::<BindingExpr>().unwrap();
-                let env = newenv.clone();
-                newenv
-                    .borrow_mut()
-                    .set(
-                        convany!(b.name.as_any(), IdentifierExpr).ident.clone(),
-                        EvaledOr::expr(env, b.value.clone()),
-                    )
-                    .unwrap();
-            } else {
-                panic!()
-            }
+            let b = b.as_any().downcast_ref::<BindingExpr>().unwrap();
+            let env = newenv.clone();
+            newenv
+                .borrow_mut()
+                .set(
+                    convany!(b.name.as_any(), IdentifierExpr).ident.clone(),
+                    EvaledOr::expr(env, b.value.clone(), ctx.clone()),
+                )
+                .unwrap();
         }
-        self.expr.eval(newenv)
+        self.expr.eval(newenv, ctx)
     }
 }
 
@@ -727,11 +767,17 @@ impl Expression for WithExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
-        let e = self.attrs.eval(env.clone());
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+        let e = self.attrs.eval(
+            env.clone(),
+            ctx.with(EvalError::new("while evaluating with expr")),
+        )?;
         let newenv = convany!(e.as_any(), Attrs).env.clone();
         newenv.borrow_mut().father = Some(env);
-        self.expr.eval(newenv)
+        self.expr.eval(
+            newenv,
+            ctx.with(EvalError::new("while evaluating with expr")),
+        )
     }
 }
 
@@ -758,18 +804,24 @@ impl Expression for AssertExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
-        let assertion = self.assertion.eval(env.clone());
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+        let ctx = ctx.with(EvalError::new("while evaluating assert expr"));
+        let assertion = self.assertion.eval(
+            env.clone(),
+            ctx.clone()
+        )?;
         let assertion = assertion.as_any();
         if assertion.is::<Bool>() {
             if *convany!(assertion, Bool) {
-                self.expr.eval(env)
+                self.expr.eval(
+                    env,
+                    ctx
+                )
             } else {
-                // FIXME: error handling
-                panic!("assert {} failed", self.assertion)
+                Err(ctx.unwind(EvalError::from_string(format!("assertion {} failed", self.assertion))))
             }
         } else {
-            panic!()
+            Err(ctx.unwind(EvalError::from_string(format!("expect {} to be Bool", self.assertion))))
         }
     }
 }
@@ -794,9 +846,15 @@ impl InheritExpr {
         }
     }
 
-    fn apply(&self, env: Rc<RefCell<Environment>>) -> Vec<(String, EvaledOr)> {
+    fn apply(
+        &self,
+        env: Rc<RefCell<Environment>>,
+        ctx: ErrorCtx,
+    ) -> Result<Vec<(String, EvaledOr)>, Rc<dyn NixRsError>> {
         let mut ret = Vec::new();
-        let env = self.from.clone().map_or(env.clone(), |f| {
+        /* let env = self.from.clone().map_or(env.clone(), |f| {
+        }); */
+        let env = if let Some(f) = &self.from {
             env.clone()
                 .borrow_mut()
                 .get(&if f.as_any().is::<IdentifierExpr>() {
@@ -807,20 +865,25 @@ impl InheritExpr {
                         .clone()
                 } else {
                     // StringLiteralExpr
-                    f.eval(env.clone())
-                        .as_any()
-                        .downcast_ref::<Str>()
-                        .unwrap()
-                        .clone()
+                    f.eval(
+                        env.clone(),
+                        ctx.with(EvalError::new("while evaluating inherit expr")),
+                    )?
+                    .as_any()
+                    .downcast_ref::<Str>()
+                    .unwrap()
+                    .clone()
                 })
                 .unwrap()
-                .eval()
+                .eval()?
                 .as_any()
                 .downcast_ref::<Attrs>()
                 .unwrap()
                 .env
                 .clone()
-        });
+        } else {
+            env.clone()
+        };
         for i in self.inherits.iter() {
             let string = if i.as_any().is::<IdentifierExpr>() {
                 i.as_any()
@@ -835,11 +898,11 @@ impl InheritExpr {
                     .literal
                     .clone()
             } else {
-                panic!()
+                return Err(ctx.unwind(EvalError::new("unsupported type")));
             };
             ret.push((string.clone(), env.borrow().get(&string).unwrap()));
         }
-        ret
+        Ok(ret)
     }
 }
 
@@ -848,7 +911,7 @@ impl Expression for InheritExpr {
         self
     }
 
-    fn eval(&self, _env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
         unimplemented!()
     }
 }
@@ -889,7 +952,7 @@ impl Expression for PathLiteralExpr {
         self
     }
 
-    fn eval(&self, _env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
         todo!()
     }
 }
@@ -916,7 +979,7 @@ impl Expression for SearchPathExpr {
         self
     }
 
-    fn eval(&self, _env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
         todo!()
     }
 }
@@ -943,7 +1006,7 @@ impl Expression for InterpolateExpr {
         self
     }
 
-    fn eval(&self, _env: Rc<RefCell<Environment>>) -> Rc<dyn Object> {
+    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
         todo!()
     }
 }
