@@ -1,23 +1,35 @@
 extern crate nix_rs;
 
-use std::io::Write;
-
 use crate::nix_rs::*;
+use rustyline::Config;
+use rustyline::error::ReadlineError;
+use rustyline::{Editor, Result, history::MemHistory};
 
-fn main() {
+fn main() -> Result<()> {
     let env = new_env();
+    let mut rl = Editor::<(), MemHistory>::with_history(Config::default(), MemHistory::new()).unwrap();
     loop {
-        print!("nix-rs-eval> ");
-        std::io::stdout().flush().unwrap();
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input).unwrap();
-        if input.is_empty() {
-            println!();
-            return;
-        }
-        match eval_with_env(env.clone(), input) {
-            Ok(o) => println!("{}", o),
-            Err(e) => eprintln!("{}", e),
+        let readline = rl.readline("nix-rs-eval> ");
+        match readline {
+            Ok(line) => {
+                match eval_with_env(env.clone(), line) {
+                    Ok(o) => println!("{}", o),
+                    Err(e) => eprintln!("{}", e),
+                }
+            },
+            Err(ReadlineError::Interrupted) => {
+                println!("CTRL-C");
+                break
+            },
+            Err(ReadlineError::Eof) => {
+                println!("CTRL-D");
+                break
+            },
+            Err(err) => {
+                println!("Error: {:?}", err);
+                break
+            }
         }
     }
+    Ok(())
 }
