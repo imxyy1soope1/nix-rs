@@ -15,6 +15,9 @@ fn main() {
             println!();
             return;
         }
-        println!("{}", eval_with_env(env.clone(), input).unwrap());
+        match eval_with_env(env.clone(), input) {
+            Ok(o) => println!("{}", o),
+            Err(e) => eprintln!("{}", e),
+        }
     }
 }
