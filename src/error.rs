@@ -1,4 +1,3 @@
-use crate::lexer::Pos;
 use std::error::Error;
 use std::fmt::Display;
 use std::rc::Rc;
@@ -47,6 +46,12 @@ pub struct ErrorCtx {
     stack: Rc<Stack>,
 }
 
+impl Default for ErrorCtx {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ErrorCtx {
     pub fn new() -> ErrorCtx {
         ErrorCtx {
@@ -60,7 +65,7 @@ impl ErrorCtx {
     pub fn with(&self, err: Rc<dyn NixRsError>) -> ErrorCtx {
         ErrorCtx {
             stack: Rc::new(Stack {
-                this: Some(Rc::from(err)),
+                this: Some(err),
                 prev: Some(self.stack.clone()),
             }),
         }

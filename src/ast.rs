@@ -199,7 +199,7 @@ impl Expression for IdentifierExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+    fn eval(&self, env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
         env.borrow().get(&self.ident).unwrap().eval()
     }
 }
@@ -228,7 +228,7 @@ impl Expression for IntLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+    fn eval(&self, _env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
         Ok(Rc::new(self.literal))
     }
 }
@@ -257,7 +257,7 @@ impl Expression for FloatLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+    fn eval(&self, _env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
         Ok(Rc::new(self.literal))
     }
 }
@@ -276,7 +276,7 @@ impl Expression for EllipsisLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+    fn eval(&self, _env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
         unimplemented!()
     }
 }
@@ -303,7 +303,7 @@ impl Expression for StringLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+    fn eval(&self, _env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
         Ok(Rc::new(self.literal.clone()))
     }
 }
@@ -373,7 +373,7 @@ impl Expression for FunctionLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+    fn eval(&self, env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
         Ok(Rc::new(Lambda::new(
             self.arg.clone(),
             self.body.clone(),
@@ -537,7 +537,7 @@ impl Expression for BindingExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+    fn eval(&self, _env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
         unimplemented!()
     }
 }
@@ -637,7 +637,7 @@ impl Expression for ArgSetExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+    fn eval(&self, _env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
         unimplemented!()
     }
 }
@@ -806,22 +806,22 @@ impl Expression for AssertExpr {
 
     fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
         let ctx = ctx.with(EvalError::new("while evaluating assert expr"));
-        let assertion = self.assertion.eval(
-            env.clone(),
-            ctx.clone()
-        )?;
+        let assertion = self.assertion.eval(env.clone(), ctx.clone())?;
         let assertion = assertion.as_any();
         if assertion.is::<Bool>() {
             if *convany!(assertion, Bool) {
-                self.expr.eval(
-                    env,
-                    ctx
-                )
+                self.expr.eval(env, ctx)
             } else {
-                Err(ctx.unwind(EvalError::from_string(format!("assertion {} failed", self.assertion))))
+                Err(ctx.unwind(EvalError::from_string(format!(
+                    "assertion {} failed",
+                    self.assertion
+                ))))
             }
         } else {
-            Err(ctx.unwind(EvalError::from_string(format!("expect {} to be Bool", self.assertion))))
+            Err(ctx.unwind(EvalError::from_string(format!(
+                "expect {} to be Bool",
+                self.assertion
+            ))))
         }
     }
 }
@@ -911,7 +911,7 @@ impl Expression for InheritExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+    fn eval(&self, _env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
         unimplemented!()
     }
 }
@@ -952,7 +952,7 @@ impl Expression for PathLiteralExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+    fn eval(&self, _env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
         todo!()
     }
 }
@@ -979,7 +979,7 @@ impl Expression for SearchPathExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+    fn eval(&self, _env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
         todo!()
     }
 }
@@ -1006,7 +1006,7 @@ impl Expression for InterpolateExpr {
         self
     }
 
-    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
+    fn eval(&self, _env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
         todo!()
     }
 }

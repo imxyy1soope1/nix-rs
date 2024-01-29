@@ -32,9 +32,8 @@ impl _EvaledOr {
         }
     }
     fn eval(&mut self) -> EvalResult {
-        match &*self {
-            Expr(env, e, ctx) => self.set(Evaled(e.eval(env.clone(), ctx.clone())?)),
-            _ => (),
+        if let Expr(env, e, ctx) = &*self {
+            self.set(Evaled(e.eval(env.clone(), ctx.clone())?))
         }
         self.get()
     }
