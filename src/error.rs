@@ -52,6 +52,18 @@ impl EvalError {
     }
 }
 
+impl From<String> for EvalError {
+    fn from(value: String) -> Self {
+        EvalError { msg: value }
+    }
+}
+
+impl From<&str> for EvalError {
+    fn from(value: &str) -> Self {
+        EvalError { msg: value.to_owned() }
+    }
+}
+
 impl Error for EvalError {}
 
 impl NixRsError for EvalError {

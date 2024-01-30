@@ -1,19 +1,18 @@
 use crate::error::*;
-use crate::eval::{Environment, EvalResult};
+use crate::eval::{Environment, EvalResult, Env};
 use crate::object::*;
 use crate::token::Token;
 
 use std::cell::RefCell;
 use std::fmt::{Debug, Display};
 
-#[derive(Debug)]
-pub enum Node<'a> {
-    Expr(RefCell<Environment<'a, 'a>>, Box<Expression<'a>>),
-    Value(Box<Object<'a>>),
-    Ref(&'a Object<'a>)
+#[derive(Debug, Clone)]
+pub enum Node {
+    Expr(Env, Box<Expression>),
+    Value(Box<Object>),
 }
 
-impl<'a> Node<'a> {
+impl Node {
     pub fn is_value(&self) -> bool {
         if let Node::Value(_) = self {
             true
@@ -22,50 +21,48 @@ impl<'a> Node<'a> {
         }
     }
 
-    pub fn force_value(&'a mut self) -> EvalResult<'a> {
+    pub fn force_value(&mut self) -> EvalResult {
         match &*self {
-            Node::Value(_) | Node::Ref(_) => Ok(()),
+            Node::Value(_) => Ok(()),
             Node::Expr(env, expr) => {
                 *self = Node::Value(Box::new(expr.eval(env)?));
                 Ok(())
             }
         }?;
         if let Node::Value(v) = &*self {
-            Ok(v.as_ref())
-        } else if let Node::Ref(r) = &*self {
-            Ok(*r)
+            Ok((*v.as_ref()).clone())
         } else {
             unreachable!()
         }
     }
 }
 
-#[derive(Debug)]
-pub enum Expression<'a> {
-    Prefix(Token, Box<Node<'a>>),
-    Infix(Token, Box<Node<'a>>, Box<Node<'a>>),
+#[derive(Debug, Clone)]
+pub enum Expression {
+    Prefix(Token, Box<Expression>),
+    Infix(Token, Box<Expression>, Box<Expression>),
     Ident(String),
     IntLiteral(Int),
     FloatLiteral(Float),
     StringLiteral(String),
-    InterpolateString(String, Vec<(usize, Node<'a>)>),
-    FunctionLiteral(Box<Node<'a>>, Box<Node<'a>>),
-    FunctionCall(Box<Node<'a>>, Box<Node<'a>>),
-    If(Box<Node<'a>>, Box<Node<'a>>, Box<Node<'a>>),
-    Binding(Box<Node<'a>>, Box<Node<'a>>),
-    AttrsLiteral(Vec<(Node<'a>, Node<'a>)>, bool),
-    FormalSet(Vec<(String, Option<Node<'a>>)>, Option<String>, bool),
-    ListLiteral(Vec<Node<'a>>),
-    Let(Vec<(String, Node<'a>)>, Box<Node<'a>>),
-    With(Box<Node<'a>>, Box<Node<'a>>),
-    Assert(Box<Node<'a>>, Box<Node<'a>>),
-    Inherit(Vec<String>, Option<Node<'a>>),
+    InterpolateString(String, Vec<(usize, Expression)>),
+    FunctionLiteral(Box<Expression>, Box<Expression>),
+    FunctionCall(Box<Expression>, Box<Expression>),
+    If(Box<Expression>, Box<Expression>, Box<Expression>),
+    Binding(Box<Expression>, Box<Expression>),
+    AttrsLiteral(Vec<(Expression, Expression)>, bool),
+    FormalSet(Vec<(String, Option<Expression>)>, Option<String>, bool),
+    ListLiteral(Vec<Expression>),
+    Let(Vec<(String, Expression)>, Box<Expression>),
+    With(Box<Expression>, Box<Expression>),
+    Assert(Box<Expression>, Box<Expression>),
+    Inherit(Vec<String>, Option<Box<Expression>>),
     Path(String, bool),
-    SearchPath(Box<Node<'a>>),
-    Interpolate(Box<Node<'a>>),
+    SearchPath(Box<Expression>),
+    Interpolate(Box<Expression>),
 }
 
-/* impl Display for Expression {
+impl Display for Expression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use Expression::*;
         match self {
@@ -80,7 +77,7 @@ pub enum Expression<'a> {
             FunctionCall(func, arg) => write!(f, "({func} {arg})"),
             If(cond, consq, alter) => write!(f, "(if {cond} then {consq} else {alter})"),
             AttrsLiteral(bindings, rec) => {
-                if rec {
+                if *rec {
                     write!(f, "rec ")?;
                 }
                 write!(f, "{{ ")?;
@@ -103,7 +100,7 @@ pub enum Expression<'a> {
                         write!(f, " ? {}", formal.1.unwrap());
                     }
                 }
-                if allow_more {
+                if *allow_more {
                     write!(f, ", ...")?;
                 }
                 write!(f, " }}")?;
@@ -121,8 +118,8 @@ pub enum Expression<'a> {
             }
             Let(bindings, expr) => {
                 write!(f, "(let ")?;
-                for binding in bindings.iter() {
-                    write!(f, "{binding}; ")?;
+                for (k, v) in bindings.iter() {
+                    write!(f, "{k} = {v}; ")?;
                 }
                 write!(f, "in {})", expr)
             }
@@ -144,9 +141,9 @@ pub enum Expression<'a> {
             Binding(name, value) => write!(f, "{name} = {value}"),
         }
     }
-} */
+}
 
-impl Expression<'_> {
+impl Expression {
     pub fn eval(&self, env: &RefCell<Environment>) -> Result<Object, Box<dyn NixRsError>> {
         Ok(Object::Null)
     }

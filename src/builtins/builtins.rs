@@ -78,8 +78,8 @@ impl Display for BuiltinFunction {
 }
 */
 
-pub fn builtin_fns() -> Vec<(&'static str, bool, Object)> {
-    vec![
+pub fn builtin_fns() -> [(&'static str, bool, Object); _] {
+    [
         (
             "ceil",
             false,

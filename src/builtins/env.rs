@@ -5,8 +5,8 @@ use crate::object::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-pub fn new_builtins_env() -> RefCell<Environment> {
-    let env = RefCell::new(Environment::new(None));
+pub fn new_builtins_env() -> Rc<RefCell<Environment>> {
+    let env = Rc::new(RefCell::new(Environment::new(None)));
     macro_rules! set {
         ($s:expr, $e:expr) => {
             env.borrow_mut().set($s, $e).unwrap()
@@ -17,7 +17,7 @@ pub fn new_builtins_env() -> RefCell<Environment> {
     set!(String::from("false"), Node::Value(Box::new(Object::Bool(false))));
     set!(String::from("null"), Node::Value(Box::new(Object::Null)));
 
-    let builtinsenv = RefCell::new(Environment::new(Some(&env)));
+    let builtinsenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
     macro_rules! bset {
         ($s:expr, $e:expr) => {
             builtinsenv.borrow_mut().set($s, $e).unwrap()

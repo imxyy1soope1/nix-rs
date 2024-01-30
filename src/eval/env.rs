@@ -1,14 +1,17 @@
 use crate::ast::Node;
 use crate::error::NixRsError;
 use std::cell::RefCell;
+use std::rc::Rc;
 use std::collections::hash_map::{HashMap, Iter};
 use std::error::Error;
 use std::fmt::Display;
 
+pub type Env = Rc<RefCell<Environment>>;
+
 #[derive(Debug)]
-pub struct Environment<'a, 'b: 'a> {
-    pub env: HashMap<String, Node<'a>>,
-    pub father: Option<&'a RefCell<Environment<'b, 'b>>>,
+pub struct Environment {
+    pub env: HashMap<String, Node>,
+    pub father: Option<Env>,
 }
 
 #[derive(Debug)]
@@ -32,15 +35,13 @@ impl NixRsError for EnvironmentError {}
 
 impl Error for EnvironmentError {}
 
-impl<'a, 'b: 'a> Environment<'a, 'b> {
-    pub fn new(father: Option<&RefCell<Environment>>) -> Environment<'a, 'b> {
+impl Environment {
+    pub fn new(father: Option<Env>) -> Environment {
         Environment {
             env: HashMap::new(),
             father,
         }
     }
-
-
 
     pub fn get(&self, sym: &String) -> Result<&Node, EnvironmentError> {
         if let Some(val) = self.env.get(sym) {

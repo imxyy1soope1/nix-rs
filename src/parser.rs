@@ -3,10 +3,10 @@ use crate::error::{NixRsError, ParserError};
 use crate::eval::Environment;
 use crate::token::Token;
 
-type PrefixParseFn<'a> = fn(&mut Parser) -> ParseResult;
-type InfixParseFn<'a> = fn(&mut Parser, Expression<'a>) -> ParseResult<'a>;
+type PrefixParseFn = fn(&mut Parser) -> ParseResult;
+type InfixParseFn = fn(&mut Parser, Expression) -> ParseResult;
 
-type ParseResult<'a> = Result<Expression<'a>, Box<dyn NixRsError>>;
+type ParseResult = Result<Expression, Box<dyn NixRsError>>;
 
 #[derive(PartialEq, PartialOrd)]
 enum Precedence {
@@ -154,11 +154,11 @@ impl Parser {
         self.next();
         Ok(Expression::Prefix(
             token.clone(),
-            Box::new(Node::Expr(Environment::new(Some(), self.parse_expr(match token {
+            Box::new(self.parse_expr(match token {
                 Token::MINUS => Precedence::NEG,
                 Token::BANG => Precedence::NOT,
                 _ => unreachable!(),
-            })?)),
+            })?),
         ))
     }
 
@@ -176,29 +176,29 @@ impl Parser {
     fn parse_if(&mut self) -> ParseResult {
         self.next();
 
-        let cond = self.parse_expr(Precedence::LOWEST);
+        let cond = self.parse_expr(Precedence::LOWEST)?;
 
         if !self.cur_is(Token::THEN) {
             panic!()
         }
         self.next();
 
-        let consq = self.parse_expr(Precedence::LOWEST);
+        let consq = self.parse_expr(Precedence::LOWEST)?;
 
         if !self.cur_is(Token::ELSE) {
             panic!()
         }
         self.next();
 
-        let alter = self.parse_expr(Precedence::LOWEST);
+        let alter = self.parse_expr(Precedence::LOWEST)?;
 
-        Ok(Expression::If(cond, consq, alter))
+        Ok(Expression::If(cond.into(), consq.into(), alter.into()))
     }
 
     fn parse_binding(&mut self, name: Expression) -> ParseResult {
         use Expression::*;
         match name {
-            Ident(..) | StringLiteral(..) | InterpolateString(..) | Interpolate(..) => (),
+            Ident(..) | StringLiteral(..) | InterpolateString(..) | Interpolate(..) => Ok(()),
             Infix(token, ..) => {
                 if token == Token::DOT {
                     Ok(())
@@ -219,7 +219,7 @@ impl Parser {
                 "invalid binding value: {expr}"
             )))
         } else {
-            Ok(Binding(name, expr))
+            Ok(Binding(name.into(), expr.into()))
         }
     }
 
@@ -255,7 +255,7 @@ impl Parser {
             if is_attrs {
                 let expr = self.parse_expr(Precedence::LOWEST)?;
                 match expr {
-                    Binding(..) | Inherit(..) => (),
+                    Binding(..) | Inherit(..) => Ok(()),
                     invalid => Err(ParserError::from_string(format!(
                         "invalid expression in attrs: {invalid}"
                     ))),
@@ -274,13 +274,13 @@ impl Parser {
                         Ident(ident) => Ok(args.push((ident, None))),
                         Infix(token, left, right) => {
                             if token == QUEST {
-                                let left = match left {
+                                let left = match left.as_ref() {
                                     Ident(ident) => Ok(ident),
                                     _ => Err(ParserError::from_string(format!(
                                         "invalid formal: {expr}"
                                     ))),
                                 }?;
-                                Ok(args.push((left, Some(right))))
+                                Ok(args.push((left.clone(), Some(*right))))
                             } else {
                                 Err(ParserError::from_string(format!("invalid formal: {expr}")))
                             }
@@ -718,7 +718,7 @@ impl Parser {
             match self.infix_parser(self.unwrap_cur()) {
                 None => return Ok(left),
                 Some(f) => {
-                    left = f(self, left);
+                    left = f(self, left)?;
                 }
             }
         }
@@ -728,7 +728,7 @@ impl Parser {
                 && !self.cur_is(Token::EOF)
                 && self.prefix_parser(self.unwrap_cur()).is_some()
             {
-                left = Expression::FunctionCall(left, self.parse_expr(Precedence::CALL)?)
+                left = Expression::FunctionCall(Box::new(left), Box::new(self.parse_expr(Precedence::CALL)?))
             }
         }
 
@@ -741,6 +741,6 @@ impl Parser {
     }
 
     pub fn parse(&mut self) -> ParseResult {
-        Node::Expr(self.parse_expr(Precedence::LOWEST))
+        self.parse_expr(Precedence::LOWEST)
     }
 }

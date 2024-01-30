@@ -1,10 +1,11 @@
-use super::env::Environment;
+use super::env::{Environment, Env};
 use crate::builtins::new_builtins_env;
 use crate::error::{ErrorCtx, NixRsError};
 use crate::{ast::*, object::*};
 use std::cell::RefCell;
+use std::rc::Rc;
 
-pub type EvalResult<'a> = core::result::Result<&'a Object, Box<dyn NixRsError>>;
+pub type EvalResult<'a> = core::result::Result<Object, Box<dyn NixRsError>>;
 
 pub struct Eval {
     root: Node,
@@ -14,13 +15,13 @@ impl Eval {
     pub fn new(expr: Expression) -> Eval {
         Eval {
             root: Node::Expr(
-                RefCell::new(Environment::new(Some(&new_builtins_env()))),
+                Rc::new(RefCell::new(Environment::new(Some(new_builtins_env())))),
                 Box::new(expr),
             ),
         }
     }
 
-    pub fn with_env(env: RefCell<Environment>, expr: Expression) -> Eval {
+    pub fn with_env(env: Env, expr: Expression) -> Eval {
         Eval {
             root: Node::Expr(env, Box::new(expr)),
         }

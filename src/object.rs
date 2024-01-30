@@ -2,6 +2,7 @@ use crate::{
     ast::Node,
     eval::EvalResult,
 };
+use std::collections::HashMap;
 use std::{cell::RefCell, fmt::Debug, fmt::Display, rc::Rc};
 
 use crate::{
@@ -9,7 +10,7 @@ use crate::{
     eval::Environment,
 };
 
-use crate::ast::*;
+use crate::{ast::*, Env};
 
 /*
 #[derive(Debug, Clone)]
@@ -79,24 +80,24 @@ pub type Int = i64;
 pub type Float = f64;
 pub type Bool = bool;
 
-#[derive(Debug)]
-pub enum Object<'a> {
+#[derive(Debug, Clone)]
+pub enum Object {
     Int(Int),
     Float(Float),
     Bool(Bool),
     Null,
     Str(String),
-    List(Vec<Node<'a>>),
-    Function(Node<'a>, Node<'a>, RefCell<Environment<'a, 'a>>),
-    Attrs(RefCell<Environment<'a, 'a>>),
+    List(Vec<Node>),
+    Function(Node, Node, Env),
+    Attrs(Env),
     Path(String),
     SearchPath(String),
 
-    BuiltinFunction(u8, fn(Vec<Node<'a>>) -> Node<'a>),
-    BuiltinFunctionApp(u8, Vec<Node<'a>>, fn(Vec<Node<'a>>) -> Node<'a>)
+    BuiltinFunction(u8, fn(Vec<Node>) -> Node),
+    BuiltinFunctionApp(u8, Vec<Node>, fn(Vec<Node>) -> Node)
 }
 
-impl Display for Object<'_> {
+impl Display for Object {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use Object::*;
         match self {
@@ -119,6 +120,35 @@ impl Display for Object<'_> {
             SearchPath(path) => write!(f, "{path}"),
             BuiltinFunction(..) => write!(f, "«primop»"),
             BuiltinFunctionApp(..) => write!(f, "«primop-app»")
+        }
+    }
+}
+
+impl From<Int> for Object {
+    fn from(value: Int) -> Self {
+        Self::Int(value)
+    }
+}
+
+impl From<Float> for Object {
+    fn from(value: Float) -> Self {
+        Self::Float(value)
+    }
+}
+
+impl From<Bool> for Object {
+    fn from(value: Bool) -> Self {
+        Self::Bool(value)
+    }
+}
+
+impl TryFrom<&Object> for Int {
+    type Error = EvalError;
+    fn try_from(value: &Object) -> Result<Self, Self::Error> {
+        if let Object::Int(int) = value {
+            Ok(*int)
+        } else {
+            Err(format!("").into())
         }
     }
 }
