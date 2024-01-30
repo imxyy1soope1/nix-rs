@@ -1,41 +1,42 @@
 use super::builtins::builtin_fns;
+use crate::ast::Node;
 use crate::eval::{Env, Environment};
 use crate::object::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-pub fn new_builtins_env() -> Env {
-    let env = Rc::new(RefCell::new(Environment::new(None)));
+pub fn new_builtins_env() -> RefCell<Environment> {
+    let env = RefCell::new(Environment::new(None));
     macro_rules! set {
         ($s:expr, $e:expr) => {
             env.borrow_mut().set($s, $e).unwrap()
         };
     }
 
-    set!(String::from("true"), EvaledOr::evaled(Rc::new(true)));
-    set!(String::from("false"), EvaledOr::evaled(Rc::new(false)));
-    set!(String::from("null"), EvaledOr::evaled(Rc::new(Null {})));
+    set!(String::from("true"), Node::Value(Box::new(Object::Bool(true))));
+    set!(String::from("false"), Node::Value(Box::new(Object::Bool(false))));
+    set!(String::from("null"), Node::Value(Box::new(Object::Null)));
 
-    let builtinsenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
+    let builtinsenv = RefCell::new(Environment::new(Some(&env)));
     macro_rules! bset {
         ($s:expr, $e:expr) => {
             builtinsenv.borrow_mut().set($s, $e).unwrap()
         };
     }
-    set!(
-        String::from("builtins"),
-        EvaledOr::evaled(Rc::new(Attrs::new(builtinsenv.clone())))
-    );
 
     for b in builtin_fns().into_iter() {
-        let v = Rc::new(b.2);
+        let v = b.2;
         if b.1 {
-            set!(b.0.to_string(), EvaledOr::evaled(v.clone()));
+            set!(b.0.to_string(), Node::Value(Box::new(v)));
         } else {
-            set!("__".to_string() + b.0, EvaledOr::evaled(v.clone()));
+            set!("__".to_string() + b.0, Node::Value(Box::new(v)));
         }
-        bset!(b.0.to_string(), EvaledOr::evaled(v));
+        bset!(b.0.to_string(), Node::Value(Box::new(v)));
     }
+    set!(
+        String::from("builtins"),
+        Node::Value(Box::new(Object::Attrs(builtinsenv)))
+    );
 
     env
 }

@@ -1,17 +1,14 @@
+use crate::ast::Node;
 use crate::error::NixRsError;
-use crate::object::EvaledOr;
 use std::cell::RefCell;
 use std::collections::hash_map::{HashMap, Iter};
 use std::error::Error;
 use std::fmt::Display;
-use std::rc::Rc;
 
-pub type Env = Rc<RefCell<Environment>>;
-
-#[derive(Debug, Clone)]
-pub struct Environment {
-    pub env: HashMap<String, EvaledOr>,
-    pub father: Option<Rc<RefCell<Environment>>>,
+#[derive(Debug)]
+pub struct Environment<'a, 'b: 'a> {
+    pub env: HashMap<String, Node<'a>>,
+    pub father: Option<&'a RefCell<Environment<'b, 'b>>>,
 }
 
 #[derive(Debug)]
@@ -35,17 +32,19 @@ impl NixRsError for EnvironmentError {}
 
 impl Error for EnvironmentError {}
 
-impl Environment {
-    pub fn new(father: Option<Rc<RefCell<Environment>>>) -> Environment {
+impl<'a, 'b: 'a> Environment<'a, 'b> {
+    pub fn new(father: Option<&RefCell<Environment>>) -> Environment<'a, 'b> {
         Environment {
             env: HashMap::new(),
             father,
         }
     }
 
-    pub fn get(&self, sym: &String) -> Result<EvaledOr, EnvironmentError> {
+
+
+    pub fn get(&self, sym: &String) -> Result<&Node, EnvironmentError> {
         if let Some(val) = self.env.get(sym) {
-            Ok(val.clone())
+            Ok(val)
         } else if let Some(father) = &self.father {
             father.borrow().get(sym)
         } else {
@@ -60,7 +59,7 @@ impl Environment {
         self.env.contains_key(sym)
     }
 
-    pub fn set(&mut self, sym: String, obj: EvaledOr) -> Result<(), EnvironmentError> {
+    pub fn set(&mut self, sym: String, obj: Node) -> Result<(), EnvironmentError> {
         if self.exsits(&sym) {
             Err(EnvironmentError::new(format!(
                 "{sym} exsits in environment!"
@@ -71,11 +70,11 @@ impl Environment {
         }
     }
 
-    pub fn over(&mut self, sym: String, obj: EvaledOr) {
+    pub fn over(&mut self, sym: String, obj: Node) {
         self.env.insert(sym, obj);
     }
 
-    pub fn iter(&self) -> Iter<String, EvaledOr> {
+    pub fn iter(&self) -> Iter<String, Node> {
         self.env.iter()
     }
 

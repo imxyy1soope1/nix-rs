@@ -1,13 +1,12 @@
-use std::error::Error;
-use std::rc::Rc;
-
+use crate::ast::*;
+use crate::error::{NixRsError, ParserError};
+use crate::eval::Environment;
 use crate::token::Token;
-use crate::{ast::*, convany};
 
-type PrefixParseFn = fn(&mut Parser) -> Rc<dyn Expression>;
-type InfixParseFn = fn(&mut Parser, Rc<dyn Expression>) -> Rc<dyn Expression>;
+type PrefixParseFn<'a> = fn(&mut Parser) -> ParseResult;
+type InfixParseFn<'a> = fn(&mut Parser, Expression<'a>) -> ParseResult<'a>;
 
-type Result = std::result::Result<Rc<dyn Expression>, Box<dyn Error>>;
+type ParseResult<'a> = Result<Expression<'a>, Box<dyn NixRsError>>;
 
 #[derive(PartialEq, PartialOrd)]
 enum Precedence {
@@ -57,20 +56,6 @@ impl Parser {
     }
 
     fn prefix_parser(&self, t: &Token) -> Option<PrefixParseFn> {
-        macro_rules! strexpr {
-            ($token:tt, $exprtype:tt) => {
-                Some(|s| {
-                    Rc::new($exprtype::new(
-                        if let Token::$token(string) = s.cur_token.clone().unwrap() {
-                            s.next();
-                            string
-                        } else {
-                            unreachable!()
-                        },
-                    ))
-                })
-            };
-        }
         macro_rules! parser {
             ($parsername:tt) => {
                 Some(|s| s.$parsername())
@@ -79,14 +64,35 @@ impl Parser {
 
         use Token::*;
         match t {
-            IDENT(_) => strexpr!(IDENT, IdentifierExpr),
-            INT(_) => strexpr!(INT, IntLiteralExpr),
-            FLOAT(_) => strexpr!(FLOAT, FloatLiteralExpr),
+            IDENT(_) => Some(|s| {
+                if let Token::IDENT(ident) = s.unwrap_cur() {
+                    s.next();
+                    Ok(Expression::Ident(ident.clone()))
+                } else {
+                    unreachable!()
+                }
+            }),
+            INT(_) => Some(|s| {
+                if let Token::INT(int) = s.unwrap_cur() {
+                    s.next();
+                    Ok(Expression::IntLiteral(int.parse().unwrap()))
+                } else {
+                    unreachable!()
+                }
+            }),
+            FLOAT(_) => Some(|s| {
+                if let Token::FLOAT(float) = s.unwrap_cur() {
+                    s.next();
+                    Ok(Expression::FloatLiteral(float.parse().unwrap()))
+                } else {
+                    unreachable!()
+                }
+            }),
             STRING(..) => Some(|s| {
                 if let Token::STRING(string, interpolates) = s.cur_token.clone().unwrap() {
                     s.next();
                     if !interpolates.is_empty() {
-                        Rc::new(InterpolateStringExpr::new(
+                        Ok(Expression::InterpolateString(
                             string,
                             interpolates
                                 .iter()
@@ -96,16 +102,15 @@ impl Parser {
                                 .collect(),
                         ))
                     } else {
-                        Rc::new(StringLiteralExpr::new(string))
+                        Ok(Expression::StringLiteral(string))
                     }
                 } else {
                     unreachable!()
                 }
             }),
-            ELLIPSIS => Some(|s| {
+            /* ELLIPSIS => Some(|s| {
                 s.next();
-                Rc::new(EllipsisLiteralExpr)
-            }),
+            }), */
             MINUS | BANG => parser!(parse_prefix),
             LPAREN => parser!(parse_group),
             IF => parser!(parse_if),
@@ -138,26 +143,26 @@ impl Parser {
             | UPDATE | IMPL | AND | OR | QUEST | DOT | ORKW => parser!(parse_infix),
             ASSIGN => parser!(parse_binding),
             COLON => parser!(parse_function),
-            AT => parser!(parse_argset_with_alias),
+            AT => parser!(parse_formals_set_with_alias),
 
             _ => None,
         }
     }
 
-    fn parse_prefix(&mut self) -> Rc<dyn Expression> {
+    fn parse_prefix(&mut self) -> ParseResult {
         let token = self.unwrap_cur().clone();
         self.next();
-        Rc::new(PrefixExpr::new(
+        Ok(Expression::Prefix(
             token.clone(),
-            self.parse_expr(match token {
+            Box::new(Node::Expr(Environment::new(Some(), self.parse_expr(match token {
                 Token::MINUS => Precedence::NEG,
                 Token::BANG => Precedence::NOT,
                 _ => unreachable!(),
-            }),
+            })?)),
         ))
     }
 
-    fn parse_group(&mut self) -> Rc<dyn Expression> {
+    fn parse_group(&mut self) -> ParseResult {
         self.next();
         let expr = self.parse_expr(Precedence::LOWEST);
         if !self.cur_is(Token::RPAREN) {
@@ -165,18 +170,13 @@ impl Parser {
         }
         self.next();
 
-        let a = expr.as_any();
-        assert!(!a.is::<BindingExpr>());
-
         expr
     }
 
-    fn parse_if(&mut self) -> Rc<dyn Expression> {
+    fn parse_if(&mut self) -> ParseResult {
         self.next();
 
         let cond = self.parse_expr(Precedence::LOWEST);
-        let a = cond.as_any();
-        assert!(!a.is::<BindingExpr>());
 
         if !self.cur_is(Token::THEN) {
             panic!()
@@ -184,8 +184,6 @@ impl Parser {
         self.next();
 
         let consq = self.parse_expr(Precedence::LOWEST);
-        let a = consq.as_any();
-        assert!(!a.is::<BindingExpr>());
 
         if !self.cur_is(Token::ELSE) {
             panic!()
@@ -193,33 +191,45 @@ impl Parser {
         self.next();
 
         let alter = self.parse_expr(Precedence::LOWEST);
-        let a = alter.as_any();
-        assert!(!a.is::<BindingExpr>());
 
-        Rc::new(IfExpr::new(cond, consq, alter))
+        Ok(Expression::If(cond, consq, alter))
     }
 
-    fn parse_binding(&mut self, name: Rc<dyn Expression>) -> Rc<dyn Expression> {
-        let a = name.as_any();
-        assert!(
-            a.is::<IdentifierExpr>()
-                || a.is::<StringLiteralExpr>()
-                || a.is::<InheritExpr>()
-                || (a.is::<InfixExpr>()
-                    && a.downcast_ref::<InfixExpr>().unwrap().token == Token::DOT)
-        );
+    fn parse_binding(&mut self, name: Expression) -> ParseResult {
+        use Expression::*;
+        match name {
+            Ident(..) | StringLiteral(..) | InterpolateString(..) | Interpolate(..) => (),
+            Infix(token, ..) => {
+                if token == Token::DOT {
+                    Ok(())
+                } else {
+                    Err(ParserError::from_string(format!(
+                        "invalid binding name: {name}"
+                    )))
+                }
+            }
+            _ => Err(ParserError::from_string(format!(
+                "invalid binding name: {name}"
+            ))),
+        }?;
         self.next();
-        let expr = self.parse_expr(Precedence::ASSIGN);
-        assert!(!expr.as_any().is::<BindingExpr>());
-        Rc::new(BindingExpr::new(name, expr))
+        let expr = self.parse_expr(Precedence::ASSIGN)?;
+        if let Binding(..) = expr {
+            Err(ParserError::from_string(format!(
+                "invalid binding value: {expr}"
+            )))
+        } else {
+            Ok(Binding(name, expr))
+        }
     }
 
-    fn parse_attrs(&mut self) -> Rc<dyn Expression> {
+    fn parse_attrs(&mut self) -> ParseResult {
+        use Expression::*;
         use Token::*;
 
         self.next();
-        let mut bindings: Vec<Rc<dyn Expression>> = Vec::new();
-        let mut args: Vec<(String, Option<Rc<dyn Expression>>)> = Vec::new();
+        let mut bindings: Vec<Expression> = Vec::new();
+        let mut args: Vec<(String, Option<Expression>)> = Vec::new();
 
         let is_attrs = {
             match self.unwrap_next() {
@@ -243,30 +253,40 @@ impl Parser {
         let mut allow_more = false;
         while !self.cur_is(RBRACE) {
             if is_attrs {
-                let expr = self.parse_expr(Precedence::LOWEST);
-                let a = expr.as_any();
-                assert!(a.is::<BindingExpr>() || a.is::<InheritExpr>());
+                let expr = self.parse_expr(Precedence::LOWEST)?;
+                match expr {
+                    Binding(..) | Inherit(..) => (),
+                    invalid => Err(ParserError::from_string(format!(
+                        "invalid expression in attrs: {invalid}"
+                    ))),
+                }?;
                 bindings.push(expr);
                 if !self.cur_is(SEMI) {
                     panic!()
                 }
                 self.next();
             } else {
-                let expr = self.parse_expr(Precedence::LOWEST);
-                let a = expr.as_any();
-                if a.is::<IdentifierExpr>() {
-                    args.push((convany!(a, IdentifierExpr).ident.clone(), None));
-                } else if a.is::<InfixExpr>() {
-                    let e = convany!(a, InfixExpr);
-                    assert_eq!(e.token, Token::QUEST);
-                    args.push((
-                        convany!(e.left.as_any(), IdentifierExpr).ident.clone(),
-                        Some(e.right.clone()),
-                    ));
-                } else if a.is::<EllipsisLiteralExpr>() {
+                if self.cur_is(ELLIPSIS) {
                     allow_more = true;
                 } else {
-                    panic!()
+                    let expr = self.parse_expr(Precedence::LOWEST)?;
+                    match expr {
+                        Ident(ident) => Ok(args.push((ident, None))),
+                        Infix(token, left, right) => {
+                            if token == QUEST {
+                                let left = match left {
+                                    Ident(ident) => Ok(ident),
+                                    _ => Err(ParserError::from_string(format!(
+                                        "invalid formal: {expr}"
+                                    ))),
+                                }?;
+                                Ok(args.push((left, Some(right))))
+                            } else {
+                                Err(ParserError::from_string(format!("invalid formal: {expr}")))
+                            }
+                        }
+                        _ => Err(ParserError::from_string(format!("invalid formal: {expr}"))),
+                    }?;
                 }
                 match self.unwrap_cur() {
                     COMMA => {
@@ -283,93 +303,100 @@ impl Parser {
         self.next();
 
         if is_attrs {
-            Rc::new(AttrsLiteralExpr::new(bindings, false))
+            Ok(AttrsLiteral(bindings, false))
         } else {
             let alias = if self.cur_is(AT) {
                 self.next();
-                match self.unwrap_cur() {
-                    IDENT(_) => (),
-                    _ => panic!(),
-                }
-                Some(
-                    convany!(
-                        self.parse_expr(Precedence::HIGHEST).as_any(),
-                        IdentifierExpr
-                    )
-                    .ident
-                    .clone(),
-                )
+                let ident = match self.unwrap_cur() {
+                    IDENT(ident) => Ok(ident),
+                    invalid => Err(ParserError::from_string(format!(
+                        "unexpected token: {invalid}"
+                    ))),
+                }?;
+                self.next();
+                Some(ident)
             } else {
                 None
             };
 
-            Rc::new(ArgSetExpr::new(args, allow_more, alias))
+            Ok(FormalSet(args, alias, allow_more))
         }
     }
 
-    fn parse_argset_with_alias(&mut self, alias: Rc<dyn Expression>) -> Rc<dyn Expression> {
+    fn parse_formals_set_with_alias(&mut self, alias: Expression) -> ParseResult {
+        use Expression::*;
         use Token::*;
 
         self.next();
         self.next();
 
-        let mut args: Vec<(String, Option<Rc<dyn Expression>>)> = Vec::new();
+        let mut args: Vec<(String, Option<Expression>)> = Vec::new();
         let mut allow_more = false;
 
         while !self.cur_is(RBRACE) {
-            let expr = self.parse_expr(Precedence::LOWEST);
-            let a = expr.as_any();
-            if a.is::<IdentifierExpr>() {
-                args.push((convany!(a, IdentifierExpr).ident.clone(), None));
-            } else if a.is::<InfixExpr>() {
-                let e = convany!(a, InfixExpr);
-                assert_eq!(e.token, Token::QUEST);
-                args.push((
-                    convany!(e.left.as_any(), IdentifierExpr).ident.clone(),
-                    Some(e.right.clone()),
-                ));
-            } else if a.is::<EllipsisLiteralExpr>() {
+            if self.cur_is(ELLIPSIS) {
                 allow_more = true;
             } else {
-                panic!()
+                let expr = self.parse_expr(Precedence::LOWEST)?;
+                match expr {
+                    Ident(ident) => Ok(args.push((ident, None))),
+                    Infix(token, left, right) => {
+                        if token == QUEST {
+                            let left = match left {
+                                Ident(ident) => Ok(ident),
+                                _ => {
+                                    Err(ParserError::from_string(format!("invalid formal: {expr}")))
+                                }
+                            }?;
+                            Ok(args.push((left, Some(right))))
+                        } else {
+                            Err(ParserError::from_string(format!("invalid formal: {expr}")))
+                        }
+                    }
+                    _ => Err(ParserError::from_string(format!("invalid formal: {expr}"))),
+                }?;
             }
             match self.unwrap_cur() {
                 COMMA => {
                     if allow_more {
-                        panic!("expect formals to end")
+                        Err(ParserError::new("expect formals to end"))
                     }
                     self.next()
                 }
                 RBRACE => (),
-                invalid => panic!("unexpected {}", invalid),
-            }
+                invalid => Err(ParserError::from_string(format!("unexpected {}", invalid))),
+            }?;
         }
         self.next();
 
-        Rc::new(ArgSetExpr::new(
-            args,
-            allow_more,
-            Some(convany!(alias.as_any(), IdentifierExpr).ident.clone()),
-        ))
+        let alias = if let Ident(ident) = alias {
+            Ok(ident)
+        } else {
+            Err(ParserError::from_string(format!(
+                "invalid expression: {alias}"
+            )))
+        }?;
+
+        Ok(FormalSet(args, Some(alias), allow_more))
     }
 
-    fn parse_list(&mut self) -> Rc<dyn Expression> {
+    fn parse_list(&mut self) -> ParseResult {
         self.next();
-        let mut items: Vec<Rc<dyn Expression>> = Vec::new();
+        let mut items: Vec<Expression> = Vec::new();
 
         while !self.cur_is(Token::RBRACKET) {
             items.push(self.parse_expr(Precedence::HIGHEST));
         }
         self.next();
 
-        Rc::new(ListLiteralExpr::new(items))
+        Ok(Expression::ListLiteral(items))
     }
 
-    fn parse_let(&mut self) -> Rc<dyn Expression> {
+    fn parse_let(&mut self) -> ParseResult {
         use Token::*;
 
         self.next();
-        let mut bindings: Vec<Rc<dyn Expression>> = Vec::new();
+        let mut bindings: Vec<Expression> = Vec::new();
 
         while !self.cur_is(IN) {
             match self.unwrap_cur() {
@@ -388,35 +415,41 @@ impl Parser {
         }
         self.next();
 
-        Rc::new(LetExpr::new(bindings, self.parse_expr(Precedence::LOWEST)))
-    }
-
-    fn parse_with(&mut self) -> Rc<dyn Expression> {
-        self.next();
-        let attrs = self.parse_expr(Precedence::LOWEST);
-        if !self.cur_is(Token::SEMI) {
-            panic!()
-        }
-        self.next();
-
-        Rc::new(WithExpr::new(attrs, self.parse_expr(Precedence::LOWEST)))
-    }
-
-    fn parse_assert(&mut self) -> Rc<dyn Expression> {
-        self.next();
-        let assertion = self.parse_expr(Precedence::LOWEST);
-        if !self.cur_is(Token::SEMI) {
-            panic!()
-        }
-        self.next();
-
-        Rc::new(AssertExpr::new(
-            assertion,
-            self.parse_expr(Precedence::LOWEST),
+        Ok(Expression::Let(
+            bindings,
+            self.parse_expr(Precedence::LOWEST)?,
         ))
     }
 
-    fn parse_rec(&mut self) -> Rc<dyn Expression> {
+    fn parse_with(&mut self) -> ParseResult {
+        self.next();
+        let attrs = self.parse_expr(Precedence::LOWEST)?;
+        if !self.cur_is(Token::SEMI) {
+            panic!()
+        }
+        self.next();
+
+        Ok(Expression::With(
+            attrs,
+            self.parse_expr(Precedence::LOWEST)?,
+        ))
+    }
+
+    fn parse_assert(&mut self) -> ParseResult {
+        self.next();
+        let assertion = self.parse_expr(Precedence::LOWEST)?;
+        if !self.cur_is(Token::SEMI) {
+            panic!()
+        }
+        self.next();
+
+        Ok(Expression::Assert(
+            assertion,
+            self.parse_expr(Precedence::LOWEST)?,
+        ))
+    }
+
+    fn parse_rec(&mut self) -> ParseResult {
         use Token::*;
 
         if !self.next_is(LBRACE) {
@@ -424,7 +457,7 @@ impl Parser {
         }
         self.next();
         self.next();
-        let mut bindings: Vec<Rc<dyn Expression>> = Vec::new();
+        let mut bindings: Vec<Expression> = Vec::new();
 
         while !self.cur_is(RBRACE) {
             match self.unwrap_cur() {
@@ -447,14 +480,14 @@ impl Parser {
         }
         self.next();
 
-        Rc::new(AttrsLiteralExpr::new(bindings, true))
+        Ok(Expression::AttrsLiteral(bindings, true))
     }
 
-    fn parse_inherit(&mut self) -> Rc<dyn Expression> {
+    fn parse_inherit(&mut self) -> ParseResult {
         self.next();
         let from = if self.cur_is(Token::LPAREN) {
             self.next();
-            let from = Some(self.parse_expr(Precedence::LOWEST));
+            let from = Some(self.parse_expr(Precedence::LOWEST)?);
             if !self.cur_is(Token::RPAREN) {
                 panic!()
             }
@@ -464,20 +497,24 @@ impl Parser {
             None
         };
 
-        let mut inherits: Vec<Rc<dyn Expression>> = Vec::new();
+        let mut inherits: Vec<Expression> = Vec::new();
 
         use Token::*;
         while match self.unwrap_cur() {
-            IDENT(_) => true,
+            IDENT(_) => Ok(true),
             STRING(_, v) => {
                 if v.is_empty() {
-                    true
+                    Ok(true)
                 } else {
-                    panic!()
+                    Err(ParserError::new(
+                        "dynamic attributes not allowed in inherit",
+                    ))
                 }
             }
-            SEMI => false,
-            _ => panic!(),
+            SEMI => Ok(false),
+            invalid => Err(ParserError::from_string(format!(
+                "unexpected token: {invalid}"
+            ))),
         } {
             inherits.push(self.parse_expr(Precedence::HIGHEST));
         }
@@ -485,10 +522,10 @@ impl Parser {
             panic!()
         }
 
-        Rc::new(InheritExpr::new(inherits, from))
+        Ok(Expression::Inherit(inherits, from))
     }
 
-    fn parse_rel_path(&mut self) -> Rc<dyn Expression> {
+    fn parse_rel_path(&mut self) -> ParseResult {
         use Token::*;
 
         let mut literal = String::new();
@@ -511,10 +548,10 @@ impl Parser {
             panic!("unexpected '.'")
         }
 
-        Rc::new(PathLiteralExpr::new(literal, true))
+        Ok(Expression::Path(literal, true))
     }
 
-    fn parse_abs_path(&mut self) -> Rc<dyn Expression> {
+    fn parse_abs_path(&mut self) -> ParseResult {
         use Token::*;
 
         let mut literal = String::new();
@@ -535,10 +572,10 @@ impl Parser {
             panic!("unexpected '/'")
         }
 
-        Rc::new(PathLiteralExpr::new(literal, false))
+        Ok(Expression::Path(literal, false))
     }
 
-    fn parse_search_path(&mut self) -> Rc<dyn Expression> {
+    fn parse_search_path(&mut self) -> ParseResult {
         use Token::*;
 
         self.next();
@@ -578,19 +615,17 @@ impl Parser {
         }
         self.next();
 
-        Rc::new(SearchPathExpr::new(Rc::new(PathLiteralExpr::new(
-            literal, true,
-        ))))
+        Ok(Expression::SearchPath(Expression::Path(literal, false)))
     }
 
-    fn parse_interpolate(&mut self) -> Rc<dyn Expression> {
+    fn parse_interpolate(&mut self) -> ParseResult {
         self.next();
 
         let expr = self.parse_expr(Precedence::HIGHEST);
         assert!(self.cur_is(Token::RBRACE));
         self.next();
 
-        Rc::new(InterpolateExpr::new(expr))
+        Ok(Expression::Interpolate(expr))
     }
 
     fn _precedence(t: &Token) -> Precedence {
@@ -618,28 +653,32 @@ impl Parser {
         Self::_precedence(self.unwrap_cur())
     }
 
-    fn parse_infix(&mut self, left: Rc<dyn Expression>) -> Rc<dyn Expression> {
+    fn parse_infix(&mut self, left: Expression) -> ParseResult {
         let token = self.unwrap_cur().clone();
         let precedence = self.cur_precedence();
         self.next();
 
-        Rc::new(InfixExpr::new(
+        Ok(Expression::Infix(
             token.clone(),
-            left,
-            self.parse_expr(if token == Token::IMPL {
+            Box::new(left),
+            Box::new(self.parse_expr(if token == Token::IMPL {
                 Precedence::IMPLLOWER
             } else {
                 precedence
-            }),
+            })),
         ))
     }
 
-    fn parse_function(&mut self, arg: Rc<dyn Expression>) -> Rc<dyn Expression> {
-        let a = arg.as_any();
-        assert!(a.is::<IdentifierExpr>() || a.is::<ArgSetExpr>());
+    fn parse_function(&mut self, arg: Expression) -> ParseResult {
+        match arg {
+            Expression::Ident(..) | Expression::FormalSet(..) => (),
+            invalid => Err(ParserError::from_string(format!(
+                "unexpected token: {invalid}"
+            ))),
+        }?;
 
         self.next();
-        Rc::new(FunctionLiteralExpr::new(
+        Ok(Expression::FunctionLiteral(
             arg,
             self.parse_expr(Precedence::FDLOWER),
         ))
@@ -665,19 +704,19 @@ impl Parser {
         self.next_token.as_ref().unwrap()
     }
 
-    fn parse_expr(&mut self, precedence: Precedence) -> Rc<dyn Expression> {
+    fn parse_expr(&mut self, precedence: Precedence) -> ParseResult {
         let mut left = self
             .prefix_parser(self.unwrap_cur())
             .unwrap_or_else(|| panic!("unexpected token: {}", self.unwrap_cur()))(
             self
-        );
+        )?;
 
         while !self.cur_is(Token::SEMI)
             && !self.cur_is(Token::EOF)
             && precedence < self.cur_precedence()
         {
             match self.infix_parser(self.unwrap_cur()) {
-                None => return left,
+                None => return Ok(left),
                 Some(f) => {
                     left = f(self, left);
                 }
@@ -689,14 +728,11 @@ impl Parser {
                 && !self.cur_is(Token::EOF)
                 && self.prefix_parser(self.unwrap_cur()).is_some()
             {
-                left = Rc::new(FunctionCallExpr::new(
-                    left,
-                    self.parse_expr(Precedence::CALL),
-                ));
+                left = Expression::FunctionCall(left, self.parse_expr(Precedence::CALL)?)
             }
         }
 
-        left
+        Ok(left)
     }
 
     fn next(&mut self) {
@@ -704,7 +740,7 @@ impl Parser {
         self.next_token = self.l.next();
     }
 
-    pub fn parse(&mut self) -> Rc<dyn Expression> {
-        self.parse_expr(Precedence::LOWEST)
+    pub fn parse(&mut self) -> ParseResult {
+        Node::Expr(self.parse_expr(Precedence::LOWEST))
     }
 }

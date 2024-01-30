@@ -1,19 +1,163 @@
-use crate::builtins::{BuiltinFunction, BuiltinFunctionApp};
-use crate::convany;
 use crate::error::*;
 use crate::eval::{Environment, EvalResult};
 use crate::object::*;
 use crate::token::Token;
 
-use std::any::Any;
 use std::cell::RefCell;
 use std::fmt::{Debug, Display};
-use std::rc::Rc;
 
-pub trait Expression: Display + Debug {
+#[derive(Debug)]
+pub enum Node<'a> {
+    Expr(RefCell<Environment<'a, 'a>>, Box<Expression<'a>>),
+    Value(Box<Object<'a>>),
+    Ref(&'a Object<'a>)
+}
+
+impl<'a> Node<'a> {
+    pub fn is_value(&self) -> bool {
+        if let Node::Value(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn force_value(&'a mut self) -> EvalResult<'a> {
+        match &*self {
+            Node::Value(_) | Node::Ref(_) => Ok(()),
+            Node::Expr(env, expr) => {
+                *self = Node::Value(Box::new(expr.eval(env)?));
+                Ok(())
+            }
+        }?;
+        if let Node::Value(v) = &*self {
+            Ok(v.as_ref())
+        } else if let Node::Ref(r) = &*self {
+            Ok(*r)
+        } else {
+            unreachable!()
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum Expression<'a> {
+    Prefix(Token, Box<Node<'a>>),
+    Infix(Token, Box<Node<'a>>, Box<Node<'a>>),
+    Ident(String),
+    IntLiteral(Int),
+    FloatLiteral(Float),
+    StringLiteral(String),
+    InterpolateString(String, Vec<(usize, Node<'a>)>),
+    FunctionLiteral(Box<Node<'a>>, Box<Node<'a>>),
+    FunctionCall(Box<Node<'a>>, Box<Node<'a>>),
+    If(Box<Node<'a>>, Box<Node<'a>>, Box<Node<'a>>),
+    Binding(Box<Node<'a>>, Box<Node<'a>>),
+    AttrsLiteral(Vec<(Node<'a>, Node<'a>)>, bool),
+    FormalSet(Vec<(String, Option<Node<'a>>)>, Option<String>, bool),
+    ListLiteral(Vec<Node<'a>>),
+    Let(Vec<(String, Node<'a>)>, Box<Node<'a>>),
+    With(Box<Node<'a>>, Box<Node<'a>>),
+    Assert(Box<Node<'a>>, Box<Node<'a>>),
+    Inherit(Vec<String>, Option<Node<'a>>),
+    Path(String, bool),
+    SearchPath(Box<Node<'a>>),
+    Interpolate(Box<Node<'a>>),
+}
+
+/* impl Display for Expression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use Expression::*;
+        match self {
+            Prefix(token, right) => write!(f, "({token}{right})"),
+            Infix(token, left, right) => write!(f, "({left} {token} {right})"),
+            Ident(ident) => write!(f, "{ident}"),
+            IntLiteral(int) => write!(f, "{int}"),
+            FloatLiteral(float) => write!(f, "float"),
+            StringLiteral(string) => write!(f, r#""{string}""#),
+            InterpolateString(string, _interpolates) => write!(f, r#""{string}""#),
+            FunctionLiteral(arg, body) => write!(f, "({arg}: {body})"),
+            FunctionCall(func, arg) => write!(f, "({func} {arg})"),
+            If(cond, consq, alter) => write!(f, "(if {cond} then {consq} else {alter})"),
+            AttrsLiteral(bindings, rec) => {
+                if rec {
+                    write!(f, "rec ")?;
+                }
+                write!(f, "{{ ")?;
+                for (k, v) in bindings.iter() {
+                    write!(f, "{k} = {v}; ")?;
+                }
+                write!(f, "}}")
+            }
+            FormalSet(formals, alias, allow_more) => {
+                write!(f, "{{ ")?;
+                let mut first = true;
+                for formal in formals.iter() {
+                    if first {
+                        first = false;
+                    } else {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", formal.0)?;
+                    if formal.1.is_some() {
+                        write!(f, " ? {}", formal.1.unwrap());
+                    }
+                }
+                if allow_more {
+                    write!(f, ", ...")?;
+                }
+                write!(f, " }}")?;
+                if alias.is_some() {
+                    write!(f, " @ {}", alias.unwrap())?;
+                }
+                Ok(())
+            }
+            ListLiteral(items) => {
+                write!(f, "[ ")?;
+                for item in items.iter() {
+                    write!(f, "{item} ")?;
+                }
+                write!(f, "]")
+            }
+            Let(bindings, expr) => {
+                write!(f, "(let ")?;
+                for binding in bindings.iter() {
+                    write!(f, "{binding}; ")?;
+                }
+                write!(f, "in {})", expr)
+            }
+            With(attrs, expr) => write!(f, "(with {attrs}; {expr})"),
+            Assert(assertion, expr) => write!(f, "(assert {assertion}; {expr})"),
+            Inherit(inherits, from) => {
+                write!(f, "inherit")?;
+                if from.is_some() {
+                    write!(f, " ({})", from.unwrap())?;
+                }
+                for inherit in inherits.iter() {
+                    write!(f, " {inherit}")?;
+                }
+                Ok(())
+            }
+            Path(path, _relative) => write!(f, "{path}"),
+            SearchPath(path) => write!(f, "<{path}>"),
+            Interpolate(expr) => write!(f, "${{{expr}}}"),
+            Binding(name, value) => write!(f, "{name} = {value}"),
+        }
+    }
+} */
+
+impl Expression<'_> {
+    pub fn eval(&self, env: &RefCell<Environment>) -> Result<Object, Box<dyn NixRsError>> {
+        Ok(Object::Null)
+    }
+}
+
+/* pub trait Expression: Display + Debug {
     fn as_any(&self) -> &dyn Any;
     fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult;
-}
+} */
+
+/*
 
 #[derive(Debug)]
 pub struct PrefixExpr {
@@ -1016,3 +1160,4 @@ impl Display for InterpolateExpr {
         write!(f, "${{{}}}", self.ident)
     }
 }
+*/

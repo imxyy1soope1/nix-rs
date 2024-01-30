@@ -1,9 +1,12 @@
+use crate::ast::Node;
 use crate::convany;
+use crate::error::EvalError;
 use crate::eval::EvalResult;
 use crate::object::*;
 use std::fmt::Display;
 use std::rc::Rc;
 
+/*
 #[derive(Debug)]
 pub struct BuiltinFunction {
     argscount: u8,
@@ -73,110 +76,149 @@ impl Display for BuiltinFunction {
         write!(f, "«primop»")
     }
 }
+*/
 
-pub fn builtin_fns() -> Vec<(&'static str, bool, BuiltinFunction)> {
+pub fn builtin_fns() -> Vec<(&'static str, bool, Object)> {
     vec![
         (
             "ceil",
             false,
-            BuiltinFunction::new(1, |a| {
-                Ok(if a[0].eval()?.as_any().is::<Float>() {
-                    Rc::new(convany!(a[0].eval()?.as_any(), Float).ceil())
-                } else {
-                    Rc::new(*convany!(a[0].eval()?.as_any(), Int))
-                })
+            Object::BuiltinFunction(1, |a| match a[0].force_value() {
+                Ok(Object::Int(int)) => Node::Value(Box::new(Object::Int(*int))),
+                Ok(Object::Float(float)) => {
+                    Node::Value(Box::new(Object::Int(unsafe { float.ceil().to_int_unchecked() })))
+                }
+                Err(err) => Node::Error(err),
+                _ => Node::Error(EvalError::new("invalid operation"))
             }),
         ),
         (
             "floor",
             false,
-            BuiltinFunction::new(1, |a| {
-                Ok(if a[0].eval()?.as_any().is::<Float>() {
-                    Rc::new(convany!(a[0].eval()?.as_any(), Float).floor())
-                } else {
-                    Rc::new(*convany!(a[0].eval()?.as_any(), Int))
-                })
+            Object::BuiltinFunction(1, |a| match a[0].force_value() {
+                Ok(Object::Int(int)) => Node::Value(Box::new(Object::Int(*int))),
+                Ok(Object::Float(float)) => {
+                    Node::Value(Box::new(Object::Int(unsafe { float.floor().to_int_unchecked() })))
+                }
+                Err(err) => Node::Error(err),
+                _ => Node::Error(EvalError::new("invalid operation"))
             }),
         ),
         (
             "typeOf",
             false,
-            BuiltinFunction::new(1, |a| {
-                let a = a[0].eval()?;
-                let a = a.as_any();
-                macro_rules! is {
-                    ($t:tt) => {
-                        a.is::<$t>()
-                    };
+            Object::BuiltinFunction(1, |a| {
+                use Object::*;
+                match a[0].force_value() {
+                    Ok(val) => Node::Value(Box::new(Object::Str(match val {
+                        Int(_) => "int",
+                        Float(_) => "float",
+                        Bool(_) => "bool",
+                        Null => "null",
+                        Attrs(_) => "set",
+                        List(_) => "list",
+                        Function(..) => "lambda",
+                        _ => unreachable!()
+                    }.to_string()))),
+                    Err(err) => Node::Error(err),
                 }
-                Ok(if is!(Int) {
-                    Rc::new("int".to_string())
-                } else if is!(Float) {
-                    Rc::new("float".to_string())
-                } else if is!(Str) {
-                    Rc::new("string".to_string())
-                } else if is!(Bool) {
-                    Rc::new("bool".to_string())
-                } else if is!(Null) {
-                    Rc::new("null".to_string())
-                } else if is!(Attrs) {
-                    Rc::new("set".to_string())
-                } else if is!(List) {
-                    Rc::new("list".to_string())
-                } else if is!(Lambda) {
-                    Rc::new("lambda".to_string())
-                } else {
-                    unreachable!()
-                })
             }),
         ),
         (
             "isNull",
             false,
-            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Null>()))),
+            Object::BuiltinFunction(1, |a| {
+                Node::Value(Box::new(Object::Bool(if let Ok(Object::Null) = a[0].force_value() {
+                    true
+                } else {
+                    false
+                })))
+            }),
         ),
         (
             "isFunction",
             false,
-            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Lambda>()))),
+            Object::BuiltinFunction(1, |a| {
+                Node::Value(Box::new(Object::Bool(if let Ok(Object::Function(..)) = a[0].force_value() {
+                    true
+                } else {
+                    false
+                })))
+            })
         ),
         (
             "isInt",
             false,
-            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Int>()))),
+            Object::BuiltinFunction(1, |a| {
+                Node::Value(Box::new(Object::Bool(if let Ok(Object::Int(..)) = a[0].force_value() {
+                    true
+                } else {
+                    false
+                })))
+            })
         ),
         (
             "isFloat",
             false,
-            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Float>()))),
+            Object::BuiltinFunction(1, |a| {
+                Node::Value(Box::new(Object::Bool(if let Ok(Object::Float(..)) = a[0].force_value() {
+                    true
+                } else {
+                    false
+                })))
+            })
         ),
         (
             "isString",
             false,
-            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Str>()))),
+            Object::BuiltinFunction(1, |a| {
+                Node::Value(Box::new(Object::Bool(if let Ok(Object::Str(..)) = a[0].force_value() {
+                    true
+                } else {
+                    false
+                })))
+            })
         ),
         (
             "isBool",
             false,
-            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Bool>()))),
+            Object::BuiltinFunction(1, |a| {
+                Node::Value(Box::new(Object::Bool(if let Ok(Object::Bool(..)) = a[0].force_value() {
+                    true
+                } else {
+                    false
+                })))
+            })
         ),
-        /* (
+        (
             "isPath",
             false,
-            BuiltinFunction::new(1, |a| Rc::new(a[0].eval()?.as_any().is::<Path>()))
-        ), */
+            Object::BuiltinFunction(1, |a| {
+                Node::Value(Box::new(Object::Bool(if let Ok(Object::Path(..)) = a[0].force_value() {
+                    true
+                } else {
+                    false
+                })))
+            })
+        ),
         (
             "seq",
             false,
-            BuiltinFunction::new(2, |a| {
-                a[0].eval()?;
-                a[1].eval()
+            Object::BuiltinFunction(2, |a| {
+                match a[0].force_value() {
+                    Ok(_) => (),
+                    Err(err) => return Node::Error(err)
+                }
+                match a[1].force_value() {
+                    Ok(val) => Node,
+                    Err(err) => Node::Error(err)
+                }
             }),
         ),
         (
             "deepSeq",
             false,
-            BuiltinFunction::new(2, |a| {
+            Object::BuiltinFunction(2, |a| {
                 a[0].eval()?;
                 a[1].eval()
             }),

@@ -1,16 +1,17 @@
 use crate::{
-    ast::{AttrsLiteralExpr, ListLiteralExpr},
+    ast::Node,
     eval::EvalResult,
 };
-use std::{any::Any, cell::RefCell, fmt::Debug, fmt::Display, rc::Rc};
+use std::{cell::RefCell, fmt::Debug, fmt::Display, rc::Rc};
 
 use crate::{
-    ast::{ArgSetExpr, Expression, IdentifierExpr},
-    convany,
     error::*,
     eval::Environment,
 };
 
+use crate::ast::*;
+
+/*
 #[derive(Debug, Clone)]
 pub enum _EvaledOr {
     Expr(Rc<RefCell<Environment>>, Rc<dyn Expression>, ErrorCtx),
@@ -72,12 +73,62 @@ impl EvaledOr {
         }
     }
 }
+*/
+
+pub type Int = i64;
+pub type Float = f64;
+pub type Bool = bool;
+
+#[derive(Debug)]
+pub enum Object<'a> {
+    Int(Int),
+    Float(Float),
+    Bool(Bool),
+    Null,
+    Str(String),
+    List(Vec<Node<'a>>),
+    Function(Node<'a>, Node<'a>, RefCell<Environment<'a, 'a>>),
+    Attrs(RefCell<Environment<'a, 'a>>),
+    Path(String),
+    SearchPath(String),
+
+    BuiltinFunction(u8, fn(Vec<Node<'a>>) -> Node<'a>),
+    BuiltinFunctionApp(u8, Vec<Node<'a>>, fn(Vec<Node<'a>>) -> Node<'a>)
+}
+
+impl Display for Object<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use Object::*;
+        match self {
+            Int(int) => write!(f, "{int}"),
+            Float(float) => write!(f, "{float}"),
+            Bool(val) => write!(f, "{val}"),
+            Null => write!(f, "null"),
+            Str(s) => write!(f, "{s}"),
+            List(list) => {
+                /* write!(f, "[ ")?;
+                for v in list.iter() {
+                    write!(f, "{v} ")?;
+                }
+                write!(f, "]") */
+                write!(f, "[ ... ]")
+            }
+            Function(..) => write!(f, "«lambda»"),
+            Attrs(..) => write!(f, "{{ ... }}"),
+            Path(path) => write!(f, "{path}"),
+            SearchPath(path) => write!(f, "{path}"),
+            BuiltinFunction(..) => write!(f, "«primop»"),
+            BuiltinFunctionApp(..) => write!(f, "«primop-app»")
+        }
+    }
+}
+
+/*
 
 pub trait Object: Display + Debug {
     fn as_any(&self) -> &dyn Any;
 }
 
-pub type Int = i64;
 
 impl Object for Int {
     fn as_any(&self) -> &dyn Any {
@@ -85,7 +136,6 @@ impl Object for Int {
     }
 }
 
-pub type Float = f64;
 
 impl Object for Float {
     fn as_any(&self) -> &dyn Any {
@@ -93,7 +143,6 @@ impl Object for Float {
     }
 }
 
-pub type Bool = bool;
 
 impl Object for bool {
     fn as_any(&self) -> &dyn Any {
@@ -476,3 +525,4 @@ pub fn objlt(
         return Err(ctx.unwind(EvalError::new("unsupported operation")));
     })
 }
+*/

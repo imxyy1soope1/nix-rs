@@ -3,32 +3,30 @@ use crate::builtins::new_builtins_env;
 use crate::error::{ErrorCtx, NixRsError};
 use crate::{ast::*, object::*};
 use std::cell::RefCell;
-use std::rc::Rc;
 
-pub type EvalResult = core::result::Result<Rc<dyn Object>, Rc<dyn NixRsError>>;
+pub type EvalResult<'a> = core::result::Result<&'a Object, Box<dyn NixRsError>>;
 
 pub struct Eval {
-    root: EvaledOr,
+    root: Node,
 }
 
 impl Eval {
-    pub fn new(expr: Rc<dyn Expression>) -> Eval {
+    pub fn new(expr: Expression) -> Eval {
         Eval {
-            root: EvaledOr::expr(
-                Rc::new(RefCell::new(Environment::new(Some(new_builtins_env())))),
-                expr,
-                ErrorCtx::new(),
+            root: Node::Expr(
+                RefCell::new(Environment::new(Some(&new_builtins_env()))),
+                Box::new(expr),
             ),
         }
     }
 
-    pub fn with_env(env: Rc<RefCell<Environment>>, expr: Rc<dyn Expression>) -> Eval {
+    pub fn with_env(env: RefCell<Environment>, expr: Expression) -> Eval {
         Eval {
-            root: EvaledOr::expr(env, expr, ErrorCtx::new()),
+            root: Node::Expr(env, Box::new(expr)),
         }
     }
 
     pub fn eval(&mut self) -> EvalResult {
-        self.root.eval()
+        self.root.force_value()
     }
 }
