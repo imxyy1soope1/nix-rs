@@ -50,9 +50,16 @@ impl Environment {
             father.borrow().get(sym)
         } else {
             Err(EnvironmentError::new(format!(
-                "undefined variable '{}'",
-                sym
+                "undefined variable '{sym}'"
             )))
+        }
+    }
+
+    pub fn get_local(&self, sym: &String) -> Result<EvaledOr, EnvironmentError> {
+        if let Some(val) = self.env.get(sym) {
+            Ok(val.clone())
+        } else {
+            Err(EnvironmentError::new(format!("undefined variable '{sym}'")))
         }
     }
 
