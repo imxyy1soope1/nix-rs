@@ -75,7 +75,7 @@ pub type Int = i64;
 pub type Float = f64;
 pub type Bool = bool;
 
-#[derive(Debug, Clone)]
+#[derive(Debug /*Clone*/)]
 pub enum Object {
     Int(Int),
     Float(Float),
@@ -83,13 +83,37 @@ pub enum Object {
     Null,
     Str(String),
     List(Vec<Node>),
-    Function(Node, Node, Env),
     Attrs(Env),
     Path(String),
     SearchPath(String),
 
-    BuiltinFunction(u8, fn(Vec<Node>) -> Node),
-    BuiltinFunctionApp(u8, Vec<Node>, fn(Vec<Node>) -> Node),
+    Function(Expression, Expression, Env),
+    BuiltinFunction(u8, fn(RefCell<Vec<Node>>) -> EvalResult),
+    BuiltinFunctionApp(u8, RefCell<Vec<Node>>, fn(Vec<Node>) -> EvalResult),
+}
+
+impl Clone for Object {
+    fn clone(&self) -> Self {
+        use Object::*;
+        match self {
+            Attrs(env) => Attrs(Rc::new((**env).clone())),
+
+            Int(int) => Int(int.clone()),
+            Float(float) => Float(float.clone()),
+            Bool(bool) => Bool(bool.clone()),
+            Null => Null,
+            Str(string) => Str(string.clone()),
+            List(list) => List(list.clone()),
+            Path(path) => Path(path.clone()),
+            SearchPath(path) => SearchPath(path.clone()),
+
+            Function(arg, body, env) => Function(arg.clone(), body.clone(), env.clone()),
+            BuiltinFunction(argscount, f) => BuiltinFunction(argscount.clone(), f.clone()),
+            BuiltinFunctionApp(argsleft, args, f) => {
+                BuiltinFunctionApp(argsleft.clone(), args.clone(), f.clone())
+            }
+        }
+    }
 }
 
 impl Display for Object {
@@ -125,12 +149,6 @@ impl Into<Node> for Object {
     }
 }
 
-impl Into<ParseResult> for Object {
-    fn into(self) -> ParseResult {
-        Ok(self.into())
-    }
-}
-
 impl From<Int> for Object {
     fn from(value: Int) -> Self {
         Self::Int(value)
@@ -149,11 +167,33 @@ impl From<Bool> for Object {
     }
 }
 
-impl TryFrom<&Object> for Int {
+impl TryInto<Int> for Object {
     type Error = EvalError;
-    fn try_from(value: &Object) -> Result<Self, Self::Error> {
-        if let Object::Int(int) = value {
-            Ok(*int)
+    fn try_into(self) -> Result<Int, Self::Error> {
+        if let Object::Int(int) = self {
+            Ok(int)
+        } else {
+            Err(format!("").into())
+        }
+    }
+}
+
+impl TryInto<Float> for Object {
+    type Error = EvalError;
+    fn try_into(self) -> Result<Float, Self::Error> {
+        if let Object::Float(float) = self {
+            Ok(float)
+        } else {
+            Err(format!("").into())
+        }
+    }
+}
+
+impl TryInto<String> for Object {
+    type Error = EvalError;
+    fn try_into(self) -> Result<String, Self::Error> {
+        if let Object::Str(string) = self {
+            Ok(string)
         } else {
             Err(format!("").into())
         }

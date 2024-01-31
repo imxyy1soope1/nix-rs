@@ -19,17 +19,17 @@ pub use object::Object;
 pub use parser::Parser;
 pub use token::Token;
 
-pub fn eval(s: String) -> Result<Object, Rc<dyn NixRsError>> {
-    Ok(*(Eval::new(Parser::new(Box::new(Lexer::build(&s))).parse()).eval()?))
+pub fn eval(s: String) -> EvalResult {
+    Ok(Eval::new(Parser::new(Box::new(Lexer::build(&s))).parse()?).eval()?)
 }
 
 pub fn new_env() -> Env {
     let builtins = new_builtins_env();
-    Rc::new(RefCell::new(Environment::new(Some(&builtins))))
+    Rc::new(RefCell::new(Environment::new(Some(builtins))))
 }
 
 pub fn eval_with_env(e: Env, s: String) -> Result<Object, Rc<dyn NixRsError>> {
-    Ok(*(Eval::with_env(e, Parser::new(Box::new(Lexer::build(&s))).parse()).eval()?))
+    Ok(Eval::new(Parser::new(Box::new(Lexer::build(&s))).parse_with_env(&e)?).eval()?)
 }
 
 #[macro_export]

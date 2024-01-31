@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 pub type Env = Rc<RefCell<Environment>>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Environment {
     pub env: HashMap<String, Node>,
     pub father: Option<Env>,
@@ -18,6 +18,26 @@ pub struct Environment {
 #[derive(Debug)]
 pub struct EnvironmentError {
     text: String,
+}
+
+impl From<String> for EnvironmentError {
+    fn from(value: String) -> Self {
+        EnvironmentError { text: value }
+    }
+}
+
+impl From<&str> for EnvironmentError {
+    fn from(value: &str) -> Self {
+        EnvironmentError {
+            text: value.to_owned(),
+        }
+    }
+}
+
+impl Into<Box<dyn NixRsError>> for EnvironmentError {
+    fn into(self) -> Box<dyn NixRsError> {
+        Box::new(self)
+    }
 }
 
 impl EnvironmentError {
@@ -51,9 +71,9 @@ impl Environment {
         }
     }
 
-    pub fn get(&self, sym: &String) -> Result<&Node, EnvironmentError> {
+    pub fn get(&self, sym: &String) -> Result<Node, EnvironmentError> {
         if let Some(val) = self.env.get(sym) {
-            Ok(val)
+            Ok(val.clone())
         } else if let Some(father) = &self.father {
             father.borrow().get(sym)
         } else {
@@ -65,11 +85,21 @@ impl Environment {
     }
 
     pub fn exsits(&self, sym: &String) -> bool {
+        if self.env.contains_key(sym) {
+            true
+        } else if let Some(father) = &self.father {
+            father.borrow().exsits(sym)
+        } else {
+            false
+        }
+    }
+
+    pub fn exsits_local(&self, sym: &String) -> bool {
         self.env.contains_key(sym)
     }
 
     pub fn set(&mut self, sym: String, obj: Node) -> Result<(), EnvironmentError> {
-        if self.exsits(&sym) {
+        if self.exsits_local(&sym) {
             Err(EnvironmentError::new(format!(
                 "{sym} exsits in environment!"
             )))

@@ -4,9 +4,7 @@ use crate::object::*;
 use crate::parser::ParseResult;
 use crate::token::Token;
 
-use std::cell::RefCell;
 use std::fmt::{Debug, Display};
-use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub enum Node {
@@ -37,7 +35,28 @@ impl Node {
         }
     }
 
-    pub fn try_value(&mut self) -> EvalResult {}
+    pub fn get_attr(&self, key: &String) -> Result<Node, Box<dyn NixRsError>> {
+        match self {
+            Node::Expr(expr) => {
+                if let &Expression::AttrsLiteral(ref env, _) = expr.as_ref() {
+                    env.borrow_mut()
+                        .get(key)
+                        .map_err(|e| -> Box<dyn NixRsError> { Box::new(e) })
+                } else {
+                    Err(EvalError::from("expected a set").into())
+                }
+            }
+            Node::Value(val) => {
+                if let &Object::Attrs(ref env) = val.as_ref() {
+                    env.borrow_mut()
+                        .get(key)
+                        .map_err(|e| -> Box<dyn NixRsError> { Box::new(e) })
+                } else {
+                    Err(EvalError::from("expected a set").into())
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -48,8 +67,8 @@ pub enum Expression {
     IntLiteral(Int),
     FloatLiteral(Float),
     StringLiteral(String),
-    InterpolateString(String, Vec<(usize, Expression)>, Env),
-    FunctionLiteral(Box<Expression>, Box<Expression>, Env),
+    InterpolateString(String, Vec<(usize, Expression)>),
+    FunctionLiteral(Box<Expression>, Box<Expression>),
     FunctionCall(Box<Expression>, Box<Expression>),
     If(Box<Expression>, Box<Expression>, Box<Expression>),
     Binding(Box<Expression>, Box<Expression>),
@@ -62,7 +81,7 @@ pub enum Expression {
     Inherit(Vec<String>, Option<Box<Expression>>),
     Path(String, bool),
     SearchPath(Box<Expression>),
-    Interpolate(Box<Expression>, Env),
+    Interpolate(Box<Expression>),
 }
 
 impl Display for Expression {
@@ -75,8 +94,8 @@ impl Display for Expression {
             IntLiteral(int) => write!(f, "{int}"),
             FloatLiteral(float) => write!(f, "float"),
             StringLiteral(string) => write!(f, r#""{string}""#),
-            InterpolateString(string, _interpolates, _env) => write!(f, r#""{string}""#),
-            FunctionLiteral(arg, body, _env) => write!(f, "({arg}: {body})"),
+            InterpolateString(string, _interpolates) => write!(f, r#""{string}""#),
+            FunctionLiteral(arg, body) => write!(f, "({arg}: {body})"),
             FunctionCall(func, arg) => write!(f, "({func} {arg})"),
             If(cond, consq, alter) => write!(f, "(if {cond} then {consq} else {alter})"),
             AttrsLiteral(bindings, rec) => {
@@ -84,8 +103,8 @@ impl Display for Expression {
                     write!(f, "rec ")?;
                 }
                 write!(f, "{{ ")?;
-                for (k, v) in bindings.iter() {
-                    write!(f, "{k} = {v}; ")?;
+                for (k, _v) in bindings.borrow().iter() {
+                    write!(f, "{k} = ...; ",)?;
                 }
                 write!(f, "}}")
             }
@@ -100,7 +119,7 @@ impl Display for Expression {
                     }
                     write!(f, "{}", formal.0)?;
                     if formal.1.is_some() {
-                        write!(f, " ? {}", formal.1.unwrap());
+                        write!(f, " ? {}", formal.1.as_ref().unwrap());
                     }
                 }
                 if *allow_more {
@@ -108,7 +127,7 @@ impl Display for Expression {
                 }
                 write!(f, " }}")?;
                 if alias.is_some() {
-                    write!(f, " @ {}", alias.unwrap())?;
+                    write!(f, " @ {}", alias.as_ref().unwrap())?;
                 }
                 Ok(())
             }
@@ -121,8 +140,8 @@ impl Display for Expression {
             }
             Let(bindings, expr) => {
                 write!(f, "(let ")?;
-                for (k, v) in bindings.iter() {
-                    write!(f, "{k} = {v}; ")?;
+                for (k, _v) in bindings.borrow().iter() {
+                    write!(f, "{k} = ...; ")?;
                 }
                 write!(f, "in {})", expr)
             }
@@ -131,7 +150,7 @@ impl Display for Expression {
             Inherit(inherits, from) => {
                 write!(f, "inherit")?;
                 if from.is_some() {
-                    write!(f, " ({})", from.unwrap())?;
+                    write!(f, " ({})", from.as_ref().unwrap())?;
                 }
                 for inherit in inherits.iter() {
                     write!(f, " {inherit}")?;
@@ -140,7 +159,7 @@ impl Display for Expression {
             }
             Path(path, _relative) => write!(f, "{path}"),
             SearchPath(path) => write!(f, "<{path}>"),
-            Interpolate(expr, _env) => write!(f, "${{{expr}}}"),
+            Interpolate(expr) => write!(f, "${{{expr}}}"),
             Binding(name, value) => write!(f, "{name} = {value}"),
         }
     }

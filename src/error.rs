@@ -1,6 +1,5 @@
 use std::error::Error;
 use std::fmt::Display;
-use std::string::ParseError;
 
 pub trait NixRsError: Error {
     // fn pos(&self) -> Pos;
@@ -86,6 +85,12 @@ impl From<&str> for EvalError {
     }
 }
 
+impl Into<Box<dyn NixRsError>> for EvalError {
+    fn into(self) -> Box<dyn NixRsError> {
+        Box::new(self)
+    }
+}
+
 impl Error for EvalError {}
 
 impl NixRsError for EvalError {
@@ -140,7 +145,7 @@ impl<'a> ErrorCtx<'a> {
         e.push('\n');
         let mut this = &self.stack;
         while this.this.is_some() {
-            e.push_str(&this.this.unwrap().to_string());
+            e.push_str(&this.this.as_ref().unwrap().to_string());
             e.push('\n');
             this = this.prev.unwrap();
         }

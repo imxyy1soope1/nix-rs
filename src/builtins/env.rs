@@ -33,9 +33,9 @@ pub fn new_builtins_env() -> Rc<RefCell<Environment>> {
     for b in builtin_fns().into_iter() {
         let v = b.2;
         if b.1 {
-            set!(b.0.to_string(), Node::Value(Box::new(v)));
+            set!(b.0.to_string(), Node::Value(Box::new(v.clone())));
         } else {
-            set!("__".to_string() + b.0, Node::Value(Box::new(v)));
+            set!("__".to_string() + b.0, Node::Value(Box::new(v.clone())));
         }
         bset!(b.0.to_string(), Node::Value(Box::new(v)));
     }
