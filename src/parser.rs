@@ -1,12 +1,15 @@
-use crate::ast::*;
 use crate::error::{NixRsError, ParserError};
-use crate::eval::Environment;
+use crate::eval::{Env, Environment};
 use crate::token::Token;
+use crate::{ast::*, Object};
 
-type PrefixParseFn = fn(&mut Parser) -> ParseResult;
-type InfixParseFn = fn(&mut Parser, Expression) -> ParseResult;
+use std::cell::RefCell;
+use std::rc::Rc;
 
-type ParseResult = Result<Expression, Box<dyn NixRsError>>;
+type PrefixParseFn = fn(&mut Parser, &Env) -> ParseResult;
+type InfixParseFn = fn(&mut Parser, Expression, &Env) -> ParseResult;
+
+pub type ParseResult = Result<Expression, Box<dyn NixRsError>>;
 
 #[derive(PartialEq, PartialOrd)]
 enum Precedence {
@@ -58,41 +61,41 @@ impl Parser {
     fn prefix_parser(&self, t: &Token) -> Option<PrefixParseFn> {
         macro_rules! parser {
             ($parsername:tt) => {
-                Some(|s| s.$parsername())
+                Some(|s, e| s.$parsername(e))
             };
         }
 
         use Token::*;
         match t {
-            IDENT(_) => Some(|s| {
+            IDENT(_) => Some(|s, e| {
                 if let Token::IDENT(ident) = s.unwrap_cur() {
                     s.next();
-                    Ok(Expression::Ident(ident.clone()))
+                    Expression::Ident(ident.clone(), e.clone()).into()
                 } else {
                     unreachable!()
                 }
             }),
-            INT(_) => Some(|s| {
+            INT(_) => Some(|s, e| {
                 if let Token::INT(int) = s.unwrap_cur() {
                     s.next();
-                    Ok(Expression::IntLiteral(int.parse().unwrap()))
+                    Object::Int(int.parse().unwrap()).into()
                 } else {
                     unreachable!()
                 }
             }),
-            FLOAT(_) => Some(|s| {
+            FLOAT(_) => Some(|s, e| {
                 if let Token::FLOAT(float) = s.unwrap_cur() {
                     s.next();
-                    Ok(Expression::FloatLiteral(float.parse().unwrap()))
+                    Object::Float(float.parse().unwrap()).into()
                 } else {
                     unreachable!()
                 }
             }),
-            STRING(..) => Some(|s| {
+            STRING(..) => Some(|s, e| {
                 if let Token::STRING(string, interpolates) = s.cur_token.clone().unwrap() {
                     s.next();
                     if !interpolates.is_empty() {
-                        Ok(Expression::InterpolateString(
+                        Expression::InterpolateString(
                             string,
                             interpolates
                                 .iter()
@@ -100,17 +103,16 @@ impl Parser {
                                     (r.0, Parser::new(Box::new(r.1.clone().into_iter())).parse())
                                 })
                                 .collect(),
-                        ))
+                            e.clone(),
+                        )
+                        .into()
                     } else {
-                        Ok(Expression::StringLiteral(string))
+                        Object::Str(string).into()
                     }
                 } else {
                     unreachable!()
                 }
             }),
-            /* ELLIPSIS => Some(|s| {
-                s.next();
-            }), */
             MINUS | BANG => parser!(parse_prefix),
             LPAREN => parser!(parse_group),
             IF => parser!(parse_if),
@@ -134,14 +136,14 @@ impl Parser {
     fn infix_parser(&self, t: &Token) -> Option<InfixParseFn> {
         macro_rules! parser {
             ($parsername:tt) => {
-                Some(|s, e| s.$parsername(e))
+                Some(|s, expr, env| s.$parsername(expr, env))
             };
         }
         use Token::*;
         match t {
             PLUS | MINUS | MUL | SLASH | EQ | NEQ | LANGLE | RANGLE | LEQ | GEQ | CONCAT
             | UPDATE | IMPL | AND | OR | QUEST | DOT | ORKW => parser!(parse_infix),
-            ASSIGN => parser!(parse_binding),
+            // ASSIGN => parser!(parse_binding),
             COLON => parser!(parse_function),
             AT => parser!(parse_formals_set_with_alias),
 
@@ -149,22 +151,27 @@ impl Parser {
         }
     }
 
-    fn parse_prefix(&mut self) -> ParseResult {
+    fn parse_prefix(&mut self, env: &Env) -> ParseResult {
         let token = self.unwrap_cur().clone();
         self.next();
-        Ok(Expression::Prefix(
+        Expression::Prefix(
             token.clone(),
-            Box::new(self.parse_expr(match token {
-                Token::MINUS => Precedence::NEG,
-                Token::BANG => Precedence::NOT,
-                _ => unreachable!(),
-            })?),
-        ))
+            self.parse_expr(
+                match token {
+                    Token::MINUS => Precedence::NEG,
+                    Token::BANG => Precedence::NOT,
+                    _ => unreachable!(),
+                },
+                env,
+            )?
+            .into(),
+        )
+        .into()
     }
 
-    fn parse_group(&mut self) -> ParseResult {
+    fn parse_group(&mut self, env: &Env) -> ParseResult {
         self.next();
-        let expr = self.parse_expr(Precedence::LOWEST);
+        let expr = self.parse_expr(Precedence::LOWEST, env);
         if !self.cur_is(Token::RPAREN) {
             panic!()
         }
@@ -173,29 +180,29 @@ impl Parser {
         expr
     }
 
-    fn parse_if(&mut self) -> ParseResult {
+    fn parse_if(&mut self, env: &Env) -> ParseResult {
         self.next();
 
-        let cond = self.parse_expr(Precedence::LOWEST)?;
+        let cond = self.parse_expr(Precedence::LOWEST, env)?;
 
         if !self.cur_is(Token::THEN) {
             panic!()
         }
         self.next();
 
-        let consq = self.parse_expr(Precedence::LOWEST)?;
+        let consq = self.parse_expr(Precedence::LOWEST, env)?;
 
         if !self.cur_is(Token::ELSE) {
             panic!()
         }
         self.next();
 
-        let alter = self.parse_expr(Precedence::LOWEST)?;
+        let alter = self.parse_expr(Precedence::LOWEST, env)?;
 
-        Ok(Expression::If(cond.into(), consq.into(), alter.into()))
+        Expression::If(cond.into(), consq.into(), alter.into()).into()
     }
 
-    fn parse_binding(&mut self, name: Expression) -> ParseResult {
+    fn parse_binding(&mut self, name: Expression, env: &Env) -> ParseResult {
         use Expression::*;
         match name {
             Ident(..) | StringLiteral(..) | InterpolateString(..) | Interpolate(..) => Ok(()),
@@ -213,22 +220,22 @@ impl Parser {
             ))),
         }?;
         self.next();
-        let expr = self.parse_expr(Precedence::ASSIGN)?;
+        let expr = self.parse_expr(Precedence::ASSIGN, env)?;
         if let Binding(..) = expr {
             Err(ParserError::from_string(format!(
                 "invalid binding value: {expr}"
             )))
         } else {
-            Ok(Binding(name.into(), expr.into()))
+            Binding(name.into(), expr.into()).into()
         }
     }
 
-    fn parse_attrs(&mut self) -> ParseResult {
+    fn parse_attrs(&mut self, env: &Env) -> ParseResult {
         use Expression::*;
         use Token::*;
 
         self.next();
-        let mut bindings: Vec<Expression> = Vec::new();
+        let mut bindings: Vec<(Expression, Expression)> = Vec::new();
         let mut args: Vec<(String, Option<Expression>)> = Vec::new();
 
         let is_attrs = {
@@ -253,7 +260,7 @@ impl Parser {
         let mut allow_more = false;
         while !self.cur_is(RBRACE) {
             if is_attrs {
-                let expr = self.parse_expr(Precedence::LOWEST)?;
+                let expr = self.parse_expr(Precedence::LOWEST, env)?;
                 match expr {
                     Binding(..) | Inherit(..) => Ok(()),
                     invalid => Err(ParserError::from_string(format!(
@@ -269,13 +276,13 @@ impl Parser {
                 if self.cur_is(ELLIPSIS) {
                     allow_more = true;
                 } else {
-                    let expr = self.parse_expr(Precedence::LOWEST)?;
+                    let expr = self.parse_expr(Precedence::LOWEST, env)?;
                     match expr {
-                        Ident(ident) => Ok(args.push((ident, None))),
+                        Ident(ident, _) => Ok(args.push((ident, None))),
                         Infix(token, left, right) => {
                             if token == QUEST {
                                 let left = match left.as_ref() {
-                                    Ident(ident) => Ok(ident),
+                                    Ident(ident, _) => Ok(ident),
                                     _ => Err(ParserError::from_string(format!(
                                         "invalid formal: {expr}"
                                     ))),
@@ -323,7 +330,7 @@ impl Parser {
         }
     }
 
-    fn parse_formals_set_with_alias(&mut self, alias: Expression) -> ParseResult {
+    fn parse_formals_set_with_alias(&mut self, alias: Expression, env: &Env) -> ParseResult {
         use Expression::*;
         use Token::*;
 
@@ -337,18 +344,18 @@ impl Parser {
             if self.cur_is(ELLIPSIS) {
                 allow_more = true;
             } else {
-                let expr = self.parse_expr(Precedence::LOWEST)?;
+                let expr = self.parse_expr(Precedence::LOWEST, env)?;
                 match expr {
-                    Ident(ident) => Ok(args.push((ident, None))),
+                    Ident(ident, _) => Ok(args.push((ident, None))),
                     Infix(token, left, right) => {
                         if token == QUEST {
-                            let left = match left {
-                                Ident(ident) => Ok(ident),
+                            let left = match &*left {
+                                Ident(ident, _) => Ok(ident),
                                 _ => {
                                     Err(ParserError::from_string(format!("invalid formal: {expr}")))
                                 }
                             }?;
-                            Ok(args.push((left, Some(right))))
+                            Ok(args.push((left.clone(), Some(*right))))
                         } else {
                             Err(ParserError::from_string(format!("invalid formal: {expr}")))
                         }
@@ -360,16 +367,17 @@ impl Parser {
                 COMMA => {
                     if allow_more {
                         Err(ParserError::new("expect formals to end"))
+                    } else {
+                        Ok(self.next())
                     }
-                    self.next()
                 }
-                RBRACE => (),
+                RBRACE => Ok(()),
                 invalid => Err(ParserError::from_string(format!("unexpected {}", invalid))),
             }?;
         }
         self.next();
 
-        let alias = if let Ident(ident) = alias {
+        let alias = if let Ident(ident, _) = alias {
             Ok(ident)
         } else {
             Err(ParserError::from_string(format!(
@@ -380,23 +388,24 @@ impl Parser {
         Ok(FormalSet(args, Some(alias), allow_more))
     }
 
-    fn parse_list(&mut self) -> ParseResult {
+    fn parse_list(&mut self, env: &Env) -> ParseResult {
         self.next();
         let mut items: Vec<Expression> = Vec::new();
 
         while !self.cur_is(Token::RBRACKET) {
-            items.push(self.parse_expr(Precedence::HIGHEST));
+            items.push(self.parse_expr(Precedence::HIGHEST, env)?);
         }
         self.next();
 
         Ok(Expression::ListLiteral(items))
     }
 
-    fn parse_let(&mut self) -> ParseResult {
+    fn parse_let(&mut self, env: &Env) -> ParseResult {
         use Token::*;
 
         self.next();
         let mut bindings: Vec<Expression> = Vec::new();
+        let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
 
         while !self.cur_is(IN) {
             match self.unwrap_cur() {
@@ -406,8 +415,16 @@ impl Parser {
             if !self.next_is(ASSIGN) {
                 panic!()
             }
-            let ident = self.parse_expr(Precedence::HIGHEST);
-            bindings.push(self.parse_binding(ident));
+            let ident = self.parse_expr(Precedence::HIGHEST, env)?;
+            if let Expression::Binding(name, value) = self.parse_binding(ident, &newenv)? {
+                if let Expression::StringLiteral(name) = *name {
+                    newenv.borrow_mut().set(name, value.into());
+                } else {
+                    return Err(Box::new(ParserError::from(
+                        "dynamic attributes not allowed in let",
+                    )));
+                }
+            }
             if !self.cur_is(SEMI) {
                 panic!()
             }
@@ -415,79 +432,59 @@ impl Parser {
         }
         self.next();
 
-        Ok(Expression::Let(
-            bindings,
-            self.parse_expr(Precedence::LOWEST)?,
-        ))
+        let expr = self.parse_expr(Precedence::LOWEST, &newenv)?;
+        Ok(Expression::Let(newenv, expr.into()))
     }
 
-    fn parse_with(&mut self) -> ParseResult {
+    fn parse_with(&mut self, env: &Env) -> ParseResult {
         self.next();
-        let attrs = self.parse_expr(Precedence::LOWEST)?;
+        let attrs = self.parse_expr(Precedence::LOWEST, env)?;
         if !self.cur_is(Token::SEMI) {
             panic!()
         }
         self.next();
 
         Ok(Expression::With(
-            attrs,
-            self.parse_expr(Precedence::LOWEST)?,
+            attrs.into(),
+            self.parse_expr(Precedence::LOWEST, env)?.into(),
         ))
+        // FIXME: Attrs env
     }
 
-    fn parse_assert(&mut self) -> ParseResult {
+    fn parse_assert(&mut self, env: &Env) -> ParseResult {
         self.next();
-        let assertion = self.parse_expr(Precedence::LOWEST)?;
+        let assertion = self.parse_expr(Precedence::LOWEST, env)?;
         if !self.cur_is(Token::SEMI) {
             panic!()
         }
         self.next();
 
         Ok(Expression::Assert(
-            assertion,
-            self.parse_expr(Precedence::LOWEST)?,
+            assertion.into(),
+            self.parse_expr(Precedence::LOWEST, env)?.into(),
         ))
     }
 
-    fn parse_rec(&mut self) -> ParseResult {
+    fn parse_rec(&mut self, env: &Env) -> ParseResult {
         use Token::*;
 
         if !self.next_is(LBRACE) {
             panic!()
         }
         self.next();
-        self.next();
-        let mut bindings: Vec<Expression> = Vec::new();
-
-        while !self.cur_is(RBRACE) {
-            match self.unwrap_cur() {
-                IDENT(_) | STRING(..) /*| NULL | TRUE | FALSE*/ => (),
-                INHERIT => {
-                    bindings.push(self.parse_inherit());
-                    continue;
-                }
-                _ => panic!(),
-            }
-            if !self.next_is(ASSIGN) && !self.next_is(DOT) {
-                panic!()
-            }
-            let ident = self.parse_expr(Precedence::CALL);
-            bindings.push(self.parse_binding(ident));
-            if !self.cur_is(SEMI) {
-                panic!()
-            }
-            self.next();
+        let mut attrs = self.parse_attrs(env)?;
+        if let Expression::AttrsLiteral(e, _) = attrs {
+            Expression::AttrsLiteral(e, true).into()
+        } else {
+            Err(ParserError::from("syntax error, expect a set").into())
         }
-        self.next();
-
-        Ok(Expression::AttrsLiteral(bindings, true))
     }
 
-    fn parse_inherit(&mut self) -> ParseResult {
+    fn parse_inherit(&mut self, env: &Env) -> ParseResult {
         self.next();
         let from = if self.cur_is(Token::LPAREN) {
             self.next();
-            let from = Some(self.parse_expr(Precedence::LOWEST)?);
+            let from = Some(self.parse_expr(Precedence::LOWEST, env)?.into());
             if !self.cur_is(Token::RPAREN) {
                 panic!()
             }
@@ -497,7 +494,7 @@ impl Parser {
             None
         };
 
-        let mut inherits: Vec<Expression> = Vec::new();
+        let mut inherits: Vec<String> = Vec::new();
 
         use Token::*;
         while match self.unwrap_cur() {
@@ -515,8 +512,15 @@ impl Parser {
             invalid => Err(ParserError::from_string(format!(
                 "unexpected token: {invalid}"
             ))),
-        } {
-            inherits.push(self.parse_expr(Precedence::HIGHEST));
+        }? {
+            let expr = self.parse_expr(Precedence::HIGHEST, env)?;
+            inherits.push(if let Expression::Ident(ident, _) = expr {
+                ident
+            } else if let Expression::StringLiteral(string) = expr {
+                string
+            } else {
+                return Err(ParserError::from("expected Id or string").into());
+            })
         }
         if !self.cur_is(Token::SEMI) {
             panic!()
@@ -525,7 +529,7 @@ impl Parser {
         Ok(Expression::Inherit(inherits, from))
     }
 
-    fn parse_rel_path(&mut self) -> ParseResult {
+    fn parse_rel_path(&mut self, _env: &Env) -> ParseResult {
         use Token::*;
 
         let mut literal = String::new();
@@ -551,7 +555,7 @@ impl Parser {
         Ok(Expression::Path(literal, true))
     }
 
-    fn parse_abs_path(&mut self) -> ParseResult {
+    fn parse_abs_path(&mut self, _env: &Env) -> ParseResult {
         use Token::*;
 
         let mut literal = String::new();
@@ -575,7 +579,7 @@ impl Parser {
         Ok(Expression::Path(literal, false))
     }
 
-    fn parse_search_path(&mut self) -> ParseResult {
+    fn parse_search_path(&mut self, _env: &Env) -> ParseResult {
         use Token::*;
 
         self.next();
@@ -615,17 +619,17 @@ impl Parser {
         }
         self.next();
 
-        Ok(Expression::SearchPath(Expression::Path(literal, false)))
+        Expression::SearchPath(Expression::Path(literal, false).into()).into()
     }
 
-    fn parse_interpolate(&mut self) -> ParseResult {
+    fn parse_interpolate(&mut self, env: &Env) -> ParseResult {
         self.next();
 
-        let expr = self.parse_expr(Precedence::HIGHEST);
+        let expr = self.parse_expr(Precedence::HIGHEST, env)?;
         assert!(self.cur_is(Token::RBRACE));
         self.next();
 
-        Ok(Expression::Interpolate(expr))
+        Expression::Interpolate(expr.into(), env.clone()).into()
     }
 
     fn _precedence(t: &Token) -> Precedence {
@@ -653,25 +657,29 @@ impl Parser {
         Self::_precedence(self.unwrap_cur())
     }
 
-    fn parse_infix(&mut self, left: Expression) -> ParseResult {
+    fn parse_infix(&mut self, left: Expression, env: &Env) -> ParseResult {
         let token = self.unwrap_cur().clone();
         let precedence = self.cur_precedence();
         self.next();
 
         Ok(Expression::Infix(
             token.clone(),
-            Box::new(left),
-            Box::new(self.parse_expr(if token == Token::IMPL {
-                Precedence::IMPLLOWER
-            } else {
-                precedence
-            })),
+            left.into(),
+            self.parse_expr(
+                if token == Token::IMPL {
+                    Precedence::IMPLLOWER
+                } else {
+                    precedence
+                },
+                env,
+            )?
+            .into(),
         ))
     }
 
-    fn parse_function(&mut self, arg: Expression) -> ParseResult {
+    fn parse_function(&mut self, arg: Expression, env: &Env) -> ParseResult {
         match arg {
-            Expression::Ident(..) | Expression::FormalSet(..) => (),
+            Expression::Ident(..) | Expression::FormalSet(..) => Ok(()),
             invalid => Err(ParserError::from_string(format!(
                 "unexpected token: {invalid}"
             ))),
@@ -679,8 +687,9 @@ impl Parser {
 
         self.next();
         Ok(Expression::FunctionLiteral(
-            arg,
-            self.parse_expr(Precedence::FDLOWER),
+            arg.into(),
+            self.parse_expr(Precedence::FDLOWER, env)?.into(),
+            env.clone(),
         ))
     }
 
@@ -704,11 +713,11 @@ impl Parser {
         self.next_token.as_ref().unwrap()
     }
 
-    fn parse_expr(&mut self, precedence: Precedence) -> ParseResult {
+    fn parse_expr(&mut self, precedence: Precedence, env: &Env) -> ParseResult {
         let mut left = self
             .prefix_parser(self.unwrap_cur())
             .unwrap_or_else(|| panic!("unexpected token: {}", self.unwrap_cur()))(
-            self
+            self, env
         )?;
 
         while !self.cur_is(Token::SEMI)
@@ -718,7 +727,7 @@ impl Parser {
             match self.infix_parser(self.unwrap_cur()) {
                 None => return Ok(left),
                 Some(f) => {
-                    left = f(self, left)?;
+                    left = f(self, left, env)?;
                 }
             }
         }
@@ -728,7 +737,10 @@ impl Parser {
                 && !self.cur_is(Token::EOF)
                 && self.prefix_parser(self.unwrap_cur()).is_some()
             {
-                left = Expression::FunctionCall(Box::new(left), Box::new(self.parse_expr(Precedence::CALL)?))
+                left = Expression::FunctionCall(
+                    left.into(),
+                    self.parse_expr(Precedence::CALL, env)?.into(),
+                )
             }
         }
 
@@ -741,6 +753,9 @@ impl Parser {
     }
 
     pub fn parse(&mut self) -> ParseResult {
-        self.parse_expr(Precedence::LOWEST)
+        self.parse_expr(
+            Precedence::LOWEST,
+            Rc::new(RefCell::new(Environment::with_builtins())),
+        )
     }
 }

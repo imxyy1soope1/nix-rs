@@ -1,14 +1,9 @@
-use crate::{
-    ast::Node,
-    eval::EvalResult,
-};
+use crate::parser::ParseResult;
+use crate::{ast::Node, eval::EvalResult};
 use std::collections::HashMap;
 use std::{cell::RefCell, fmt::Debug, fmt::Display, rc::Rc};
 
-use crate::{
-    error::*,
-    eval::Environment,
-};
+use crate::{error::*, eval::Environment};
 
 use crate::{ast::*, Env};
 
@@ -94,7 +89,7 @@ pub enum Object {
     SearchPath(String),
 
     BuiltinFunction(u8, fn(Vec<Node>) -> Node),
-    BuiltinFunctionApp(u8, Vec<Node>, fn(Vec<Node>) -> Node)
+    BuiltinFunctionApp(u8, Vec<Node>, fn(Vec<Node>) -> Node),
 }
 
 impl Display for Object {
@@ -119,8 +114,20 @@ impl Display for Object {
             Path(path) => write!(f, "{path}"),
             SearchPath(path) => write!(f, "{path}"),
             BuiltinFunction(..) => write!(f, "«primop»"),
-            BuiltinFunctionApp(..) => write!(f, "«primop-app»")
+            BuiltinFunctionApp(..) => write!(f, "«primop-app»"),
         }
+    }
+}
+
+impl Into<Node> for Object {
+    fn into(self) -> Node {
+        Node::Value(self.into())
+    }
+}
+
+impl Into<ParseResult> for Object {
+    fn into(self) -> ParseResult {
+        Ok(self.into())
     }
 }
 

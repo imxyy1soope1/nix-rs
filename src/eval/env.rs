@@ -1,10 +1,11 @@
 use crate::ast::Node;
+use crate::builtins::new_builtins_env;
 use crate::error::NixRsError;
 use std::cell::RefCell;
-use std::rc::Rc;
 use std::collections::hash_map::{HashMap, Iter};
 use std::error::Error;
 use std::fmt::Display;
+use std::rc::Rc;
 
 pub type Env = Rc<RefCell<Environment>>;
 
@@ -40,6 +41,13 @@ impl Environment {
         Environment {
             env: HashMap::new(),
             father,
+        }
+    }
+
+    pub fn with_builtins() -> Environment {
+        Environment {
+            env: HashMap::new(),
+            father: Some(new_builtins_env()),
         }
     }
 

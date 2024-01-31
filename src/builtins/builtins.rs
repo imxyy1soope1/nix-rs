@@ -85,11 +85,11 @@ pub fn builtin_fns() -> [(&'static str, bool, Object); _] {
             false,
             Object::BuiltinFunction(1, |a| match a[0].force_value() {
                 Ok(Object::Int(int)) => Node::Value(Box::new(Object::Int(*int))),
-                Ok(Object::Float(float)) => {
-                    Node::Value(Box::new(Object::Int(unsafe { float.ceil().to_int_unchecked() })))
-                }
+                Ok(Object::Float(float)) => Node::Value(Box::new(Object::Int(unsafe {
+                    float.ceil().to_int_unchecked()
+                }))),
                 Err(err) => Node::Error(err),
-                _ => Node::Error(EvalError::new("invalid operation"))
+                _ => Node::Error(EvalError::new("invalid operation")),
             }),
         ),
         (
@@ -97,11 +97,11 @@ pub fn builtin_fns() -> [(&'static str, bool, Object); _] {
             false,
             Object::BuiltinFunction(1, |a| match a[0].force_value() {
                 Ok(Object::Int(int)) => Node::Value(Box::new(Object::Int(*int))),
-                Ok(Object::Float(float)) => {
-                    Node::Value(Box::new(Object::Int(unsafe { float.floor().to_int_unchecked() })))
-                }
+                Ok(Object::Float(float)) => Node::Value(Box::new(Object::Int(unsafe {
+                    float.floor().to_int_unchecked()
+                }))),
                 Err(err) => Node::Error(err),
-                _ => Node::Error(EvalError::new("invalid operation"))
+                _ => Node::Error(EvalError::new("invalid operation")),
             }),
         ),
         (
@@ -110,16 +110,19 @@ pub fn builtin_fns() -> [(&'static str, bool, Object); _] {
             Object::BuiltinFunction(1, |a| {
                 use Object::*;
                 match a[0].force_value() {
-                    Ok(val) => Node::Value(Box::new(Object::Str(match val {
-                        Int(_) => "int",
-                        Float(_) => "float",
-                        Bool(_) => "bool",
-                        Null => "null",
-                        Attrs(_) => "set",
-                        List(_) => "list",
-                        Function(..) => "lambda",
-                        _ => unreachable!()
-                    }.to_string()))),
+                    Ok(val) => Node::Value(Box::new(Object::Str(
+                        match val {
+                            Int(_) => "int",
+                            Float(_) => "float",
+                            Bool(_) => "bool",
+                            Null => "null",
+                            Attrs(_) => "set",
+                            List(_) => "list",
+                            Function(..) => "lambda",
+                            _ => unreachable!(),
+                        }
+                        .to_string(),
+                    ))),
                     Err(err) => Node::Error(err),
                 }
             }),
@@ -128,78 +131,92 @@ pub fn builtin_fns() -> [(&'static str, bool, Object); _] {
             "isNull",
             false,
             Object::BuiltinFunction(1, |a| {
-                Node::Value(Box::new(Object::Bool(if let Ok(Object::Null) = a[0].force_value() {
-                    true
-                } else {
-                    false
-                })))
+                Node::Value(Box::new(Object::Bool(
+                    if let Ok(Object::Null) = a[0].force_value() {
+                        true
+                    } else {
+                        false
+                    },
+                )))
             }),
         ),
         (
             "isFunction",
             false,
             Object::BuiltinFunction(1, |a| {
-                Node::Value(Box::new(Object::Bool(if let Ok(Object::Function(..)) = a[0].force_value() {
-                    true
-                } else {
-                    false
-                })))
-            })
+                Node::Value(Box::new(Object::Bool(
+                    if let Ok(Object::Function(..)) = a[0].force_value() {
+                        true
+                    } else {
+                        false
+                    },
+                )))
+            }),
         ),
         (
             "isInt",
             false,
             Object::BuiltinFunction(1, |a| {
-                Node::Value(Box::new(Object::Bool(if let Ok(Object::Int(..)) = a[0].force_value() {
-                    true
-                } else {
-                    false
-                })))
-            })
+                Node::Value(Box::new(Object::Bool(
+                    if let Ok(Object::Int(..)) = a[0].force_value() {
+                        true
+                    } else {
+                        false
+                    },
+                )))
+            }),
         ),
         (
             "isFloat",
             false,
             Object::BuiltinFunction(1, |a| {
-                Node::Value(Box::new(Object::Bool(if let Ok(Object::Float(..)) = a[0].force_value() {
-                    true
-                } else {
-                    false
-                })))
-            })
+                Node::Value(Box::new(Object::Bool(
+                    if let Ok(Object::Float(..)) = a[0].force_value() {
+                        true
+                    } else {
+                        false
+                    },
+                )))
+            }),
         ),
         (
             "isString",
             false,
             Object::BuiltinFunction(1, |a| {
-                Node::Value(Box::new(Object::Bool(if let Ok(Object::Str(..)) = a[0].force_value() {
-                    true
-                } else {
-                    false
-                })))
-            })
+                Node::Value(Box::new(Object::Bool(
+                    if let Ok(Object::Str(..)) = a[0].force_value() {
+                        true
+                    } else {
+                        false
+                    },
+                )))
+            }),
         ),
         (
             "isBool",
             false,
             Object::BuiltinFunction(1, |a| {
-                Node::Value(Box::new(Object::Bool(if let Ok(Object::Bool(..)) = a[0].force_value() {
-                    true
-                } else {
-                    false
-                })))
-            })
+                Node::Value(Box::new(Object::Bool(
+                    if let Ok(Object::Bool(..)) = a[0].force_value() {
+                        true
+                    } else {
+                        false
+                    },
+                )))
+            }),
         ),
         (
             "isPath",
             false,
             Object::BuiltinFunction(1, |a| {
-                Node::Value(Box::new(Object::Bool(if let Ok(Object::Path(..)) = a[0].force_value() {
-                    true
-                } else {
-                    false
-                })))
-            })
+                Node::Value(Box::new(Object::Bool(
+                    if let Ok(Object::Path(..)) = a[0].force_value() {
+                        true
+                    } else {
+                        false
+                    },
+                )))
+            }),
         ),
         (
             "seq",
@@ -207,11 +224,11 @@ pub fn builtin_fns() -> [(&'static str, bool, Object); _] {
             Object::BuiltinFunction(2, |a| {
                 match a[0].force_value() {
                     Ok(_) => (),
-                    Err(err) => return Node::Error(err)
+                    Err(err) => return Node::Error(err),
                 }
                 match a[1].force_value() {
                     Ok(val) => Node,
-                    Err(err) => Node::Error(err)
+                    Err(err) => Node::Error(err),
                 }
             }),
         ),

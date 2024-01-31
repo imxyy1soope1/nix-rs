@@ -1,11 +1,11 @@
-use super::env::{Environment, Env};
+use super::env::{Env, Environment};
 use crate::builtins::new_builtins_env;
 use crate::error::{ErrorCtx, NixRsError};
 use crate::{ast::*, object::*};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-pub type EvalResult<'a> = core::result::Result<Object, Box<dyn NixRsError>>;
+pub type EvalResult = core::result::Result<Object, Box<dyn NixRsError>>;
 
 pub struct Eval {
     root: Node,

@@ -1,14 +1,16 @@
 use crate::error::*;
-use crate::eval::{Environment, EvalResult, Env};
+use crate::eval::{Env, Environment, EvalResult};
 use crate::object::*;
+use crate::parser::ParseResult;
 use crate::token::Token;
 
 use std::cell::RefCell;
 use std::fmt::{Debug, Display};
+use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub enum Node {
-    Expr(Env, Box<Expression>),
+    Expr(Box<Expression>),
     Value(Box<Object>),
 }
 
@@ -23,43 +25,44 @@ impl Node {
 
     pub fn force_value(&mut self) -> EvalResult {
         match &*self {
-            Node::Value(_) => Ok(()),
-            Node::Expr(env, expr) => {
-                *self = Node::Value(Box::new(expr.eval(env)?));
-                Ok(())
+            Node::Value(_) => (),
+            Node::Expr(expr) => {
+                *self = Node::Value(Box::new(expr.eval()?));
             }
-        }?;
+        };
         if let Node::Value(v) = &*self {
             Ok((*v.as_ref()).clone())
         } else {
             unreachable!()
         }
     }
+
+    pub fn try_value(&mut self) -> EvalResult {}
 }
 
 #[derive(Debug, Clone)]
 pub enum Expression {
     Prefix(Token, Box<Expression>),
     Infix(Token, Box<Expression>, Box<Expression>),
-    Ident(String),
+    Ident(String, Env),
     IntLiteral(Int),
     FloatLiteral(Float),
     StringLiteral(String),
-    InterpolateString(String, Vec<(usize, Expression)>),
-    FunctionLiteral(Box<Expression>, Box<Expression>),
+    InterpolateString(String, Vec<(usize, Expression)>, Env),
+    FunctionLiteral(Box<Expression>, Box<Expression>, Env),
     FunctionCall(Box<Expression>, Box<Expression>),
     If(Box<Expression>, Box<Expression>, Box<Expression>),
     Binding(Box<Expression>, Box<Expression>),
-    AttrsLiteral(Vec<(Expression, Expression)>, bool),
+    AttrsLiteral(Env, bool),
     FormalSet(Vec<(String, Option<Expression>)>, Option<String>, bool),
     ListLiteral(Vec<Expression>),
-    Let(Vec<(String, Expression)>, Box<Expression>),
+    Let(Env, Box<Expression>),
     With(Box<Expression>, Box<Expression>),
     Assert(Box<Expression>, Box<Expression>),
     Inherit(Vec<String>, Option<Box<Expression>>),
     Path(String, bool),
     SearchPath(Box<Expression>),
-    Interpolate(Box<Expression>),
+    Interpolate(Box<Expression>, Env),
 }
 
 impl Display for Expression {
@@ -68,12 +71,12 @@ impl Display for Expression {
         match self {
             Prefix(token, right) => write!(f, "({token}{right})"),
             Infix(token, left, right) => write!(f, "({left} {token} {right})"),
-            Ident(ident) => write!(f, "{ident}"),
+            Ident(ident, _env) => write!(f, "{ident}"),
             IntLiteral(int) => write!(f, "{int}"),
             FloatLiteral(float) => write!(f, "float"),
             StringLiteral(string) => write!(f, r#""{string}""#),
-            InterpolateString(string, _interpolates) => write!(f, r#""{string}""#),
-            FunctionLiteral(arg, body) => write!(f, "({arg}: {body})"),
+            InterpolateString(string, _interpolates, _env) => write!(f, r#""{string}""#),
+            FunctionLiteral(arg, body, _env) => write!(f, "({arg}: {body})"),
             FunctionCall(func, arg) => write!(f, "({func} {arg})"),
             If(cond, consq, alter) => write!(f, "(if {cond} then {consq} else {alter})"),
             AttrsLiteral(bindings, rec) => {
@@ -137,15 +140,33 @@ impl Display for Expression {
             }
             Path(path, _relative) => write!(f, "{path}"),
             SearchPath(path) => write!(f, "<{path}>"),
-            Interpolate(expr) => write!(f, "${{{expr}}}"),
+            Interpolate(expr, _env) => write!(f, "${{{expr}}}"),
             Binding(name, value) => write!(f, "{name} = {value}"),
         }
     }
 }
 
 impl Expression {
-    pub fn eval(&self, env: &RefCell<Environment>) -> Result<Object, Box<dyn NixRsError>> {
+    pub fn eval(&self) -> EvalResult {
         Ok(Object::Null)
+    }
+}
+
+impl Into<Node> for Expression {
+    fn into(self) -> Node {
+        Node::Expr(self.into())
+    }
+}
+
+impl Into<Node> for Box<Expression> {
+    fn into(self) -> Node {
+        Node::Expr(self)
+    }
+}
+
+impl Into<ParseResult> for Expression {
+    fn into(self) -> ParseResult {
+        Ok(self.into())
     }
 }
 

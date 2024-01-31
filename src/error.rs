@@ -23,7 +23,27 @@ impl ParserError {
     }
 }
 
-impl Error for ParserError{}
+impl From<String> for ParserError {
+    fn from(value: String) -> Self {
+        ParserError { msg: value }
+    }
+}
+
+impl From<&str> for ParserError {
+    fn from(value: &str) -> Self {
+        ParserError {
+            msg: value.to_owned(),
+        }
+    }
+}
+
+impl Into<Box<dyn NixRsError>> for ParserError {
+    fn into(self) -> Box<dyn NixRsError> {
+        Box::new(self)
+    }
+}
+
+impl Error for ParserError {}
 
 impl NixRsError for ParserError {
     // fn pos
@@ -60,7 +80,9 @@ impl From<String> for EvalError {
 
 impl From<&str> for EvalError {
     fn from(value: &str) -> Self {
-        EvalError { msg: value.to_owned() }
+        EvalError {
+            msg: value.to_owned(),
+        }
     }
 }
 
