@@ -1,5 +1,6 @@
 use crate::error::{EvalError, NixRsError, ParserError};
 use crate::eval::{Env, Environment};
+use crate::object::ObjectOr;
 use crate::token::Token;
 use crate::{ast::*, Object};
 
@@ -241,23 +242,31 @@ impl Parser {
     fn _inherit_apply(
         expr: Expression,
         env: &Env,
-    ) -> Result<Vec<(String, Node)>, Box<dyn NixRsError>> {
+    ) -> Result<Vec<(String, ObjectOr)>, Box<dyn NixRsError>> {
         use Expression::*;
 
         if let Inherit(inherits, from) = expr {
             let mut ret = Vec::new();
             let env = if let Some(f) = from {
-                let ident = match *f {
-                    StringLiteral(string) => Ok(string),
-                    Ident(ident, _) => Ok(ident),
-                    _ => Err(EvalError::from("expect a set").into()),
-                }?;
-                env.borrow_mut().get(&ident).unwrap()
+                if let AttrsLiteral(env, _) = *f {
+                    env
+                } else {
+                    let ident = match *f {
+                        StringLiteral(string) => Ok(string),
+                        Ident(ident, _) => Ok(ident),
+                        _ => Err(EvalError::from("expect a set").into()),
+                    }?;
+                    if let Object::Attrs(env) = env.borrow().get(&ident).unwrap().get()? {
+                        env
+                    } else {
+                        return Err(EvalError::from("expect a set").into());
+                    }
+                }
             } else {
-                Object::Attrs(env.clone()).into()
+                env.clone()
             };
             for i in inherits.iter() {
-                ret.push((i.clone(), env.get_attr(&i)?));
+                ret.push((i.clone(), env.borrow().get_local(&i).map_err(|e| e.into())?));
             }
             Ok(ret)
         } else {
@@ -265,20 +274,23 @@ impl Parser {
         }
     }
 
-    fn _binding_pair(expr: Expression, env: &Env) -> Result<(String, Node), Box<dyn NixRsError>> {
+    fn _binding_pair(
+        expr: Expression,
+        env: &Env,
+    ) -> Result<(String, ObjectOr), Box<dyn NixRsError>> {
         use Expression::*;
 
         if let Binding(name, value) = expr {
             match *name {
-                Ident(ident, _) => Ok((ident, Node::Expr(value))),
-                StringLiteral(string) => Ok((string, Node::Expr(value))),
+                Ident(ident, _) => Ok((ident, ObjectOr::expr(*value, env.clone()))),
+                StringLiteral(string) => Ok((string, ObjectOr::expr(*value, env.clone()))),
                 Interpolate(_) => Ok((
                     if let Object::Str(s) = name.clone().eval(env)? {
                         s
                     } else {
                         unreachable!()
                     },
-                    Node::Expr(value),
+                    ObjectOr::expr(*value, env.clone()),
                 )),
                 InterpolateString(..) => Ok((
                     if let Object::Str(s) = name.clone().eval(env)? {
@@ -286,19 +298,18 @@ impl Parser {
                     } else {
                         unreachable!()
                     },
-                    Node::Expr(value),
+                    ObjectOr::expr(*value, env.clone()),
                 )),
 
                 Infix(_token, left, right) => {
                     let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
                     let binding = Parser::_binding_pair(*right, env)?;
-                    let _ = newenv.borrow_mut().set(binding.0, binding.1);
-                    Ok((
-                        left.eval(env)?
-                            .try_into()
-                            .map_err(|e: EvalError| -> Box<dyn NixRsError> { Box::new(e) })?,
-                        Node::Value(Object::Attrs(newenv).into()),
-                    ))
+                    newenv.borrow_mut().set(binding.0, binding.1).unwrap();
+                    if let Object::Str(string) = left.eval(env)? {
+                        Ok((string, ObjectOr::obj(Object::Attrs(newenv))))
+                    } else {
+                        Err(EvalError::new("").into())
+                    }
                 }
 
                 _ => unreachable!(),
@@ -521,17 +532,17 @@ impl Parser {
             if !self.next_is(ASSIGN) {
                 panic!()
             }
-            let ident = self.parse_expr(Precedence::HIGHEST, env)?;
+            let ident = self.parse_expr(Precedence::HIGHEST, &newenv)?;
             if let Expression::Binding(name, value) = self.parse_binding(ident, &newenv)? {
                 if let Expression::Ident(ident, _) = *name {
                     newenv
                         .borrow_mut()
-                        .set(ident, value.into())
+                        .set(ident, ObjectOr::expr(*value, newenv.clone()))
                         .map_err(|e| e.into())?;
                 } else if let Expression::StringLiteral(name) = *name {
                     newenv
                         .borrow_mut()
-                        .set(name, value.into())
+                        .set(name, ObjectOr::expr(*value, newenv.clone()))
                         .map_err(|e| e.into())?;
                 } else {
                     return Err(Box::new(ParserError::from(
@@ -552,21 +563,19 @@ impl Parser {
 
     fn parse_with(&mut self, env: &Env) -> ParseResult {
         self.next();
-        let attrs = if let Object::Attrs(newenv) = self.parse_expr(Precedence::LOWEST, env)?.eval(env)? {
-            newenv
-        } else {
-            return Err(EvalError::from("expected a set").into());
-        };
+        let attrs =
+            if let Object::Attrs(newenv) = self.parse_expr(Precedence::LOWEST, env)?.eval(env)? {
+                newenv
+            } else {
+                return Err(EvalError::from("expected a set").into());
+            };
         if !self.cur_is(Token::SEMI) {
             panic!()
         }
         self.next();
 
         let expr = self.parse_expr(Precedence::LOWEST, &attrs)?;
-        Ok(Expression::With(
-            Object::Attrs(attrs).into(),
-            expr.into()
-        ))
+        Ok(Expression::With(Object::Attrs(attrs).into(), expr.into()))
     }
 
     fn parse_assert(&mut self, env: &Env) -> ParseResult {
@@ -796,14 +805,14 @@ impl Parser {
     }
 
     fn parse_function(&mut self, arg: Expression, env: &Env) -> ParseResult {
+        self.next();
         match arg {
             Expression::Ident(ref ident, _) => {
                 let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
                 newenv
                     .borrow_mut()
-                    .set(ident.clone(), Node::Value(Object::Null.into()))
+                    .set(ident.clone(), ObjectOr::obj(Object::Null))
                     .unwrap();
-                self.next();
                 Ok(Expression::FunctionLiteral(
                     arg.into(),
                     self.parse_expr(Precedence::FDLOWER, &newenv)?.into(),
@@ -811,13 +820,12 @@ impl Parser {
                 ))
             }
             Expression::FormalSet(.., ref env) => {
-                self.next();
                 let body = self.parse_expr(Precedence::FDLOWER, env)?;
                 let env = env.clone();
                 Ok(Expression::FunctionLiteral(arg.into(), body.into(), env))
             }
             invalid => Err(ParserError::from_string(format!(
-                "unexpected token: {invalid}"
+                "unexpected expresstion: {invalid}"
             ))),
         }
     }
@@ -880,12 +888,12 @@ impl Parser {
         self.cur_token = self.next_token.clone();
         self.next_token = self.l.next();
     }
-
-    pub fn parse(&mut self) -> Result<(Expression, Env), Box<dyn NixRsError>> {
-        let env = Rc::new(RefCell::new(Environment::with_builtins()));
-        Ok((self.parse_expr(Precedence::LOWEST, &env)?, env))
-    }
-
+    /*
+        pub fn parse(&mut self) -> Result<(Expression, Env), Box<dyn NixRsError>> {
+            let env = Rc::new(RefCell::new(Environment::with_builtins()));
+            Ok((self.parse_expr(Precedence::LOWEST, &env)?, env))
+        }
+    */
     pub fn parse_with_env(&mut self, env: &Env) -> ParseResult {
         self.parse_expr(Precedence::LOWEST, env)
     }

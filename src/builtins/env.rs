@@ -1,5 +1,4 @@
 use super::builtins::builtin_fns;
-use crate::ast::Node;
 use crate::eval::Environment;
 use crate::object::*;
 use std::cell::RefCell;
@@ -15,13 +14,13 @@ pub fn new_builtins_env() -> Rc<RefCell<Environment>> {
 
     set!(
         String::from("true"),
-        Node::Value(Box::new(Object::Bool(true)))
+        ObjectOr::obj(Object::Bool(true))
     );
     set!(
         String::from("false"),
-        Node::Value(Box::new(Object::Bool(false)))
+        ObjectOr::obj(Object::Bool(false))
     );
-    set!(String::from("null"), Node::Value(Box::new(Object::Null)));
+    set!(String::from("null"), ObjectOr::obj(Object::Null));
 
     let builtinsenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
     macro_rules! bset {
@@ -33,15 +32,15 @@ pub fn new_builtins_env() -> Rc<RefCell<Environment>> {
     for b in builtin_fns().into_iter() {
         let v = b.2;
         if b.1 {
-            set!(b.0.to_string(), Node::Value(Box::new(v.clone())));
+            set!(b.0.to_string(), ObjectOr::obj(v.clone()));
         } else {
-            set!("__".to_string() + b.0, Node::Value(Box::new(v.clone())));
+            set!("__".to_string() + b.0, ObjectOr::obj(v.clone()));
         }
-        bset!(b.0.to_string(), Node::Value(Box::new(v)));
+        bset!(b.0.to_string(), ObjectOr::obj(v));
     }
     set!(
         String::from("builtins"),
-        Node::Value(Box::new(Object::Attrs(builtinsenv)))
+        ObjectOr::obj(Object::Attrs(builtinsenv))
     );
 
     env

@@ -5,19 +5,19 @@ use crate::parser::ParseResult;
 use crate::token::Token;
 
 use std::cell::RefCell;
-use std::fmt::{Debug, Display};
+use std::fmt::Display;
 use std::ops::{Add, Div, Mul, Sub};
 use std::rc::Rc;
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Node {
+/* #[derive(Clone)]
+pub enum ObjectOr {
     Expr(Box<Expression>),
     Value(Box<Object>),
 }
 
-impl Node {
+impl ObjectOr {
     pub fn is_value(&self) -> bool {
-        if let Node::Value(_) = self {
+        if let ObjectOr::Value(_) = self {
             true
         } else {
             false
@@ -26,12 +26,12 @@ impl Node {
 
     pub fn force_value(&mut self, env: &Env) -> EvalResult {
         match &*self {
-            Node::Value(_) => (),
-            Node::Expr(expr) => {
-                *self = Node::Value(Box::new(expr.eval(env)?));
+            ObjectOr::Value(_) => (),
+            ObjectOr::Expr(expr) => {
+                *self = ObjectOr::Value(Box::new(expr.eval(env)?));
             }
         };
-        if let Node::Value(v) = &*self {
+        if let ObjectOr::Value(v) = &*self {
             Ok((*v.as_ref()).clone())
         } else {
             unreachable!()
@@ -40,14 +40,14 @@ impl Node {
 
     pub fn value(&self, env: &Env) -> EvalResult {
         match self {
-            Node::Value(value) => Ok((**value).clone()),
-            Node::Expr(expr) => expr.eval(env),
+            ObjectOr::Value(value) => Ok((**value).clone()),
+            ObjectOr::Expr(expr) => expr.eval(env),
         }
     }
 
-    pub fn get_attr(&self, key: &String) -> Result<Node, Box<dyn NixRsError>> {
+    pub fn get_attr(&self, key: &String) -> Result<ObjectOr, Box<dyn NixRsError>> {
         match self {
-            Node::Expr(expr) => {
+            ObjectOr::Expr(expr) => {
                 if let &Expression::AttrsLiteral(ref env, _) = expr.as_ref() {
                     env.borrow_mut()
                         .get(key)
@@ -56,7 +56,7 @@ impl Node {
                     Err(EvalError::from("expected a set").into())
                 }
             }
-            Node::Value(val) => {
+            ObjectOr::Value(val) => {
                 if let &Object::Attrs(ref env) = val.as_ref() {
                     env.borrow_mut()
                         .get(key)
@@ -67,15 +67,15 @@ impl Node {
             }
         }
     }
-}
+} */
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Expression {
     Prefix(Token, Box<Expression>),
     Infix(Token, Box<Expression>, Box<Expression>),
     Ident(String, Env),
-    IntLiteral(Int),
-    FloatLiteral(Float),
+    IntLiteral(i64),
+    FloatLiteral(f64),
     StringLiteral(String),
     InterpolateString(String, Vec<(usize, Expression)>),
     FunctionLiteral(Box<Expression>, Box<Expression>, Env),
@@ -207,7 +207,7 @@ impl Expression {
             AttrsLiteral(env, _) => Ok(Attrs(env.clone())),
             ListLiteral(list) => Ok(List(
                 list.iter()
-                    .map(|expr| Node::Expr(expr.clone().into()))
+                    .map(|expr| ObjectOr::expr(expr.clone(), env.clone()))
                     .collect(),
             )),
             FunctionLiteral(arg, body, _env) => {
@@ -228,8 +228,7 @@ impl Expression {
             }
             Let(env, expr) => expr.eval(env),
             With(attrs, expr) => {
-                if let Attrs(attrenv) = attrs.as_ref()
-                {
+                if let Attrs(attrenv) = attrs.as_ref() {
                     expr.eval(&(update_env(env, attrenv, env)?))
                 } else {
                     Err(EvalError::from("expected a set").into())
@@ -253,19 +252,23 @@ impl Expression {
                     .borrow()
                     .get(ident)
                     .map_err(|e| e.into())
-                    .map(|mut n| n.force_value(env));
+                    .map(|n| n.get());
                 t?
             }
             FunctionCall(func, arg) => {
                 match func.eval(env)? {
-                    Function(formal, body, env) => {
+                    Function(formal, body, funcenv) => {
                         match formal {
                             Ident(ident, _) => {
                                 let newenv =
-                                    Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
+                                    Rc::new(RefCell::new(Environment::new(Some(funcenv.clone()))));
                                 newenv
                                     .borrow_mut()
-                                    .set_force(ident, Node::Expr(arg.clone()));
+                                    .set(ident.clone(), ObjectOr::expr((**arg).clone(), env.clone())).unwrap();
+                                /* println!("test");
+                                println!("{:?}", newenv.borrow().env.get(&ident).unwrap().get().unwrap());
+                                println!("test");
+                                println!("{}", newenv.borrow().get_local(&ident).unwrap().get().unwrap()); */
                                 body.eval(&newenv)
                             }
                             FormalSet(formals, alias, allow_more, _) => {
@@ -283,13 +286,13 @@ impl Expression {
                                         if let Ok(o) = t {
                                             o
                                         } else {
-                                            Node::Expr(default.unwrap().into())
+                                            ObjectOr::expr(default.unwrap(), env.clone())
                                         }
                                     };
                                     env.borrow_mut().set(ident, e).map_err(|e| e.into())?;
                                 }
                                 alias.map(|alias| {
-                                    env.borrow_mut().set(alias, Node::Expr(arg.clone()))
+                                    env.borrow_mut().set(alias, ObjectOr::expr((**arg).clone(), env.clone()))
                                 });
                                 body.eval(&env)
                             }
@@ -301,20 +304,20 @@ impl Expression {
                             argscount - 1,
                             RefCell::new({
                                 let mut t = Vec::with_capacity(argscount as usize);
-                                t.push(Node::Expr(arg.clone()));
+                                t.push(ObjectOr::expr((**arg).clone(), env.clone()));
                                 t
                             }),
                             f,
                         )
                     } else {
-                        f(RefCell::new(vec![Node::Expr(arg.clone())]), env)?
+                        f(RefCell::new(vec![ObjectOr::expr((**arg).clone(), env.clone())]))?
                     }),
                     BuiltinFunctionApp(argscount, args, f) => {
-                        args.borrow_mut().push(Node::Expr(arg.clone()));
+                        args.borrow_mut().push(ObjectOr::expr((**arg).clone(), env.clone()));
                         Ok(if argscount > 1 {
                             Object::BuiltinFunctionApp(argscount - 1, args, f)
                         } else {
-                            f(args, env)?
+                            f(args)?
                         })
                     }
                     _ => Err(
@@ -378,7 +381,7 @@ fn eval_infix(token: &Token, left: &Expression, right: &Expression, env: &Env) -
                     return Err(EvalError::from("unsupported operation").into());
                 })
                 .unwrap()
-                .force_value(env);
+                .get();
         }
     }
     let right_val = right.eval(env)?;
@@ -414,16 +417,16 @@ fn eval_infix(token: &Token, left: &Expression, right: &Expression, env: &Env) -
                 Err(EvalError::from("unsupported operation").into())
             }
         }
-        CONCAT => infix!(List, List, |mut a: Vec<Node>, mut b: Vec<Node>| List({
+        CONCAT => infix!(List, List, |mut a: Vec<ObjectOr>, mut b: Vec<ObjectOr>| List({
             a.append(&mut b);
             a
         })),
-        EQ => Ok(Bool(objeq(left_val, right_val, env)?)),
-        NEQ => Ok(Bool(!objeq(left_val, right_val, env)?)),
-        LANGLE => Ok(Bool(objlt(left_val, right_val, env)?)),
-        RANGLE => Ok(Bool(objlt(right_val, left_val, env)?)),
-        LEQ => Ok(Bool(!objlt(right_val, left_val, env)?)),
-        GEQ => Ok(Bool(!objlt(left_val, right_val, env)?)),
+        EQ => Ok(Bool(objeq(left_val, right_val)?)),
+        NEQ => Ok(Bool(!objeq(left_val, right_val)?)),
+        LANGLE => Ok(Bool(objlt(left_val, right_val)?)),
+        RANGLE => Ok(Bool(objlt(right_val, left_val)?)),
+        LEQ => Ok(Bool(!objlt(right_val, left_val)?)),
+        GEQ => Ok(Bool(!objlt(left_val, right_val)?)),
         _ => Err(EvalError::from_string(format!("unsupported operation: {}", token)).into()),
     }
 }
@@ -512,21 +515,9 @@ impl Div for Object {
     }
 }
 
-impl Into<Node> for Expression {
-    fn into(self) -> Node {
-        Node::Expr(self.into())
-    }
-}
-
-impl Into<Node> for Box<Expression> {
-    fn into(self) -> Node {
-        Node::Expr(self)
-    }
-}
-
 impl Into<ParseResult> for Expression {
     fn into(self) -> ParseResult {
-        Ok(self.into())
+        Ok(self)
     }
 }
 

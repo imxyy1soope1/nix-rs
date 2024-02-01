@@ -1,34 +1,73 @@
-use crate::{ast::Node, eval::EvalResult};
+use crate::eval::EvalResult;
 
 use std::iter::zip;
-use std::{cell::RefCell, fmt::Debug, fmt::Display, rc::Rc};
+use std::{cell::RefCell, fmt::Display, rc::Rc};
 
 use crate::error::*;
 
 use crate::{ast::*, Env};
 
-pub type Int = i64;
-pub type Float = f64;
-pub type Bool = bool;
+#[derive(Debug, Clone)]
+enum _ObjectOr {
+    Expr(Expression, Env),
+    Obj(Object),
+}
 
-#[derive(Debug, PartialEq)]
+impl _ObjectOr {
+    fn get(&mut self) -> EvalResult {
+        match &*self {
+            _ObjectOr::Expr(expr, env) => *self = _ObjectOr::Obj(expr.eval(env)?),
+            _ObjectOr::Obj(_) => (),
+        }
+        if let _ObjectOr::Obj(obj) = self {
+            Ok(obj.clone())
+        } else {
+            unreachable!()
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ObjectOr {
+    val: RefCell<_ObjectOr>,
+}
+
+impl ObjectOr {
+    pub fn obj(obj: Object) -> ObjectOr {
+        ObjectOr {
+            val: RefCell::new(_ObjectOr::Obj(obj)),
+        }
+    }
+
+    pub fn expr(expr: Expression, env: Env) -> ObjectOr {
+        ObjectOr {
+            val: RefCell::new(_ObjectOr::Expr(expr, env)),
+        }
+    }
+
+    pub fn get(&self) -> EvalResult {
+        self.val.borrow_mut().get()
+    }
+}
+
+#[derive(Debug)]
 pub enum Object {
-    Int(Int),
-    Float(Float),
-    Bool(Bool),
+    Int(i64),
+    Float(f64),
+    Bool(bool),
     Null,
     Str(String),
-    List(Vec<Node>),
+    List(Vec<ObjectOr>),
     Attrs(Env),
     Path(String),
     SearchPath(String),
 
     Function(Expression, Expression, Env),
-    BuiltinFunction(u8, fn(RefCell<Vec<Node>>, env: &Env) -> EvalResult),
+    BuiltinFunction(u8, fn(RefCell<Vec<ObjectOr>>) -> EvalResult),
     BuiltinFunctionApp(
         u8,
-        RefCell<Vec<Node>>,
-        fn(RefCell<Vec<Node>>, env: &Env) -> EvalResult,
+        RefCell<Vec<ObjectOr>>,
+        fn(RefCell<Vec<ObjectOr>>) -> EvalResult,
     ),
 }
 
@@ -83,64 +122,31 @@ impl Display for Object {
     }
 }
 
-impl Into<Node> for Object {
-    fn into(self) -> Node {
-        Node::Value(self.into())
+impl Into<ObjectOr> for Object {
+    fn into(self) -> ObjectOr {
+        ObjectOr::obj(self)
     }
 }
 
-impl From<Int> for Object {
-    fn from(value: Int) -> Self {
+impl From<i64> for Object {
+    fn from(value: i64) -> Self {
         Self::Int(value)
     }
 }
 
-impl From<Float> for Object {
-    fn from(value: Float) -> Self {
+impl From<f64> for Object {
+    fn from(value: f64) -> Self {
         Self::Float(value)
     }
 }
 
-impl From<Bool> for Object {
-    fn from(value: Bool) -> Self {
+impl From<bool> for Object {
+    fn from(value: bool) -> Self {
         Self::Bool(value)
     }
 }
 
-impl TryInto<Int> for Object {
-    type Error = EvalError;
-    fn try_into(self) -> Result<Int, Self::Error> {
-        if let Object::Int(int) = self {
-            Ok(int)
-        } else {
-            Err(format!("").into())
-        }
-    }
-}
-
-impl TryInto<Float> for Object {
-    type Error = EvalError;
-    fn try_into(self) -> Result<Float, Self::Error> {
-        if let Object::Float(float) = self {
-            Ok(float)
-        } else {
-            Err(format!("").into())
-        }
-    }
-}
-
-impl TryInto<String> for Object {
-    type Error = EvalError;
-    fn try_into(self) -> Result<String, Self::Error> {
-        if let Object::Str(string) = self {
-            Ok(string)
-        } else {
-            Err(format!("").into())
-        }
-    }
-}
-
-pub fn objeq(obj1: Object, obj2: Object, env: &Env) -> Result<bool, Box<dyn NixRsError>> {
+pub fn objeq(obj1: Object, obj2: Object) -> Result<bool, Box<dyn NixRsError>> {
     use Object::*;
     Ok(match obj1 {
         Int(l) => match obj2 {
@@ -160,8 +166,8 @@ pub fn objeq(obj1: Object, obj2: Object, env: &Env) -> Result<bool, Box<dyn NixR
         List(l) => match obj2 {
             List(r) => {
                 let mut tmp = l.len() == r.len();
-                for (mut o1, mut o2) in zip(l.into_iter(), r.into_iter()) {
-                    tmp = objeq(o1.force_value(env)?, o2.force_value(env)?, env)?;
+                for (o1, o2) in zip(l.iter(), r.iter()) {
+                    tmp = objeq(o1.get()?, o2.get()?)?;
                     if !tmp {
                         break;
                     }
@@ -174,8 +180,8 @@ pub fn objeq(obj1: Object, obj2: Object, env: &Env) -> Result<bool, Box<dyn NixR
             Attrs(r) => {
                 let mut tmp = l.borrow().len() == r.borrow().len();
                 for (k1, v1) in l.borrow().iter() {
-                    let mut v2 = r.borrow().get(k1).map_err(|e| e.into())?;
-                    tmp = objeq(v1.value(env)?, v2.force_value(env)?, env)?;
+                    let v2 = r.borrow().get(k1).map_err(|e| e.into())?;
+                    tmp = objeq(v1.get()?, v2.get()?)?;
                     if !tmp {
                         break;
                     }
@@ -194,7 +200,7 @@ pub fn objeq(obj1: Object, obj2: Object, env: &Env) -> Result<bool, Box<dyn NixR
     })
 }
 
-pub fn objlt(obj1: Object, obj2: Object, env: &Env) -> Result<bool, Box<dyn NixRsError>> {
+pub fn objlt(obj1: Object, obj2: Object) -> Result<bool, Box<dyn NixRsError>> {
     use Object::*;
 
     Ok(match obj1 {
@@ -212,25 +218,22 @@ pub fn objlt(obj1: Object, obj2: Object, env: &Env) -> Result<bool, Box<dyn NixR
             Str(r) => l < r,
             _ => return Err(EvalError::from("unsupported operation").into()),
         },
-        List(mut l) => match obj2 {
+        List(l) => match obj2 {
             List(mut r) => {
                 let mut tmp = false;
-                let lenl = l.len();
-                let lenr = r.len();
-                for (o1, o2) in zip(l.iter_mut(), r.iter_mut()) {
-                    tmp = objlt(o1.value(env)?, o2.value(env)?, env)?;
+                for (o1, o2) in zip(l.iter(), r.iter()) {
+                    tmp = objlt(o1.get()?, o2.get()?)?;
                     if tmp {
                         break;
                     }
                 }
-                tmp || (lenl == lenr
+                tmp || (l.len() == r.len()
                     && objeq(
-                        List(l),
                         List({
-                            r.truncate(lenl);
+                            r.truncate(l.len());
                             r
                         }),
-                        env,
+                        List(l),
                     )?)
             }
             _ => false,
@@ -392,14 +395,14 @@ pub fn update_env(left: &Env, right: &Env, env: &Env) -> Result<Env, Box<dyn Nix
     for (k, v) in right.borrow_mut().iter() {
         let ret = new.borrow_mut().set(k.clone(), v.clone());
         if ret.is_err() {
-            let mut o = new.borrow().get(k).unwrap();
-            let o = o.force_value(env)?;
-            let v = v.value(env)?;
+            let o = new.borrow().get(k).unwrap();
+            let o = o.get()?;
+            let v = v.get()?;
             if let Object::Attrs(s) = o {
                 if let Object::Attrs(other) = v {
                     update_env(&s, &other, env)?;
                 } else {
-                    new.borrow_mut().set_force(k.clone(), Node::Value(v.into()));
+                    new.borrow_mut().set_force(k.clone(), ObjectOr::obj(v));
                 }
             }
         }

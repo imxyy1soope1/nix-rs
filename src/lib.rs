@@ -12,7 +12,6 @@ use eval::{Environment, Eval, EvalResult};
 use std::{cell::RefCell, rc::Rc};
 
 pub use ast::Expression;
-pub use ast::Node as AstNode;
 use builtins::new_builtins_env;
 pub use eval::Env;
 pub use lexer::Lexer;
@@ -21,7 +20,8 @@ pub use parser::Parser;
 pub use token::Token;
 
 pub fn eval(s: String) -> EvalResult {
-    let (expr, env) = Parser::new(Box::new(Lexer::build(&s))).parse()?;
+    let env = Rc::new(RefCell::new(Environment::with_builtins()));
+    let expr = Parser::new(Box::new(Lexer::build(&s))).parse_with_env(&env)?;
     Ok(Eval::new(expr, env).eval()?)
 }
 

@@ -1,6 +1,6 @@
-use crate::ast::Node;
 use crate::builtins::new_builtins_env;
 use crate::error::NixRsError;
+use crate::object::ObjectOr;
 use std::cell::RefCell;
 use std::collections::hash_map::{HashMap, Iter};
 use std::error::Error;
@@ -9,9 +9,9 @@ use std::rc::Rc;
 
 pub type Env = Rc<RefCell<Environment>>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Environment {
-    pub env: HashMap<String, Node>,
+    pub env: HashMap<String, ObjectOr>,
     pub father: Option<Env>,
 }
 
@@ -71,7 +71,7 @@ impl Environment {
         }
     }
 
-    pub fn get(&self, sym: &String) -> Result<Node, EnvironmentError> {
+    pub fn get(&self, sym: &String) -> Result<ObjectOr, EnvironmentError> {
         if let Some(val) = self.env.get(sym) {
             Ok(val.clone())
         } else if let Some(father) = &self.father {
@@ -82,6 +82,17 @@ impl Environment {
                 sym
             )))
         }
+    }
+
+    pub fn get_local(&self, sym: &String) -> Result<ObjectOr, EnvironmentError> {
+        self.env.get(sym).map_or_else(
+            || {
+                Err(EnvironmentError::from(format!(
+                    "undefined variable '{sym}'"
+                )))
+            },
+            |ok| Ok(ok.clone()),
+        )
     }
 
     pub fn exsits(&self, sym: &String) -> bool {
@@ -98,7 +109,7 @@ impl Environment {
         self.env.contains_key(sym)
     }
 
-    pub fn set(&mut self, sym: String, obj: Node) -> Result<(), EnvironmentError> {
+    pub fn set(&mut self, sym: String, obj: ObjectOr) -> Result<(), EnvironmentError> {
         if self.exsits_local(&sym) {
             Err(EnvironmentError::new(format!(
                 "{sym} exsits in environment!"
@@ -109,11 +120,11 @@ impl Environment {
         }
     }
 
-    pub fn set_force(&mut self, sym: String, obj: Node) {
+    pub fn set_force(&mut self, sym: String, obj: ObjectOr) {
         self.env.insert(sym, obj);
     }
 
-    pub fn iter(&self) -> Iter<String, Node> {
+    pub fn iter(&self) -> Iter<String, ObjectOr> {
         self.env.iter()
     }
 
