@@ -798,8 +798,9 @@ impl Parser {
 
     fn parse_function(&mut self, arg: Expression, env: &Env) -> ParseResult {
         match arg {
-            Expression::Ident(..) => {
+            Expression::Ident(ref ident, _) => {
                 let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
+                newenv.borrow_mut().set(ident.clone(), Node::Value(Object::Null.into())).unwrap();
                 self.next();
                 Ok(Expression::FunctionLiteral(
                     arg.into(),
@@ -879,9 +880,10 @@ impl Parser {
     }
 
     pub fn parse(&mut self) -> ParseResult {
+        let env = Rc::new(RefCell::new(Environment::with_builtins()));
         self.parse_expr(
             Precedence::LOWEST,
-            &Rc::new(RefCell::new(Environment::with_builtins())),
+            &env
         )
     }
 

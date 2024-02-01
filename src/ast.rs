@@ -1,9 +1,10 @@
 use crate::error::*;
-use crate::eval::{Env, EvalResult};
+use crate::eval::{Env, Environment, EvalResult};
 use crate::object::*;
 use crate::parser::ParseResult;
 use crate::token::Token;
 
+use std::rc::Rc;
 use std::cell::RefCell;
 use std::fmt::{Debug, Display};
 use std::ops::{Add, Div, Mul, Sub};
@@ -175,7 +176,7 @@ impl Display for Expression {
 }
 
 impl Expression {
-    pub fn eval(&self) -> EvalResult {
+    pub fn eval(&self, env: &Env) -> EvalResult {
         use Expression::*;
         use Object::*;
         match self {
@@ -185,7 +186,7 @@ impl Expression {
             InterpolateString(string, interpolates) => Ok(Str({
                 let mut offset = 0;
                 let mut value = string.clone();
-                for (idx, r) in interpolates.iter().map(|(idx, r)| (idx, r.eval())) {
+                for (idx, r) in interpolates.iter().map(|(idx, r)| (idx, r.eval(env))) {
                     let (p1, p2) = value.split_at(idx + offset);
                     if let Str(s) = r? {
                         value = format!("{p1}{s}{p2}");
@@ -197,7 +198,7 @@ impl Expression {
                 value
             })),
             Interpolate(expr) => {
-                if let Str(string) = expr.eval()? {
+                if let Str(string) = expr.eval(env)? {
                     Ok(Str(string))
                 } else {
                     Err(EvalError::from("expected a string").into())
@@ -215,24 +216,24 @@ impl Expression {
             Expression::Path(..) => Ok(Null), // FIXME
             Expression::SearchPath(..) => Ok(Null),
             If(cond, consq, alter) => {
-                if let Bool(val) = cond.eval()? {
+                if let Bool(val) = cond.eval(env)? {
                     if val {
-                        consq.eval()
+                        consq.eval(env)
                     } else {
-                        alter.eval()
+                        alter.eval(env)
                     }
                 } else {
                     Err(EvalError::from("expected a bool").into())
                 }
             }
-            Let(_env, expr) => expr.eval(),
-            With(_attrs, expr) => expr.eval(),
+            Let(env, expr) => expr.eval(env),
+            With(attrs, expr) => expr.eval(if let Attrs(attrenv) = env.borrow().get(attrs).map_err(|e| e.into())?.force_value()? {&(update_env(env, &attrenv)?)} else {return Err(EvalError::from("expected a set").into())}),
             Assert(assertion, expr) => {
-                if let Bool(val) = assertion.eval()? {
+                if let Bool(val) = assertion.eval(env)? {
                     if val {
-                        expr.eval()
+                        expr.eval(env)
                     } else {
-                        expr.eval()
+                        expr.eval(env)
                     }
                 } else {
                     Err(EvalError::from("expected a bool").into())
@@ -249,13 +250,13 @@ impl Expression {
                 t?
             }
             FunctionCall(func, arg) => {
-                match func.eval()? {
+                match func.eval(env)? {
                     Function(formal, body, env) => {
                         match formal {
                             Ident(ident, _) => {
-                                println!("{body}");
-                                env.borrow_mut().set_force(ident, Node::Expr(arg.clone()));
-                                body.eval()
+                                let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
+                                newenv.borrow_mut().set_force(ident, Node::Expr(arg.clone()));
+                                body.eval(&newenv)
                             }
                             FormalSet(formals, alias, allow_more, _) => {
                                 let argenv = if let AttrsLiteral(env, _) = arg.as_ref() {
