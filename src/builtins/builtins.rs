@@ -6,7 +6,7 @@ pub fn builtin_fns() -> [(&'static str, bool, Object); 12] {
         (
             "ceil",
             false,
-            Object::BuiltinFunction(1, |a| match a.borrow_mut()[0].force_value() {
+            Object::BuiltinFunction(1, |a, e| match a.borrow_mut()[0].force_value(e) {
                 Ok(Object::Int(int)) => Ok(Object::Int(int).into()),
                 Ok(Object::Float(float)) => {
                     Ok(Object::Int(unsafe { float.ceil().to_int_unchecked() }).into())
@@ -18,7 +18,7 @@ pub fn builtin_fns() -> [(&'static str, bool, Object); 12] {
         (
             "floor",
             false,
-            Object::BuiltinFunction(1, |a| match a.borrow_mut()[0].force_value() {
+            Object::BuiltinFunction(1, |a, e| match a.borrow_mut()[0].force_value(e) {
                 Ok(Object::Int(int)) => Ok(Object::Int(int).into()),
                 Ok(Object::Float(float)) => {
                     Ok(Object::Int(unsafe { float.floor().to_int_unchecked() }).into())
@@ -30,9 +30,9 @@ pub fn builtin_fns() -> [(&'static str, bool, Object); 12] {
         (
             "typeOf",
             false,
-            Object::BuiltinFunction(1, |a| {
+            Object::BuiltinFunction(1, |a, e| {
                 use Object::*;
-                match a.borrow_mut()[0].force_value() {
+                match a.borrow_mut()[0].force_value(e) {
                     Ok(val) => Ok(Object::Str(
                         match val {
                             Int(_) => "int",
@@ -54,16 +54,16 @@ pub fn builtin_fns() -> [(&'static str, bool, Object); 12] {
         (
             "isNull",
             false,
-            Object::BuiltinFunction(1, |a| {
-                Ok(Object::Bool(matches!(a.borrow_mut()[0].force_value()?, Object::Null)).into())
+            Object::BuiltinFunction(1, |a, e| {
+                Ok(Object::Bool(matches!(a.borrow_mut()[0].force_value(e)?, Object::Null)).into())
             }),
         ),
         (
             "isFunction",
             false,
-            Object::BuiltinFunction(1, |a| {
+            Object::BuiltinFunction(1, |a, e| {
                 Ok(Object::Bool(matches!(
-                    a.borrow_mut()[0].force_value()?,
+                    a.borrow_mut()[0].force_value(e)?,
                     Object::Function(..)
                 ))
                 .into())
@@ -72,9 +72,9 @@ pub fn builtin_fns() -> [(&'static str, bool, Object); 12] {
         (
             "isInt",
             false,
-            Object::BuiltinFunction(1, |a| {
+            Object::BuiltinFunction(1, |a, e| {
                 Ok(
-                    Object::Bool(matches!(a.borrow_mut()[0].force_value()?, Object::Int(..)))
+                    Object::Bool(matches!(a.borrow_mut()[0].force_value(e)?, Object::Int(..)))
                         .into(),
                 )
             }),
@@ -82,9 +82,9 @@ pub fn builtin_fns() -> [(&'static str, bool, Object); 12] {
         (
             "isFloat",
             false,
-            Object::BuiltinFunction(1, |a| {
+            Object::BuiltinFunction(1, |a, e| {
                 Ok(Object::Bool(matches!(
-                    a.borrow_mut()[0].force_value()?,
+                    a.borrow_mut()[0].force_value(e)?,
                     Object::Float(..)
                 ))
                 .into())
@@ -93,9 +93,9 @@ pub fn builtin_fns() -> [(&'static str, bool, Object); 12] {
         (
             "isString",
             false,
-            Object::BuiltinFunction(1, |a| {
+            Object::BuiltinFunction(1, |a, e| {
                 Ok(
-                    Object::Bool(matches!(a.borrow_mut()[0].force_value()?, Object::Str(..)))
+                    Object::Bool(matches!(a.borrow_mut()[0].force_value(e)?, Object::Str(..)))
                         .into(),
                 )
             }),
@@ -103,43 +103,45 @@ pub fn builtin_fns() -> [(&'static str, bool, Object); 12] {
         (
             "isBool",
             false,
-            Object::BuiltinFunction(1, |a| {
-                Ok(
-                    Object::Bool(matches!(a.borrow_mut()[0].force_value()?, Object::Bool(..)))
-                        .into(),
-                )
+            Object::BuiltinFunction(1, |a, e| {
+                Ok(Object::Bool(matches!(
+                    a.borrow_mut()[0].force_value(e)?,
+                    Object::Bool(..)
+                ))
+                .into())
             }),
         ),
         (
             "isPath",
             false,
-            Object::BuiltinFunction(1, |a| {
-                Ok(
-                    Object::Bool(matches!(a.borrow_mut()[0].force_value()?, Object::Path(..)))
-                        .into(),
-                )
+            Object::BuiltinFunction(1, |a, e| {
+                Ok(Object::Bool(matches!(
+                    a.borrow_mut()[0].force_value(e)?,
+                    Object::Path(..)
+                ))
+                .into())
             }),
         ),
         (
             "seq",
             false,
-            Object::BuiltinFunction(2, |a| {
-                match a.borrow_mut()[0].force_value() {
+            Object::BuiltinFunction(2, |a, e| {
+                match a.borrow_mut()[0].force_value(e) {
                     Ok(_) => Ok(()),
                     Err(err) => Err(err),
                 }?;
-                a.borrow_mut()[1].force_value()
+                a.borrow_mut()[1].force_value(e)
             }),
         ),
         (
             "deepSeq",
             false,
-            Object::BuiltinFunction(2, |a| {
-                match a.borrow_mut()[0].force_value() {
+            Object::BuiltinFunction(2, |a, e| {
+                match a.borrow_mut()[0].force_value(e) {
                     Ok(_) => Ok(()),
                     Err(err) => Err(err),
                 }?;
-                a.borrow_mut()[1].force_value()
+                a.borrow_mut()[1].force_value(e)
             }),
         ),
     ]

@@ -21,7 +21,8 @@ pub use parser::Parser;
 pub use token::Token;
 
 pub fn eval(s: String) -> EvalResult {
-    Ok(Eval::new(Parser::new(Box::new(Lexer::build(&s))).parse()?).eval()?)
+    let (expr, env) = Parser::new(Box::new(Lexer::build(&s))).parse()?;
+    Ok(Eval::new(expr, env).eval()?)
 }
 
 pub fn new_env() -> Env {
@@ -30,7 +31,11 @@ pub fn new_env() -> Env {
 }
 
 pub fn eval_with_env(e: Env, s: String) -> Result<Object, Rc<dyn NixRsError>> {
-    Ok(Eval::new(Parser::new(Box::new(Lexer::build(&s))).parse_with_env(&e)?).eval()?)
+    Ok(Eval::new(
+        Parser::new(Box::new(Lexer::build(&s))).parse_with_env(&e)?,
+        e,
+    )
+    .eval()?)
 }
 
 #[macro_export]

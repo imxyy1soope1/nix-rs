@@ -24,8 +24,12 @@ pub enum Object {
     SearchPath(String),
 
     Function(Expression, Expression, Env),
-    BuiltinFunction(u8, fn(RefCell<Vec<Node>>) -> EvalResult),
-    BuiltinFunctionApp(u8, RefCell<Vec<Node>>, fn(RefCell<Vec<Node>>) -> EvalResult),
+    BuiltinFunction(u8, fn(RefCell<Vec<Node>>, env: &Env) -> EvalResult),
+    BuiltinFunctionApp(
+        u8,
+        RefCell<Vec<Node>>,
+        fn(RefCell<Vec<Node>>, env: &Env) -> EvalResult,
+    ),
 }
 
 impl Clone for Object {
@@ -136,7 +140,7 @@ impl TryInto<String> for Object {
     }
 }
 
-pub fn objeq(obj1: Object, obj2: Object) -> Result<bool, Box<dyn NixRsError>> {
+pub fn objeq(obj1: Object, obj2: Object, env: &Env) -> Result<bool, Box<dyn NixRsError>> {
     use Object::*;
     Ok(match obj1 {
         Int(l) => match obj2 {
@@ -157,7 +161,7 @@ pub fn objeq(obj1: Object, obj2: Object) -> Result<bool, Box<dyn NixRsError>> {
             List(r) => {
                 let mut tmp = l.len() == r.len();
                 for (mut o1, mut o2) in zip(l.into_iter(), r.into_iter()) {
-                    tmp = objeq(o1.force_value()?, o2.force_value()?)?;
+                    tmp = objeq(o1.force_value(env)?, o2.force_value(env)?, env)?;
                     if !tmp {
                         break;
                     }
@@ -171,7 +175,7 @@ pub fn objeq(obj1: Object, obj2: Object) -> Result<bool, Box<dyn NixRsError>> {
                 let mut tmp = l.borrow().len() == r.borrow().len();
                 for (k1, v1) in l.borrow().iter() {
                     let mut v2 = r.borrow().get(k1).map_err(|e| e.into())?;
-                    tmp = objeq(v1.value()?, v2.force_value()?)?;
+                    tmp = objeq(v1.value(env)?, v2.force_value(env)?, env)?;
                     if !tmp {
                         break;
                     }
@@ -190,11 +194,7 @@ pub fn objeq(obj1: Object, obj2: Object) -> Result<bool, Box<dyn NixRsError>> {
     })
 }
 
-/* pub fn objneq(obj1: Rc<dyn Object>, obj2: Rc<dyn Object>, ctx: ErrorCtx) -> EvalResult {
-
-} */
-
-pub fn objlt(obj1: Object, obj2: Object) -> Result<bool, Box<dyn NixRsError>> {
+pub fn objlt(obj1: Object, obj2: Object, env: &Env) -> Result<bool, Box<dyn NixRsError>> {
     use Object::*;
 
     Ok(match obj1 {
@@ -218,7 +218,7 @@ pub fn objlt(obj1: Object, obj2: Object) -> Result<bool, Box<dyn NixRsError>> {
                 let lenl = l.len();
                 let lenr = r.len();
                 for (o1, o2) in zip(l.iter_mut(), r.iter_mut()) {
-                    tmp = objlt(o1.value()?, o2.value()?)?;
+                    tmp = objlt(o1.value(env)?, o2.value(env)?, env)?;
                     if tmp {
                         break;
                     }
@@ -230,6 +230,7 @@ pub fn objlt(obj1: Object, obj2: Object) -> Result<bool, Box<dyn NixRsError>> {
                             r.truncate(lenl);
                             r
                         }),
+                        env,
                     )?)
             }
             _ => false,
@@ -386,17 +387,17 @@ impl Attrs {
 }
 */
 
-pub fn update_env(left: &Env, right: &Env) -> Result<Env, Box<dyn NixRsError>> {
+pub fn update_env(left: &Env, right: &Env, env: &Env) -> Result<Env, Box<dyn NixRsError>> {
     let new = Rc::new(RefCell::new(left.borrow().clone()));
     for (k, v) in right.borrow_mut().iter() {
         let ret = new.borrow_mut().set(k.clone(), v.clone());
         if ret.is_err() {
             let mut o = new.borrow().get(k).unwrap();
-            let o = o.force_value()?;
-            let v = v.value()?;
-            if let Object::Attrs(env) = o {
+            let o = o.force_value(env)?;
+            let v = v.value(env)?;
+            if let Object::Attrs(s) = o {
                 if let Object::Attrs(other) = v {
-                    update_env(&env, &other)?;
+                    update_env(&s, &other, env)?;
                 } else {
                     new.borrow_mut().set_force(k.clone(), Node::Value(v.into()));
                 }

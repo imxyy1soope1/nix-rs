@@ -273,7 +273,7 @@ impl Parser {
                 Ident(ident, _) => Ok((ident, Node::Expr(value))),
                 StringLiteral(string) => Ok((string, Node::Expr(value))),
                 Interpolate(_) => Ok((
-                    if let Object::Str(s) = name.clone().eval()? {
+                    if let Object::Str(s) = name.clone().eval(env)? {
                         s
                     } else {
                         unreachable!()
@@ -281,7 +281,7 @@ impl Parser {
                     Node::Expr(value),
                 )),
                 InterpolateString(..) => Ok((
-                    if let Object::Str(s) = name.clone().eval()? {
+                    if let Object::Str(s) = name.clone().eval(env)? {
                         s
                     } else {
                         unreachable!()
@@ -294,7 +294,7 @@ impl Parser {
                     let binding = Parser::_binding_pair(*right, env)?;
                     let _ = newenv.borrow_mut().set(binding.0, binding.1);
                     Ok((
-                        left.eval()?
+                        left.eval(env)?
                             .try_into()
                             .map_err(|e: EvalError| -> Box<dyn NixRsError> { Box::new(e) })?,
                         Node::Value(Object::Attrs(newenv).into()),
@@ -552,9 +552,7 @@ impl Parser {
 
     fn parse_with(&mut self, env: &Env) -> ParseResult {
         self.next();
-        let attrs = self.parse_expr(Precedence::LOWEST, env)?;
-        let name = attrs.to_string();
-        let attrs = if let Object::Attrs(newenv) = attrs.eval()? {
+        let attrs = if let Object::Attrs(newenv) = self.parse_expr(Precedence::LOWEST, env)?.eval(env)? {
             newenv
         } else {
             return Err(EvalError::from("expected a set").into());
@@ -564,9 +562,10 @@ impl Parser {
         }
         self.next();
 
+        let expr = self.parse_expr(Precedence::LOWEST, &attrs)?;
         Ok(Expression::With(
-            name,
-            self.parse_expr(Precedence::LOWEST, &attrs)?.into(),
+            Object::Attrs(attrs).into(),
+            expr.into()
         ))
     }
 
@@ -800,7 +799,10 @@ impl Parser {
         match arg {
             Expression::Ident(ref ident, _) => {
                 let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
-                newenv.borrow_mut().set(ident.clone(), Node::Value(Object::Null.into())).unwrap();
+                newenv
+                    .borrow_mut()
+                    .set(ident.clone(), Node::Value(Object::Null.into()))
+                    .unwrap();
                 self.next();
                 Ok(Expression::FunctionLiteral(
                     arg.into(),
@@ -879,12 +881,9 @@ impl Parser {
         self.next_token = self.l.next();
     }
 
-    pub fn parse(&mut self) -> ParseResult {
+    pub fn parse(&mut self) -> Result<(Expression, Env), Box<dyn NixRsError>> {
         let env = Rc::new(RefCell::new(Environment::with_builtins()));
-        self.parse_expr(
-            Precedence::LOWEST,
-            &env
-        )
+        Ok((self.parse_expr(Precedence::LOWEST, &env)?, env))
     }
 
     pub fn parse_with_env(&mut self, env: &Env) -> ParseResult {

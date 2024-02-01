@@ -4,10 +4,10 @@ use crate::object::*;
 use crate::parser::ParseResult;
 use crate::token::Token;
 
-use std::rc::Rc;
 use std::cell::RefCell;
 use std::fmt::{Debug, Display};
 use std::ops::{Add, Div, Mul, Sub};
+use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Node {
@@ -24,11 +24,11 @@ impl Node {
         }
     }
 
-    pub fn force_value(&mut self) -> EvalResult {
+    pub fn force_value(&mut self, env: &Env) -> EvalResult {
         match &*self {
             Node::Value(_) => (),
             Node::Expr(expr) => {
-                *self = Node::Value(Box::new(expr.eval()?));
+                *self = Node::Value(Box::new(expr.eval(env)?));
             }
         };
         if let Node::Value(v) = &*self {
@@ -38,10 +38,10 @@ impl Node {
         }
     }
 
-    pub fn value(&self) -> EvalResult {
+    pub fn value(&self, env: &Env) -> EvalResult {
         match self {
             Node::Value(value) => Ok((**value).clone()),
-            Node::Expr(expr) => expr.eval(),
+            Node::Expr(expr) => expr.eval(env),
         }
     }
 
@@ -86,7 +86,7 @@ pub enum Expression {
     FormalSet(Vec<(String, Option<Expression>)>, Option<String>, bool, Env),
     ListLiteral(Vec<Expression>),
     Let(Env, Box<Expression>),
-    With(String, Box<Expression>),
+    With(Box<Object>, Box<Expression>),
     Assert(Box<Expression>, Box<Expression>),
     Inherit(Vec<String>, Option<Box<Expression>>),
     Path(String, bool),
@@ -210,7 +210,7 @@ impl Expression {
                     .map(|expr| Node::Expr(expr.clone().into()))
                     .collect(),
             )),
-            FunctionLiteral(arg, body, env) => {
+            FunctionLiteral(arg, body, _env) => {
                 Ok(Function((**arg).clone(), (**body).clone(), env.clone()))
             }
             Expression::Path(..) => Ok(Null), // FIXME
@@ -227,7 +227,14 @@ impl Expression {
                 }
             }
             Let(env, expr) => expr.eval(env),
-            With(attrs, expr) => expr.eval(if let Attrs(attrenv) = env.borrow().get(attrs).map_err(|e| e.into())?.force_value()? {&(update_env(env, &attrenv)?)} else {return Err(EvalError::from("expected a set").into())}),
+            With(attrs, expr) => {
+                if let Attrs(attrenv) = attrs.as_ref()
+                {
+                    expr.eval(&(update_env(env, attrenv, env)?))
+                } else {
+                    Err(EvalError::from("expected a set").into())
+                }
+            }
             Assert(assertion, expr) => {
                 if let Bool(val) = assertion.eval(env)? {
                     if val {
@@ -239,14 +246,14 @@ impl Expression {
                     Err(EvalError::from("expected a bool").into())
                 }
             }
-            Prefix(token, right) => eval_prefix(token, right.as_ref()),
-            Infix(token, left, right) => eval_infix(token, left.as_ref(), right.as_ref()),
-            Ident(ident, env) => {
+            Prefix(token, right) => eval_prefix(token, right.as_ref(), env),
+            Infix(token, left, right) => eval_infix(token, left.as_ref(), right.as_ref(), env),
+            Ident(ident, _) => {
                 let t = env
                     .borrow()
                     .get(ident)
                     .map_err(|e| e.into())
-                    .map(|mut n| n.force_value());
+                    .map(|mut n| n.force_value(env));
                 t?
             }
             FunctionCall(func, arg) => {
@@ -254,8 +261,11 @@ impl Expression {
                     Function(formal, body, env) => {
                         match formal {
                             Ident(ident, _) => {
-                                let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
-                                newenv.borrow_mut().set_force(ident, Node::Expr(arg.clone()));
+                                let newenv =
+                                    Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
+                                newenv
+                                    .borrow_mut()
+                                    .set_force(ident, Node::Expr(arg.clone()));
                                 body.eval(&newenv)
                             }
                             FormalSet(formals, alias, allow_more, _) => {
@@ -281,7 +291,7 @@ impl Expression {
                                 alias.map(|alias| {
                                     env.borrow_mut().set(alias, Node::Expr(arg.clone()))
                                 });
-                                body.eval()
+                                body.eval(&env)
                             }
                             _ => unreachable!(), // guarded in parser.rs
                         }
@@ -297,14 +307,14 @@ impl Expression {
                             f,
                         )
                     } else {
-                        f(RefCell::new(vec![Node::Expr(arg.clone())]))?
+                        f(RefCell::new(vec![Node::Expr(arg.clone())]), env)?
                     }),
                     BuiltinFunctionApp(argscount, args, f) => {
                         args.borrow_mut().push(Node::Expr(arg.clone()));
                         Ok(if argscount > 1 {
                             Object::BuiltinFunctionApp(argscount - 1, args, f)
                         } else {
-                            f(args)?
+                            f(args, env)?
                         })
                     }
                     _ => Err(
@@ -320,8 +330,8 @@ impl Expression {
     }
 }
 
-fn eval_prefix(token: &Token, right: &Expression) -> EvalResult {
-    let val = right.eval()?;
+fn eval_prefix(token: &Token, right: &Expression, env: &Env) -> EvalResult {
+    let val = right.eval(env)?;
     use Object::*;
     use Token::*;
     match token {
@@ -341,11 +351,11 @@ fn eval_prefix(token: &Token, right: &Expression) -> EvalResult {
     }
 }
 
-fn eval_infix(token: &Token, left: &Expression, right: &Expression) -> EvalResult {
+fn eval_infix(token: &Token, left: &Expression, right: &Expression, env: &Env) -> EvalResult {
     use Object::*;
     use Token::*;
 
-    let left_val = left.eval()?;
+    let left_val = left.eval(env)?;
     if let Attrs(ref env) = left_val {
         if token == &DOT {
             return env
@@ -353,13 +363,13 @@ fn eval_infix(token: &Token, left: &Expression, right: &Expression) -> EvalResul
                 .get(&if let Expression::Ident(ident, _) = right {
                     ident.clone()
                 } else if let Expression::Interpolate(_) = right {
-                    if let Str(string) = right.eval()? {
+                    if let Str(string) = right.eval(env)? {
                         string
                     } else {
                         unreachable!()
                     }
                 } else if let Expression::InterpolateString(..) = right {
-                    if let Str(string) = right.eval()? {
+                    if let Str(string) = right.eval(env)? {
                         string
                     } else {
                         unreachable!()
@@ -368,10 +378,10 @@ fn eval_infix(token: &Token, left: &Expression, right: &Expression) -> EvalResul
                     return Err(EvalError::from("unsupported operation").into());
                 })
                 .unwrap()
-                .force_value();
+                .force_value(env);
         }
     }
-    let right_val = right.eval()?;
+    let right_val = right.eval(env)?;
     macro_rules! infix {
         ($t1:tt, $t2:tt, $op:expr) => {
             if let $t1(a) = left_val {
@@ -396,7 +406,7 @@ fn eval_infix(token: &Token, left: &Expression, right: &Expression) -> EvalResul
         UPDATE => {
             if let Attrs(ref l) = left_val {
                 if let Attrs(ref r) = right_val {
-                    Ok(Attrs(update_env(l, r)?))
+                    Ok(Attrs(update_env(l, r, env)?))
                 } else {
                     Err(EvalError::from("unsupported operation").into())
                 }
@@ -408,12 +418,12 @@ fn eval_infix(token: &Token, left: &Expression, right: &Expression) -> EvalResul
             a.append(&mut b);
             a
         })),
-        EQ => Ok(Bool(objeq(left_val, right_val)?)),
-        NEQ => Ok(Bool(!objeq(left_val, right_val)?)),
-        LANGLE => Ok(Bool(objlt(left_val, right_val)?)),
-        RANGLE => Ok(Bool(objlt(right_val, left_val)?)),
-        LEQ => Ok(Bool(!objlt(right_val, left_val)?)),
-        GEQ => Ok(Bool(!objlt(left_val, right_val)?)),
+        EQ => Ok(Bool(objeq(left_val, right_val, env)?)),
+        NEQ => Ok(Bool(!objeq(left_val, right_val, env)?)),
+        LANGLE => Ok(Bool(objlt(left_val, right_val, env)?)),
+        RANGLE => Ok(Bool(objlt(right_val, left_val, env)?)),
+        LEQ => Ok(Bool(!objlt(right_val, left_val, env)?)),
+        GEQ => Ok(Bool(!objlt(left_val, right_val, env)?)),
         _ => Err(EvalError::from_string(format!("unsupported operation: {}", token)).into()),
     }
 }
