@@ -74,8 +74,8 @@ impl Display for BuiltinFunction {
     }
 }
 
-pub fn builtin_fns() -> Vec<(&'static str, bool, BuiltinFunction)> {
-    vec![
+pub fn builtin_fns() -> [(&'static str, bool, BuiltinFunction); 12] {
+    [
         (
             "ceil",
             false,
@@ -160,11 +160,11 @@ pub fn builtin_fns() -> Vec<(&'static str, bool, BuiltinFunction)> {
             false,
             BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Bool>()))),
         ),
-        /* (
+        (
             "isPath",
             false,
-            BuiltinFunction::new(1, |a| Rc::new(a[0].eval()?.as_any().is::<Path>()))
-        ), */
+            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Path>())))
+        ),
         (
             "seq",
             false,
