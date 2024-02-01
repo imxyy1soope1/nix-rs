@@ -1,19 +1,30 @@
-use nix_rs::convany;
 use nix_rs::eval;
-use nix_rs::object::*;
+use nix_rs::object::Object::*;
 
 macro_rules! test_type {
     ( $input:expr, $type:tt ) => {
         let e = eval($input.to_string()).unwrap();
         println!("{e}");
-        assert!(e.as_any().is::<$type>());
+        assert!(matches!(e, $type(..)))
     };
 }
 
 macro_rules! test_raw {
     ( $input:expr, $type:tt, $val:expr ) => {
         let e = eval($input.to_string()).unwrap();
-        assert_eq!(convany!(e.as_any(), $type), &$val);
+        println!("{e}");
+        assert!(matches!(e, $type($val)))
+    };
+}
+
+macro_rules! test_eq {
+    ( $input:expr, $type:tt, $val:expr ) => {
+        let e = eval($input.to_string()).unwrap();
+        if let $type(val) = e {
+            assert_eq!(val, $val)
+        } else {
+            panic!()
+        }
     };
 }
 
@@ -24,33 +35,33 @@ fn test_int() {
 
 #[test]
 fn test_float() {
-    test_raw!("1.", Float, 1.0f64);
-    test_raw!(".1", Float, 0.1f64);
-    test_raw!("1.1", Float, 1.1f64);
+    test_eq!("1.", Float, 1.0f64);
+    test_eq!(".1", Float, 0.1f64);
+    test_eq!("1.1", Float, 1.1f64);
 }
 
 #[test]
 fn test_prefix() {
     test_raw!("-1", Int, -1);
-    test_raw!("-1.0", Float, -1.0f64);
+    test_eq!("-1.0", Float, -1.0f64);
     test_raw!("!true", Bool, false);
 }
 
 #[test]
 fn test_infix() {
     test_raw!("1 + 1", Int, 2);
-    test_raw!("1.0 + 1", Float, 2f64);
+    test_eq!("1.0 + 1", Float, 2f64);
     test_raw!("true && false", Bool, false);
     test_raw!("true || false", Bool, true);
 }
 
 #[test]
 fn test_literal() {
-    test_raw!(r#""test""#, Str, "test");
-    test_raw!(r#"let test = "a"; in "${test}""#, Str, "a");
+    test_eq!(r#""test""#, Str, "test");
+    test_eq!(r#"let test = "a"; in "${test}""#, Str, "a".to_string());
     test_raw!("true", Bool, true);
     test_raw!("false", Bool, false);
-    test_type!("null", Null);
+    assert!(matches!(eval("null".into()).unwrap(), Null))
 }
 
 #[test]

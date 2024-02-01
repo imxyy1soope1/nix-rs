@@ -1,4 +1,4 @@
-use crate::error::{ErrorCtx, NixRsError};
+use crate::error::NixRsError;
 use crate::{ast::*, object::*};
 
 pub type EvalResult = core::result::Result<Object, Box<dyn NixRsError>>;

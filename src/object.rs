@@ -1,81 +1,17 @@
-use crate::parser::ParseResult;
 use crate::{ast::Node, eval::EvalResult};
-use std::collections::HashMap;
+
+use std::iter::zip;
 use std::{cell::RefCell, fmt::Debug, fmt::Display, rc::Rc};
 
-use crate::{error::*, eval::Environment};
+use crate::error::*;
 
 use crate::{ast::*, Env};
-
-/*
-#[derive(Debug, Clone)]
-pub enum _EvaledOr {
-    Expr(Rc<RefCell<Environment>>, Rc<dyn Expression>, ErrorCtx),
-    Evaled(Rc<dyn Object>),
-    Error(Rc<dyn NixRsError>),
-}
-
-pub use _EvaledOr::*;
-
-impl _EvaledOr {
-    fn set(&mut self, new: Self) {
-        *self = new
-    }
-    fn get(&self) -> EvalResult {
-        match self {
-            Evaled(r) => Ok(r.clone()),
-            Error(e) => Err(e.clone()),
-            _ => unreachable!(),
-        }
-    }
-    fn eval(&mut self) -> EvalResult {
-        if let Expr(env, e, ctx) = &*self {
-            self.set(Evaled(e.eval(env.clone(), ctx.clone())?))
-        }
-        self.get()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct EvaledOr {
-    val: RefCell<_EvaledOr>,
-}
-
-impl EvaledOr {
-    pub fn evaled(r: Rc<dyn Object>) -> EvaledOr {
-        EvaledOr {
-            val: RefCell::new(_EvaledOr::Evaled(r)),
-        }
-    }
-
-    pub fn expr(
-        env: Rc<RefCell<Environment>>,
-        expr: Rc<dyn Expression>,
-        ctx: ErrorCtx,
-    ) -> EvaledOr {
-        EvaledOr {
-            val: RefCell::new(_EvaledOr::Expr(env, expr, ctx)),
-        }
-    }
-
-    pub fn eval(&self) -> EvalResult {
-        self.val.borrow_mut().eval()
-    }
-
-    pub fn expr_is<T: 'static>(&self) -> bool {
-        match &*self.val.borrow() {
-            _EvaledOr::Error(_) | _EvaledOr::Evaled(_) => false,
-            _EvaledOr::Expr(_, e, _) => e.as_any().is::<T>(),
-        }
-    }
-}
-*/
 
 pub type Int = i64;
 pub type Float = f64;
 pub type Bool = bool;
 
-#[derive(Debug /*Clone*/)]
+#[derive(Debug, PartialEq)]
 pub enum Object {
     Int(Int),
     Float(Float),
@@ -89,7 +25,7 @@ pub enum Object {
 
     Function(Expression, Expression, Env),
     BuiltinFunction(u8, fn(RefCell<Vec<Node>>) -> EvalResult),
-    BuiltinFunctionApp(u8, RefCell<Vec<Node>>, fn(Vec<Node>) -> EvalResult),
+    BuiltinFunctionApp(u8, RefCell<Vec<Node>>, fn(RefCell<Vec<Node>>) -> EvalResult),
 }
 
 impl Clone for Object {
@@ -125,7 +61,7 @@ impl Display for Object {
             Bool(val) => write!(f, "{val}"),
             Null => write!(f, "null"),
             Str(s) => write!(f, "{s}"),
-            List(list) => {
+            List(_list) => {
                 /* write!(f, "[ ")?;
                 for v in list.iter() {
                     write!(f, "{v} ")?;
@@ -200,77 +136,109 @@ impl TryInto<String> for Object {
     }
 }
 
+pub fn objeq(obj1: Object, obj2: Object) -> Result<bool, Box<dyn NixRsError>> {
+    use Object::*;
+    Ok(match obj1 {
+        Int(l) => match obj2 {
+            Int(r) => l == r,
+            Float(r) => l as f64 == r,
+            _ => false,
+        },
+        Float(l) => match obj2 {
+            Int(r) => l == r as f64,
+            Float(r) => l == r,
+            _ => false,
+        },
+        Str(l) => match obj2 {
+            Str(r) => l == r,
+            _ => false,
+        },
+        List(l) => match obj2 {
+            List(r) => {
+                let mut tmp = l.len() == r.len();
+                for (mut o1, mut o2) in zip(l.into_iter(), r.into_iter()) {
+                    tmp = objeq(o1.force_value()?, o2.force_value()?)?;
+                    if !tmp {
+                        break;
+                    }
+                }
+                tmp
+            }
+            _ => false,
+        },
+        Attrs(l) => match obj2 {
+            Attrs(r) => {
+                let mut tmp = l.borrow().len() == r.borrow().len();
+                for (k1, v1) in l.borrow().iter() {
+                    let mut v2 = r.borrow().get(k1).map_err(|e| e.into())?;
+                    tmp = objeq(v1.value()?, v2.force_value()?)?;
+                    if !tmp {
+                        break;
+                    }
+                }
+                tmp
+            }
+            _ => false,
+        },
+        Null => matches!(obj2, Null),
+        Function(..) => false,
+        Bool(l) => match obj2 {
+            Bool(r) => l == r,
+            _ => false,
+        },
+        _ => unimplemented!(),
+    })
+}
+
+/* pub fn objneq(obj1: Rc<dyn Object>, obj2: Rc<dyn Object>, ctx: ErrorCtx) -> EvalResult {
+
+} */
+
+pub fn objlt(obj1: Object, obj2: Object) -> Result<bool, Box<dyn NixRsError>> {
+    use Object::*;
+
+    Ok(match obj1 {
+        Int(l) => match obj2 {
+            Int(r) => l < r,
+            Float(r) => (l as f64) < r,
+            _ => return Err(EvalError::from("unsupported operation").into()),
+        },
+        Float(l) => match obj2 {
+            Int(r) => l < r as f64,
+            Float(r) => l < r,
+            _ => return Err(EvalError::from("unsupported operation").into()),
+        },
+        Str(l) => match obj2 {
+            Str(r) => l < r,
+            _ => return Err(EvalError::from("unsupported operation").into()),
+        },
+        List(mut l) => match obj2 {
+            List(mut r) => {
+                let mut tmp = false;
+                let lenl = l.len();
+                let lenr = r.len();
+                for (o1, o2) in zip(l.iter_mut(), r.iter_mut()) {
+                    tmp = objlt(o1.value()?, o2.value()?)?;
+                    if tmp {
+                        break;
+                    }
+                }
+                tmp || (lenl == lenr
+                    && objeq(
+                        List(l),
+                        List({
+                            r.truncate(lenl);
+                            r
+                        }),
+                    )?)
+            }
+            _ => false,
+        },
+        _ => return Err(EvalError::from("unsupported operation").into()),
+    })
+}
+
 /*
-
-pub trait Object: Display + Debug {
-    fn as_any(&self) -> &dyn Any;
-}
-
-
-impl Object for Int {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-
-impl Object for Float {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-
-impl Object for bool {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-#[derive(Debug)]
-pub struct Null {}
-
-impl Object for Null {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-impl Display for Null {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "null")
-    }
-}
-
-pub type Str = String;
-
-impl Object for Str {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-pub struct InterpolateStr {}
-
-impl InterpolateStr {
-    pub fn new(value: String, replaces: Vec<(usize, Rc<dyn Object>)>) -> Str {
-        let mut offset = 0;
-        let mut value = value;
-        for (i, o) in replaces.into_iter() {
-            let (p1, p2) = value.split_at(i + offset);
-            let s = convany!(o.as_any(), Str).clone();
-            value = format!("{p1}{s}{p2}");
-            offset += s.len()
-        }
-        value
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct List {
-    pub value: Vec<EvaledOr>,
-}
-
 impl List {
     pub fn new(value: Vec<EvaledOr>) -> List {
         List { value }
@@ -416,6 +384,29 @@ impl Attrs {
         Ok(Rc::new(new))
     }
 }
+*/
+
+pub fn update_env(left: &Env, right: &Env) -> Result<Env, Box<dyn NixRsError>> {
+    let new = Rc::new(RefCell::new(left.borrow().clone()));
+    for (k, v) in right.borrow_mut().iter() {
+        let ret = new.borrow_mut().set(k.clone(), v.clone());
+        if ret.is_err() {
+            let mut o = new.borrow().get(k).unwrap();
+            let o = o.force_value()?;
+            let v = v.value()?;
+            if let Object::Attrs(env) = o {
+                if let Object::Attrs(other) = v {
+                    update_env(&env, &other)?;
+                } else {
+                    new.borrow_mut().set_force(k.clone(), Node::Value(v.into()));
+                }
+            }
+        }
+    }
+    Ok(new)
+}
+
+/*
 
 impl Object for Attrs {
     fn as_any(&self) -> &dyn Any {

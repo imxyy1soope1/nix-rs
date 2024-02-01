@@ -1,6 +1,6 @@
 use super::builtins::builtin_fns;
 use crate::ast::Node;
-use crate::eval::{Env, Environment};
+use crate::eval::Environment;
 use crate::object::*;
 use std::cell::RefCell;
 use std::rc::Rc;

@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 pub type Env = Rc<RefCell<Environment>>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Environment {
     pub env: HashMap<String, Node>,
     pub father: Option<Env>,
@@ -109,7 +109,7 @@ impl Environment {
         }
     }
 
-    pub fn over(&mut self, sym: String, obj: Node) {
+    pub fn set_force(&mut self, sym: String, obj: Node) {
         self.env.insert(sym, obj);
     }
 

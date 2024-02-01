@@ -12,6 +12,7 @@ use eval::{Environment, Eval, EvalResult};
 use std::{cell::RefCell, rc::Rc};
 
 pub use ast::Expression;
+pub use ast::Node as AstNode;
 use builtins::new_builtins_env;
 pub use eval::Env;
 pub use lexer::Lexer;

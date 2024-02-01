@@ -1,12 +1,14 @@
 use crate::error::*;
-use crate::eval::{Env, Environment, EvalResult};
+use crate::eval::{Env, EvalResult};
 use crate::object::*;
 use crate::parser::ParseResult;
 use crate::token::Token;
 
+use std::cell::RefCell;
 use std::fmt::{Debug, Display};
+use std::ops::{Add, Div, Mul, Sub};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Node {
     Expr(Box<Expression>),
     Value(Box<Object>),
@@ -35,6 +37,13 @@ impl Node {
         }
     }
 
+    pub fn value(&self) -> EvalResult {
+        match self {
+            Node::Value(value) => Ok((**value).clone()),
+            Node::Expr(expr) => expr.eval(),
+        }
+    }
+
     pub fn get_attr(&self, key: &String) -> Result<Node, Box<dyn NixRsError>> {
         match self {
             Node::Expr(expr) => {
@@ -59,7 +68,7 @@ impl Node {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
     Prefix(Token, Box<Expression>),
     Infix(Token, Box<Expression>, Box<Expression>),
@@ -68,15 +77,15 @@ pub enum Expression {
     FloatLiteral(Float),
     StringLiteral(String),
     InterpolateString(String, Vec<(usize, Expression)>),
-    FunctionLiteral(Box<Expression>, Box<Expression>),
+    FunctionLiteral(Box<Expression>, Box<Expression>, Env),
     FunctionCall(Box<Expression>, Box<Expression>),
     If(Box<Expression>, Box<Expression>, Box<Expression>),
     Binding(Box<Expression>, Box<Expression>),
     AttrsLiteral(Env, bool),
-    FormalSet(Vec<(String, Option<Expression>)>, Option<String>, bool),
+    FormalSet(Vec<(String, Option<Expression>)>, Option<String>, bool, Env),
     ListLiteral(Vec<Expression>),
     Let(Env, Box<Expression>),
-    With(Box<Expression>, Box<Expression>),
+    With(String, Box<Expression>),
     Assert(Box<Expression>, Box<Expression>),
     Inherit(Vec<String>, Option<Box<Expression>>),
     Path(String, bool),
@@ -92,10 +101,10 @@ impl Display for Expression {
             Infix(token, left, right) => write!(f, "({left} {token} {right})"),
             Ident(ident, _env) => write!(f, "{ident}"),
             IntLiteral(int) => write!(f, "{int}"),
-            FloatLiteral(float) => write!(f, "float"),
+            FloatLiteral(float) => write!(f, "{float}"),
             StringLiteral(string) => write!(f, r#""{string}""#),
             InterpolateString(string, _interpolates) => write!(f, r#""{string}""#),
-            FunctionLiteral(arg, body) => write!(f, "({arg}: {body})"),
+            FunctionLiteral(arg, body, _env) => write!(f, "({arg}: {body})"),
             FunctionCall(func, arg) => write!(f, "({func} {arg})"),
             If(cond, consq, alter) => write!(f, "(if {cond} then {consq} else {alter})"),
             AttrsLiteral(bindings, rec) => {
@@ -108,7 +117,7 @@ impl Display for Expression {
                 }
                 write!(f, "}}")
             }
-            FormalSet(formals, alias, allow_more) => {
+            FormalSet(formals, alias, allow_more, _) => {
                 write!(f, "{{ ")?;
                 let mut first = true;
                 for formal in formals.iter() {
@@ -119,7 +128,7 @@ impl Display for Expression {
                     }
                     write!(f, "{}", formal.0)?;
                     if formal.1.is_some() {
-                        write!(f, " ? {}", formal.1.as_ref().unwrap());
+                        write!(f, " ? {}", formal.1.as_ref().unwrap())?;
                     }
                 }
                 if *allow_more {
@@ -167,7 +176,328 @@ impl Display for Expression {
 
 impl Expression {
     pub fn eval(&self) -> EvalResult {
-        Ok(Object::Null)
+        use Expression::*;
+        use Object::*;
+        match self {
+            IntLiteral(int) => Ok(Int(*int)),
+            FloatLiteral(float) => Ok(Float(*float)),
+            StringLiteral(string) => Ok(Str(string.clone())),
+            InterpolateString(string, interpolates) => Ok(Str({
+                let mut offset = 0;
+                let mut value = string.clone();
+                for (idx, r) in interpolates.iter().map(|(idx, r)| (idx, r.eval())) {
+                    let (p1, p2) = value.split_at(idx + offset);
+                    if let Str(s) = r? {
+                        value = format!("{p1}{s}{p2}");
+                        offset += s.len();
+                    } else {
+                        return Err(EvalError::from("expected a string").into());
+                    }
+                }
+                value
+            })),
+            Interpolate(expr) => {
+                if let Str(string) = expr.eval()? {
+                    Ok(Str(string))
+                } else {
+                    Err(EvalError::from("expected a string").into())
+                }
+            }
+            AttrsLiteral(env, _) => Ok(Attrs(env.clone())),
+            ListLiteral(list) => Ok(List(
+                list.iter()
+                    .map(|expr| Node::Expr(expr.clone().into()))
+                    .collect(),
+            )),
+            FunctionLiteral(arg, body, env) => {
+                Ok(Function((**arg).clone(), (**body).clone(), env.clone()))
+            }
+            Expression::Path(..) => Ok(Null), // FIXME
+            Expression::SearchPath(..) => Ok(Null),
+            If(cond, consq, alter) => {
+                if let Bool(val) = cond.eval()? {
+                    if val {
+                        consq.eval()
+                    } else {
+                        alter.eval()
+                    }
+                } else {
+                    Err(EvalError::from("expected a bool").into())
+                }
+            }
+            Let(_env, expr) => expr.eval(),
+            With(_attrs, expr) => expr.eval(),
+            Assert(assertion, expr) => {
+                if let Bool(val) = assertion.eval()? {
+                    if val {
+                        expr.eval()
+                    } else {
+                        expr.eval()
+                    }
+                } else {
+                    Err(EvalError::from("expected a bool").into())
+                }
+            }
+            Prefix(token, right) => eval_prefix(token, right.as_ref()),
+            Infix(token, left, right) => eval_infix(token, left.as_ref(), right.as_ref()),
+            Ident(ident, env) => {
+                let t = env
+                    .borrow()
+                    .get(ident)
+                    .map_err(|e| e.into())
+                    .map(|mut n| n.force_value());
+                t?
+            }
+            FunctionCall(func, arg) => {
+                match func.eval()? {
+                    Function(formal, body, env) => {
+                        match formal {
+                            Ident(ident, _) => {
+                                println!("{body}");
+                                env.borrow_mut().set_force(ident, Node::Expr(arg.clone()));
+                                body.eval()
+                            }
+                            FormalSet(formals, alias, allow_more, _) => {
+                                let argenv = if let AttrsLiteral(env, _) = arg.as_ref() {
+                                    env
+                                } else {
+                                    return Err(EvalError::from("").into());
+                                };
+                                if formals.len() < argenv.borrow().len() && !allow_more {
+                                    return Err(EvalError::from("unexpected argument").into());
+                                }
+                                for (ident, default) in formals {
+                                    let e = {
+                                        let t = argenv.borrow().get(&ident);
+                                        if let Ok(o) = t {
+                                            o
+                                        } else {
+                                            Node::Expr(default.unwrap().into())
+                                        }
+                                    };
+                                    env.borrow_mut().set(ident, e).map_err(|e| e.into())?;
+                                }
+                                alias.map(|alias| {
+                                    env.borrow_mut().set(alias, Node::Expr(arg.clone()))
+                                });
+                                body.eval()
+                            }
+                            _ => unreachable!(), // guarded in parser.rs
+                        }
+                    }
+                    BuiltinFunction(argscount, f) => Ok(if argscount > 1 {
+                        Object::BuiltinFunctionApp(
+                            argscount - 1,
+                            RefCell::new({
+                                let mut t = Vec::with_capacity(argscount as usize);
+                                t.push(Node::Expr(arg.clone()));
+                                t
+                            }),
+                            f,
+                        )
+                    } else {
+                        f(RefCell::new(vec![Node::Expr(arg.clone())]))?
+                    }),
+                    BuiltinFunctionApp(argscount, args, f) => {
+                        args.borrow_mut().push(Node::Expr(arg.clone()));
+                        Ok(if argscount > 1 {
+                            Object::BuiltinFunctionApp(argscount - 1, args, f)
+                        } else {
+                            f(args)?
+                        })
+                    }
+                    _ => Err(
+                        EvalError::from("attempt to call something which is not a function").into(),
+                    ),
+                }
+            }
+
+            Binding(..) => Ok(Null),
+            Inherit(..) => Ok(Null),
+            FormalSet(..) => Ok(Null),
+        }
+    }
+}
+
+fn eval_prefix(token: &Token, right: &Expression) -> EvalResult {
+    let val = right.eval()?;
+    use Object::*;
+    use Token::*;
+    match token {
+        MINUS => match val {
+            Int(int) => Ok(Int(-int)),
+            Float(float) => Ok(Float(-float)),
+            _ => Err(EvalError::from("unsupported operation").into()),
+        },
+        BANG => {
+            if let Bool(val) = val {
+                Ok(Bool(!val))
+            } else {
+                Err(EvalError::from("unsupported operation").into())
+            }
+        }
+        _ => Err(EvalError::from("unsupported operation").into()),
+    }
+}
+
+fn eval_infix(token: &Token, left: &Expression, right: &Expression) -> EvalResult {
+    use Object::*;
+    use Token::*;
+
+    let left_val = left.eval()?;
+    if let Attrs(ref env) = left_val {
+        if token == &DOT {
+            return env
+                .borrow()
+                .get(&if let Expression::Ident(ident, _) = right {
+                    ident.clone()
+                } else if let Expression::Interpolate(_) = right {
+                    if let Str(string) = right.eval()? {
+                        string
+                    } else {
+                        unreachable!()
+                    }
+                } else if let Expression::InterpolateString(..) = right {
+                    if let Str(string) = right.eval()? {
+                        string
+                    } else {
+                        unreachable!()
+                    }
+                } else {
+                    return Err(EvalError::from("unsupported operation").into());
+                })
+                .unwrap()
+                .force_value();
+        }
+    }
+    let right_val = right.eval()?;
+    macro_rules! infix {
+        ($t1:tt, $t2:tt, $op:expr) => {
+            if let $t1(a) = left_val {
+                if let $t2(b) = right_val {
+                    Ok($op(a, b))
+                } else {
+                    Err(EvalError::from("unsupported operation").into())
+                }
+            } else {
+                Err(EvalError::from("unsupported operation").into())
+            }
+        };
+    }
+    match token {
+        PLUS => left_val + right_val,
+        MINUS => left_val - right_val,
+        MUL => left_val * right_val,
+        SLASH => left_val / right_val,
+        AND => infix!(Bool, Bool, |a, b| Bool(a && b)),
+        OR => infix!(Bool, Bool, |a, b| Bool(a || b)),
+        IMPL => infix!(Bool, Bool, |a: bool, b| Bool(!a || b)),
+        UPDATE => {
+            if let Attrs(ref l) = left_val {
+                if let Attrs(ref r) = right_val {
+                    Ok(Attrs(update_env(l, r)?))
+                } else {
+                    Err(EvalError::from("unsupported operation").into())
+                }
+            } else {
+                Err(EvalError::from("unsupported operation").into())
+            }
+        }
+        CONCAT => infix!(List, List, |mut a: Vec<Node>, mut b: Vec<Node>| List({
+            a.append(&mut b);
+            a
+        })),
+        EQ => Ok(Bool(objeq(left_val, right_val)?)),
+        NEQ => Ok(Bool(!objeq(left_val, right_val)?)),
+        LANGLE => Ok(Bool(objlt(left_val, right_val)?)),
+        RANGLE => Ok(Bool(objlt(right_val, left_val)?)),
+        LEQ => Ok(Bool(!objlt(right_val, left_val)?)),
+        GEQ => Ok(Bool(!objlt(left_val, right_val)?)),
+        _ => Err(EvalError::from_string(format!("unsupported operation: {}", token)).into()),
+    }
+}
+
+impl Add for Object {
+    type Output = EvalResult;
+    fn add(self, rhs: Self) -> Self::Output {
+        use Object::*;
+        match self {
+            Int(l) => match rhs {
+                Int(r) => Ok(Int(l + r)),
+                Float(r) => Ok(Float(l as f64 + r)),
+                _ => Err(EvalError::from("unsupported operation").into()),
+            },
+            Float(l) => match rhs {
+                Int(r) => Ok(Float(l + r as f64)),
+                Float(r) => Ok(Float(l + r)),
+                _ => Err(EvalError::from("unsupported operation").into()),
+            },
+            Str(l) => match rhs {
+                Str(r) => Ok(Str(l + &r)),
+                _ => Err(EvalError::from("unsupported operation").into()),
+            },
+            _ => Err(EvalError::from("unsupported operation").into()),
+        }
+    }
+}
+
+impl Sub for Object {
+    type Output = EvalResult;
+    fn sub(self, rhs: Self) -> Self::Output {
+        use Object::*;
+        match self {
+            Int(l) => match rhs {
+                Int(r) => Ok(Int(l - r)),
+                Float(r) => Ok(Float(l as f64 - r)),
+                _ => Err(EvalError::from("unsupported operation").into()),
+            },
+            Float(l) => match rhs {
+                Int(r) => Ok(Float(l - r as f64)),
+                Float(r) => Ok(Float(l - r)),
+                _ => Err(EvalError::from("unsupported operation").into()),
+            },
+            _ => Err(EvalError::from("unsupported operation").into()),
+        }
+    }
+}
+
+impl Mul for Object {
+    type Output = EvalResult;
+    fn mul(self, rhs: Self) -> Self::Output {
+        use Object::*;
+        match self {
+            Int(l) => match rhs {
+                Int(r) => Ok(Int(l * r)),
+                Float(r) => Ok(Float(l as f64 * r)),
+                _ => Err(EvalError::from("unsupported operation").into()),
+            },
+            Float(l) => match rhs {
+                Int(r) => Ok(Float(l * r as f64)),
+                Float(r) => Ok(Float(l * r)),
+                _ => Err(EvalError::from("unsupported operation").into()),
+            },
+            _ => Err(EvalError::from("unsupported operation").into()),
+        }
+    }
+}
+
+impl Div for Object {
+    type Output = EvalResult;
+    fn div(self, rhs: Self) -> Self::Output {
+        use Object::*;
+        match self {
+            Int(l) => match rhs {
+                Int(r) => Ok(Int(l / r)),
+                Float(r) => Ok(Float(l as f64 / r)),
+                _ => Err(EvalError::from("unsupported operation").into()),
+            },
+            Float(l) => match rhs {
+                Int(r) => Ok(Float(l / r as f64)),
+                Float(r) => Ok(Float(l / r)),
+                _ => Err(EvalError::from("unsupported operation").into()),
+            },
+            _ => Err(EvalError::from("unsupported operation").into()),
+        }
     }
 }
 
@@ -189,403 +519,7 @@ impl Into<ParseResult> for Expression {
     }
 }
 
-/* pub trait Expression: Display + Debug {
-    fn as_any(&self) -> &dyn Any;
-    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult;
-} */
-
 /*
-
-#[derive(Debug)]
-pub struct PrefixExpr {
-    pub token: Token,
-    pub right: Rc<dyn Expression>,
-}
-
-impl PrefixExpr {
-    pub fn new(token: Token, right: Rc<dyn Expression>) -> PrefixExpr {
-        PrefixExpr { token, right }
-    }
-}
-
-impl Expression for PrefixExpr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
-        let val = self.right.eval(
-            env,
-            ctx.with(EvalError::new("while evaluating prefix expr")),
-        )?;
-        let a = val.as_any();
-        use Token::*;
-        match self.token {
-            MINUS => {
-                if a.is::<Int>() {
-                    Ok(Rc::new(-convany!(a, Int)))
-                } else if a.is::<Float>() {
-                    Ok(Rc::new(-convany!(a, Float)))
-                } else {
-                    Err(ctx.unwind(EvalError::new("unsupported operation")))
-                }
-            }
-            BANG => {
-                if a.is::<Bool>() {
-                    Ok(Rc::new(!a.downcast_ref::<bool>().unwrap()))
-                } else {
-                    Err(ctx.unwind(EvalError::new("unsupported operation")))
-                }
-            }
-            _ => Err(ctx.unwind(EvalError::new("unsupported operation"))),
-        }
-    }
-}
-
-impl Display for PrefixExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "({}{})", self.token, self.right)
-    }
-}
-
-#[derive(Debug)]
-pub struct InfixExpr {
-    pub token: Token,
-    pub left: Rc<dyn Expression>,
-    pub right: Rc<dyn Expression>,
-}
-
-impl InfixExpr {
-    pub fn new(token: Token, left: Rc<dyn Expression>, right: Rc<dyn Expression>) -> InfixExpr {
-        InfixExpr { token, left, right }
-    }
-}
-
-impl Expression for InfixExpr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
-        let ctx = ctx.with(EvalError::new("while evaluating infix expr"));
-        let le = self.left.eval(env.clone(), ctx.clone())?;
-        if le.as_any().is::<Attrs>() && self.token == Token::DOT {
-            let ret = convany!(le.as_any(), Attrs)
-                .env
-                .borrow_mut()
-                .get(&if self.right.as_any().is::<IdentifierExpr>() {
-                    convany!(self.right.as_any(), IdentifierExpr).ident.clone()
-                } else if self.right.as_any().is::<StringLiteralExpr>()
-                    || self.right.as_any().is::<InterpolateStringExpr>()
-                {
-                    let e = self.right.eval(env.clone(), ctx)?;
-                    convany!(e.as_any(), Str).clone()
-                } else {
-                    return Err(ctx.unwind(EvalError::new("unsupported operation")));
-                })
-                .unwrap();
-            return ret.eval();
-        }
-        let re = self.right.eval(env.clone(), ctx.clone())?;
-        let la = le.as_any();
-        let ra = re.as_any();
-        use Token::*;
-        macro_rules! num {
-            ($op:expr) => {
-                if la.is::<Int>() {
-                    if ra.is::<Int>() {
-                        Ok(Rc::new($op(convany!(la, Int), convany!(ra, Int))))
-                    } else if ra.is::<Float>() {
-                        Ok(Rc::new($op(
-                            *convany!(la, Int) as Float,
-                            convany!(ra, Float),
-                        )))
-                    } else {
-                        Err(ctx.unwind(EvalError::new("unsupported operation")))
-                    }
-                } else if la.is::<Float>() {
-                    if ra.is::<Int>() {
-                        Ok(Rc::new($op(
-                            convany!(la, Float),
-                            *convany!(ra, Int) as Float,
-                        )))
-                    } else if ra.is::<Float>() {
-                        Ok(Rc::new($op(convany!(la, Float), convany!(ra, Float))))
-                    } else {
-                        Err(ctx.unwind(EvalError::new("unsupported operation")))
-                    }
-                } else {
-                    Err(ctx.unwind(EvalError::new("unsupported operation")))
-                }
-            };
-        }
-        macro_rules! infix {
-            ($t1:tt, $t2:tt, $op:expr) => {
-                if la.is::<$t1>() && ra.is::<$t2>() {
-                    Ok(Rc::from($op(convany!(la, $t1), convany!(ra, $t2))))
-                } else {
-                    Err(ctx.unwind(EvalError::new("unsupported type")))
-                }
-            };
-        }
-        match self.token {
-            PLUS => num!(|a, b| a + b),
-            MINUS => num!(|a, b| a - b),
-            MUL => num!(|a, b| a * b),
-            SLASH => num!(|a, b| a / b),
-            AND => infix!(Bool, Bool, |a: &Bool, b: &Bool| *a && *b),
-            OR => infix!(Bool, Bool, |a: &Bool, b: &Bool| *a || *b),
-            IMPL => infix!(Bool, Bool, |a: &Bool, b: &Bool| !*a || *b),
-            UPDATE => {
-                if la.is::<Attrs>() && ra.is::<Attrs>() {
-                    Ok(convany!(la, Attrs).update(re.clone())?)
-                } else {
-                    Err(ctx.unwind(EvalError::new("unsupported operation")))
-                }
-            }
-            CONCAT => infix!(List, List, |a: &List, _| a.concat(re.clone())),
-            EQ => Ok(Rc::new(objeq(le.clone(), re.clone(), ctx)?)),
-            NEQ => Ok(Rc::new(!(objeq(le.clone(), re.clone(), ctx)?))),
-            LANGLE => Ok(Rc::new(objlt(le.clone(), re.clone(), ctx)?)),
-            RANGLE => Ok(Rc::new(objlt(re.clone(), le.clone(), ctx)?)),
-            LEQ => Ok(Rc::new(!objlt(re.clone(), le.clone(), ctx)?)),
-            GEQ => Ok(Rc::new(!objlt(le.clone(), re.clone(), ctx)?)),
-            _ => Err(ctx.unwind(EvalError::from_string(format!(
-                "unsupported operation: {}",
-                self.token
-            )))),
-        }
-    }
-}
-
-impl Display for InfixExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "({} {} {})", self.left, self.token, self.right)
-    }
-}
-
-#[derive(Debug)]
-pub struct IdentifierExpr {
-    pub ident: String,
-}
-
-impl IdentifierExpr {
-    pub fn new(ident: String) -> IdentifierExpr {
-        IdentifierExpr { ident }
-    }
-}
-
-impl Expression for IdentifierExpr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn eval(&self, env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
-        env.borrow().get(&self.ident).unwrap().eval()
-    }
-}
-
-impl Display for IdentifierExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.ident)
-    }
-}
-
-#[derive(Debug)]
-pub struct IntLiteralExpr {
-    literal: i64,
-}
-
-impl IntLiteralExpr {
-    pub fn new(s: String) -> IntLiteralExpr {
-        IntLiteralExpr {
-            literal: s.parse().unwrap(),
-        }
-    }
-}
-
-impl Expression for IntLiteralExpr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn eval(&self, _env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
-        Ok(Rc::new(self.literal))
-    }
-}
-
-impl Display for IntLiteralExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.literal)
-    }
-}
-
-#[derive(Debug)]
-pub struct FloatLiteralExpr {
-    literal: f64,
-}
-
-impl FloatLiteralExpr {
-    pub fn new(s: String) -> FloatLiteralExpr {
-        FloatLiteralExpr {
-            literal: s.parse().unwrap(),
-        }
-    }
-}
-
-impl Expression for FloatLiteralExpr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn eval(&self, _env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
-        Ok(Rc::new(self.literal))
-    }
-}
-
-impl Display for FloatLiteralExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.literal)
-    }
-}
-
-#[derive(Debug)]
-pub struct EllipsisLiteralExpr;
-
-impl Expression for EllipsisLiteralExpr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn eval(&self, _env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
-        unimplemented!()
-    }
-}
-
-impl Display for EllipsisLiteralExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "...")
-    }
-}
-
-#[derive(Debug)]
-pub struct StringLiteralExpr {
-    pub literal: String,
-}
-
-impl StringLiteralExpr {
-    pub fn new(s: String) -> StringLiteralExpr {
-        StringLiteralExpr { literal: s.clone() }
-    }
-}
-
-impl Expression for StringLiteralExpr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn eval(&self, _env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
-        Ok(Rc::new(self.literal.clone()))
-    }
-}
-
-impl Display for StringLiteralExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, r#""{}""#, self.literal)
-    }
-}
-
-#[derive(Debug)]
-pub struct InterpolateStringExpr {
-    pub literal: String,
-    pub replaces: Vec<(usize, Rc<dyn Expression>)>,
-}
-
-impl InterpolateStringExpr {
-    pub fn new(s: String, replaces: Vec<(usize, Rc<dyn Expression>)>) -> InterpolateStringExpr {
-        InterpolateStringExpr {
-            literal: s.clone(),
-            replaces,
-        }
-    }
-}
-
-impl Expression for InterpolateStringExpr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
-        let ctx = ctx.with(EvalError::new("while evaluating string literal"));
-        Ok(Rc::new(InterpolateStr::new(self.literal.clone(), {
-            let mut t = Vec::new();
-            for (idx, r) in self
-                .replaces
-                .iter()
-                .map(|(idx, r)| (idx, r.eval(env.clone(), ctx.clone())))
-            {
-                t.push((*idx, r?))
-            }
-            t
-        })))
-    }
-}
-
-impl Display for InterpolateStringExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, r#""{}""#, self.literal)
-    }
-}
-
-#[derive(Debug)]
-pub struct FunctionLiteralExpr {
-    arg: Rc<dyn Expression>,
-    body: Rc<dyn Expression>,
-}
-
-impl FunctionLiteralExpr {
-    pub fn new(arg: Rc<dyn Expression>, body: Rc<dyn Expression>) -> FunctionLiteralExpr {
-        FunctionLiteralExpr { arg, body }
-    }
-}
-
-impl Expression for FunctionLiteralExpr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn eval(&self, env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
-        Ok(Rc::new(Lambda::new(
-            self.arg.clone(),
-            self.body.clone(),
-            env.clone(),
-        )))
-    }
-}
-
-impl Display for FunctionLiteralExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "({}: {})", self.arg, self.body)
-    }
-}
-
-#[derive(Debug)]
-pub struct FunctionCallExpr {
-    func: Rc<dyn Expression>,
-    arg: Rc<dyn Expression>,
-}
-
-impl FunctionCallExpr {
-    pub fn new(func: Rc<dyn Expression>, arg: Rc<dyn Expression>) -> FunctionCallExpr {
-        FunctionCallExpr { func, arg }
-    }
-}
-
-impl Expression for FunctionCallExpr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
         let ctx = ctx.with(EvalError::new("while evaluating function call"));
         let e = self.func.eval(env.clone(), ctx.clone())?;

@@ -71,16 +71,16 @@ impl Parser {
                 if let Token::IDENT(ident) = s.unwrap_cur() {
                     let id = ident.clone();
                     s.next();
-                    if !e.borrow().exsits(&id) {
+                    /* if !e.borrow().exsits(&id) {
                         Err(EvalError::from(format!("undefined variable '{id}'")).into())
-                    } else {
-                        Expression::Ident(id, e.clone()).into()
-                    }
+                    } else { */
+                    Expression::Ident(id, e.clone()).into()
+                    // }
                 } else {
                     unreachable!()
                 }
             }),
-            INT(_) => Some(|s, e| {
+            INT(_) => Some(|s, _e| {
                 if let Token::INT(int) = s.unwrap_cur() {
                     let i = int.clone();
                     s.next();
@@ -89,7 +89,7 @@ impl Parser {
                     unreachable!()
                 }
             }),
-            FLOAT(_) => Some(|s, e| {
+            FLOAT(_) => Some(|s, _e| {
                 if let Token::FLOAT(float) = s.unwrap_cur() {
                     let f = float.clone();
                     s.next();
@@ -289,7 +289,7 @@ impl Parser {
                     Node::Expr(value),
                 )),
 
-                Infix(token, left, right) => {
+                Infix(_token, left, right) => {
                     let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
                     let binding = Parser::_binding_pair(*right, env)?;
                     let _ = newenv.borrow_mut().set(binding.0, binding.1);
@@ -312,7 +312,7 @@ impl Parser {
         use Expression::*;
         use Token::*;
 
-        let mut newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
+        let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
         while !self.cur_is(RBRACE) {
             let expr = self.parse_expr(Precedence::LOWEST, if rec { &newenv } else { env })?;
             match expr {
@@ -355,22 +355,21 @@ impl Parser {
 
         fn parse_formals_set(s: &mut Parser, env: &Env) -> ParseResult {
             let mut args: Vec<(String, Option<Expression>)> = Vec::new();
+            let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
             let mut allow_more = false;
 
             while !s.cur_is(RBRACE) {
                 if s.cur_is(ELLIPSIS) {
                     allow_more = true;
                 } else {
-                    let expr = s.parse_expr(Precedence::LOWEST, env)?;
+                    let expr = s.parse_expr(Precedence::LOWEST, &newenv)?;
                     match expr {
                         Ident(ident, _) => Ok(args.push((ident, None))),
                         Infix(token, left, right) => {
                             if token == QUEST {
                                 let left = match left.as_ref() {
                                     Ident(ident, _) => Ok(ident),
-                                    _ => Err(ParserError::from_string(format!(
-                                        "invalid formal"
-                                    ))),
+                                    _ => Err(ParserError::from_string(format!("invalid formal"))),
                                 }?;
                                 Ok(args.push((left.clone(), Some(*right))))
                             } else {
@@ -407,7 +406,7 @@ impl Parser {
                 None
             };
 
-            FormalSet(args, alias, allow_more).into()
+            FormalSet(args, alias, allow_more, newenv).into()
         }
 
         let is_attrs = {
@@ -445,22 +444,22 @@ impl Parser {
         self.next();
 
         let mut args: Vec<(String, Option<Expression>)> = Vec::new();
+        let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
         let mut allow_more = false;
 
         while !self.cur_is(RBRACE) {
             if self.cur_is(ELLIPSIS) {
                 allow_more = true;
+                self.next();
             } else {
-                let expr = self.parse_expr(Precedence::LOWEST, env)?;
+                let expr = self.parse_expr(Precedence::LOWEST, &newenv)?;
                 match expr {
                     Ident(ident, _) => Ok(args.push((ident, None))),
                     Infix(token, left, right) => {
                         if token == QUEST {
                             let left = match &*left {
                                 Ident(ident, _) => Ok(ident),
-                                _ => {
-                                    Err(ParserError::from_string(format!("invalid formal")))
-                                }
+                                _ => Err(ParserError::from_string(format!("invalid formal"))),
                             }?;
                             Ok(args.push((left.clone(), Some(*right))))
                         } else {
@@ -492,7 +491,7 @@ impl Parser {
             )))
         }?;
 
-        Ok(FormalSet(args, Some(alias), allow_more))
+        Ok(FormalSet(args, Some(alias), allow_more, newenv))
     }
 
     fn parse_list(&mut self, env: &Env) -> ParseResult {
@@ -511,7 +510,7 @@ impl Parser {
         use Token::*;
 
         self.next();
-        let mut bindings: Vec<Expression> = Vec::new();
+        let _bindings: Vec<Expression> = Vec::new();
         let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
 
         while !self.cur_is(IN) {
@@ -524,8 +523,16 @@ impl Parser {
             }
             let ident = self.parse_expr(Precedence::HIGHEST, env)?;
             if let Expression::Binding(name, value) = self.parse_binding(ident, &newenv)? {
-                if let Expression::StringLiteral(name) = *name {
-                    newenv.borrow_mut().set(name, value.into());
+                if let Expression::Ident(ident, _) = *name {
+                    newenv
+                        .borrow_mut()
+                        .set(ident, value.into())
+                        .map_err(|e| e.into())?;
+                } else if let Expression::StringLiteral(name) = *name {
+                    newenv
+                        .borrow_mut()
+                        .set(name, value.into())
+                        .map_err(|e| e.into())?;
                 } else {
                     return Err(Box::new(ParserError::from(
                         "dynamic attributes not allowed in let",
@@ -546,16 +553,21 @@ impl Parser {
     fn parse_with(&mut self, env: &Env) -> ParseResult {
         self.next();
         let attrs = self.parse_expr(Precedence::LOWEST, env)?;
+        let name = attrs.to_string();
+        let attrs = if let Object::Attrs(newenv) = attrs.eval()? {
+            newenv
+        } else {
+            return Err(EvalError::from("expected a set").into());
+        };
         if !self.cur_is(Token::SEMI) {
             panic!()
         }
         self.next();
 
         Ok(Expression::With(
-            attrs.into(),
-            self.parse_expr(Precedence::LOWEST, env)?.into(),
+            name,
+            self.parse_expr(Precedence::LOWEST, &attrs)?.into(),
         ))
-        // FIXME: Attrs env
     }
 
     fn parse_assert(&mut self, env: &Env) -> ParseResult {
@@ -579,7 +591,7 @@ impl Parser {
             panic!()
         }
         self.next();
-        let mut attrs = self._parse_attrs(env, true)?;
+        let attrs = self._parse_attrs(env, true)?;
         if matches!(attrs, Expression::AttrsLiteral(..)) {
             attrs.into()
         } else {
@@ -786,17 +798,25 @@ impl Parser {
 
     fn parse_function(&mut self, arg: Expression, env: &Env) -> ParseResult {
         match arg {
-            Expression::Ident(..) | Expression::FormalSet(..) => (),
-            invalid => return Err(ParserError::from_string(format!(
+            Expression::Ident(..) => {
+                let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
+                self.next();
+                Ok(Expression::FunctionLiteral(
+                    arg.into(),
+                    self.parse_expr(Precedence::FDLOWER, &newenv)?.into(),
+                    newenv,
+                ))
+            }
+            Expression::FormalSet(.., ref env) => {
+                self.next();
+                let body = self.parse_expr(Precedence::FDLOWER, env)?;
+                let env = env.clone();
+                Ok(Expression::FunctionLiteral(arg.into(), body.into(), env))
+            }
+            invalid => Err(ParserError::from_string(format!(
                 "unexpected token: {invalid}"
             ))),
-        };
-
-        self.next();
-        Ok(Expression::FunctionLiteral(
-            arg.into(),
-            self.parse_expr(Precedence::FDLOWER, env)?.into(),
-        ))
+        }
     }
 
     #[inline]
