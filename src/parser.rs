@@ -7,7 +7,7 @@ use crate::{ast::*, convany};
 type PrefixParseFn = fn(&mut Parser) -> Rc<dyn Expression>;
 type InfixParseFn = fn(&mut Parser, Rc<dyn Expression>) -> Rc<dyn Expression>;
 
-type Result = std::result::Result<Rc<dyn Expression>, Box<dyn Error>>;
+type ParserResult = Result<Rc<dyn Expression>, Box<dyn Error>>;
 
 #[derive(PartialEq, PartialOrd)]
 enum Precedence {

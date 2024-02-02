@@ -1,5 +1,7 @@
 use crate::{
-    ast::{AttrsLiteralExpr, InterpolateExpr, InterpolateStringExpr, ListLiteralExpr}, builtins::{PrimOp, PrimOpApp}, eval::EvalResult
+    ast::{AttrsLiteralExpr, ListLiteralExpr},
+    builtins::{PrimOp, PrimOpApp},
+    eval::EvalResult,
 };
 use std::{
     cell::RefCell,
@@ -17,7 +19,7 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum _EvaledOr {
-    Expr(Weak<RefCell<Environment>>, Rc<dyn Expression>, ErrorCtx),
+    Expr(Rc<RefCell<Environment>>, Rc<dyn Expression>, ErrorCtx),
     Evaled(Rc<dyn Object>),
     Error(Rc<dyn NixRsError>),
 }
@@ -37,7 +39,7 @@ impl _EvaledOr {
     }
     fn eval(&mut self) -> EvalResult {
         if let Expr(env, e, ctx) = &*self {
-            self.set(Evaled(e.eval(&env.upgrade().unwrap(), ctx)?))
+            self.set(Evaled(e.eval(&env, ctx)?))
         }
         self.get()
     }
@@ -61,7 +63,7 @@ impl EvaledOr {
         ctx: ErrorCtx,
     ) -> EvaledOr {
         EvaledOr {
-            val: RefCell::new(_EvaledOr::Expr(Rc::downgrade(env), expr, ctx)),
+            val: RefCell::new(_EvaledOr::Expr(env.clone(), expr, ctx)),
         }
     }
 
@@ -77,7 +79,24 @@ impl EvaledOr {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum ObjectType {
+    Int = 0,
+    Float,
+    Bool,
+    String,
+    List,
+    Lambda,
+    PrimOp,
+    PrimOpApp,
+    Attrs,
+    Path,
+    Null,
+}
+
 pub trait Object: Display + Debug {
+    fn objtype(&self) -> ObjectType;
+
     fn typename(&self) -> &'static str;
 
     fn try_into_int(&self) -> Result<Int, Rc<dyn NixRsError>> {
@@ -128,6 +147,10 @@ pub trait Object: Display + Debug {
 pub type Int = i64;
 
 impl Object for Int {
+    fn objtype(&self) -> ObjectType {
+        ObjectType::Int
+    }
+
     fn typename(&self) -> &'static str {
         "int"
     }
@@ -144,6 +167,10 @@ impl Object for Int {
 pub type Float = f64;
 
 impl Object for Float {
+    fn objtype(&self) -> ObjectType {
+        ObjectType::Float
+    }
+
     fn typename(&self) -> &'static str {
         "float"
     }
@@ -156,6 +183,10 @@ impl Object for Float {
 pub type Bool = bool;
 
 impl Object for bool {
+    fn objtype(&self) -> ObjectType {
+        ObjectType::Bool
+    }
+
     fn typename(&self) -> &'static str {
         "bool"
     }
@@ -169,6 +200,10 @@ impl Object for bool {
 pub struct Null {}
 
 impl Object for Null {
+    fn objtype(&self) -> ObjectType {
+        ObjectType::Null
+    }
+
     fn typename(&self) -> &'static str {
         "null"
     }
@@ -187,27 +222,16 @@ impl Display for Null {
 pub type Str = String;
 
 impl Object for Str {
+    fn objtype(&self) -> ObjectType {
+        ObjectType::String
+    }
+
     fn typename(&self) -> &'static str {
         "string"
     }
 
     fn try_into_string(&self) -> Result<&Str, Rc<dyn NixRsError>> {
         Ok(self)
-    }
-}
-
-impl TryFrom<&InterpolateStringExpr> for Str {
-    type Error = Rc<dyn NixRsError>;
-    fn try_from(value: &InterpolateStringExpr) -> Result<Self, Self::Error> {
-        let mut offset = 0;
-        let mut string = value.literal.clone();
-        for (i, o) in value.replaces.iter() {
-            let (p1, p2) = string.split_at(i + offset);
-            let s = convany!(o.as_any(), Str).clone();
-            string = format!("{p1}{s}{p2}");
-            offset += s.len()
-        }
-        Ok(string)
     }
 }
 
@@ -229,6 +253,10 @@ impl List {
 }
 
 impl Object for List {
+    fn objtype(&self) -> ObjectType {
+        ObjectType::List
+    }
+
     fn typename(&self) -> &'static str {
         "list"
     }
@@ -260,22 +288,20 @@ impl Display for List {
 pub struct Lambda {
     arg: Rc<dyn Expression>,
     body: Rc<dyn Expression>,
-    env: Weak<RefCell<Environment>>,
+    env: Rc<RefCell<Environment>>,
 }
 
 impl Lambda {
     pub fn new(
         arg: Rc<dyn Expression>,
         body: Rc<dyn Expression>,
-        env: Weak<RefCell<Environment>>,
+        env: Rc<RefCell<Environment>>,
     ) -> Lambda {
         Lambda { arg, body, env }
     }
 
     pub fn call(&self, arg: Rc<dyn Object>, ctx: &ErrorCtx) -> EvalResult {
-        let callenv = Rc::new(RefCell::new(Environment::new(Some(
-            self.env.upgrade().unwrap(),
-        ))));
+        let callenv = Rc::new(RefCell::new(Environment::new(Some(self.env.clone()))));
         if !self.arg.as_any().is::<ArgSetExpr>() {
             // IdentifierExpr
             callenv
@@ -294,8 +320,6 @@ impl Lambda {
                 if let Ok(o) = t {
                     o
                 } else {
-                    drop(t); // to prevent multiple borrow of env (from `t` above)
-                    println!("default {ident}");
                     EvaledOr::expr(&callenv, a.1.clone().unwrap(), ctx.clone())
                 }
             };
@@ -311,6 +335,10 @@ impl Lambda {
 }
 
 impl Object for Lambda {
+    fn objtype(&self) -> ObjectType {
+        ObjectType::Lambda
+    }
+
     fn typename(&self) -> &'static str {
         "lambda"
     }
@@ -380,6 +408,10 @@ impl Attrs {
 }
 
 impl Object for Attrs {
+    fn objtype(&self) -> ObjectType {
+        ObjectType::Attrs
+    }
+
     fn typename(&self) -> &'static str {
         "set"
     }
@@ -391,7 +423,19 @@ impl Object for Attrs {
 
 impl Display for Attrs {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{{ ... }}")
+        write!(f, "{{ ")?;
+        for (k, v) in self.env.borrow().iter() {
+            write!(f, "{k} = {}; ", {
+                if v.expr_is::<AttrsLiteralExpr>() {
+                    "{ ... }".to_string()
+                } else if v.expr_is::<ListLiteralExpr>() {
+                    "[ ... ]".to_string()
+                } else {
+                    v.eval().unwrap().to_string()
+                }
+            })?;
+        }
+        write!(f, "}}")
     }
 }
 

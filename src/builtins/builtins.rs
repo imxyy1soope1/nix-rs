@@ -1,4 +1,3 @@
-use crate::convany;
 use crate::error::EvalError;
 use crate::eval::EvalResult;
 use crate::object::*;
@@ -37,6 +36,10 @@ impl PrimOpApp {
 }
 
 impl Object for PrimOpApp {
+    fn objtype(&self) -> ObjectType {
+        ObjectType::PrimOpApp
+    }
+
     fn typename(&self) -> &'static str {
         "lambda"
     }
@@ -68,6 +71,10 @@ impl PrimOp {
 }
 
 impl Object for PrimOp {
+    fn objtype(&self) -> ObjectType {
+        ObjectType::PrimOp
+    }
+
     fn typename(&self) -> &'static str {
         "lambda"
     }
@@ -95,7 +102,11 @@ pub fn builtin_fns() -> [(&'static str, bool, PrimOp); 12] {
                 } else if let Ok(float) = o.try_into_float() {
                     Rc::new(float.ceil().round())
                 } else {
-                    return Err(EvalError::from(format!("value is a '{}' while a float was expected", o.typename())).into())
+                    return Err(EvalError::from(format!(
+                        "value is a '{}' while a float was expected",
+                        o.typename()
+                    ))
+                    .into());
                 })
             }),
         ),
@@ -109,16 +120,18 @@ pub fn builtin_fns() -> [(&'static str, bool, PrimOp); 12] {
                 } else if let Ok(float) = o.try_into_float() {
                     Rc::new(float.floor().round())
                 } else {
-                    return Err(EvalError::from(format!("value is a '{}' while a float was expected", o.typename())).into())
+                    return Err(EvalError::from(format!(
+                        "value is a '{}' while a float was expected",
+                        o.typename()
+                    ))
+                    .into());
                 })
             }),
         ),
         (
             "typeOf",
             false,
-            PrimOp::new(1, |a| {
-                Ok(Rc::new(a[0].eval()?.typename().to_string()))
-            }),
+            PrimOp::new(1, |a| Ok(Rc::new(a[0].eval()?.typename().to_string()))),
         ),
         (
             "isNull",

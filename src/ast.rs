@@ -1,4 +1,3 @@
-use crate::builtins::{PrimOp, PrimOpApp};
 use crate::convany;
 use crate::error::*;
 use crate::eval::{Environment, EvalResult};
@@ -7,7 +6,7 @@ use crate::token::Token;
 
 use std::any::Any;
 use std::cell::RefCell;
-use std::fmt::{format, Debug, Display};
+use std::fmt::{Debug, Display};
 use std::rc::Rc;
 
 pub trait Expression: Display + Debug {
@@ -41,10 +40,10 @@ impl Expression for PrefixExpr {
         use Token::*;
         match self.token {
             MINUS => {
-                if let Ok(r) = val.try_into_int() {
-                    Ok(Rc::new(-r))
-                } else if let Ok(r) = val.try_into_float() {
-                    Ok(Rc::new(-r))
+                if val.objtype() == ObjectType::Int {
+                    Ok(Rc::new(-val.try_into_int().unwrap()))
+                } else if val.objtype() == ObjectType::Float {
+                    Ok(Rc::new(-val.try_into_float().unwrap()))
                 } else {
                     Err(ctx.unwind(EvalError::from("unsupported operation").into()))
                 }
@@ -110,11 +109,11 @@ impl Expression for InfixExpr {
         use Token::*;
         macro_rules! num {
             ($op:expr) => {
-                if let Ok(l) = left.try_into_int() {
-                    if let Ok(r) = right.try_into_int() {
-                        Ok(Rc::new($op(l, r)))
-                    } else if let Ok(r) = right.try_into_float() {
-                        Ok(Rc::new($op(l as Float, r)))
+                if left.objtype() == ObjectType::Int {
+                    if right.objtype() == ObjectType::Int {
+                        Ok(Rc::new($op(left.try_into_int().unwrap(), right.try_into_int().unwrap())))
+                    } else if right.objtype() == ObjectType::Float {
+                        Ok(Rc::new($op(left.try_into_int().unwrap() as Float, right.try_into_float().unwrap())))
                     } else {
                         Err(ctx.unwind(EvalError::from("unsupported operation").into()))
                     }
@@ -141,7 +140,7 @@ impl Expression for InfixExpr {
                     Err(ctx.unwind(EvalError::from("unsupported operation").into()))
                 }
             };
-            ($into:tt, $op:expr, $err:tt) => {
+            ($into:tt, $op:expr, $_:tt) => {
                 if let Ok(l) = left.$into() {
                     if let Ok(r) = right.$into() {
                         Ok(Rc::new($op(l, r)?))
@@ -169,10 +168,8 @@ impl Expression for InfixExpr {
             RANGLE => Ok(Rc::new(objlt(right.clone(), left.clone(), &ctx)?)),
             LEQ => Ok(Rc::new(!objlt(right.clone(), left.clone(), &ctx)?)),
             GEQ => Ok(Rc::new(!objlt(left.clone(), right.clone(), &ctx)?)),
-            _ => Err(ctx.unwind(EvalError::from(format!(
-                "unsupported operation: {}",
-                self.token
-            )).into())),
+            _ => Err(ctx
+                .unwind(EvalError::from(format!("unsupported operation: {}", self.token)).into())),
         }
     }
 }
@@ -336,8 +333,16 @@ impl Expression for InterpolateStringExpr {
 
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
         let ctx = ctx.with(EvalError::from("while evaluating string literal").into());
-        let s: Str = self.try_into()?;
-        Ok(Rc::new(s))
+        let mut offset = 0;
+        let mut string = self.literal.clone();
+        for (i, o) in self.replaces.iter() {
+            let (p1, p2) = string.split_at(i + offset);
+            let o = o.eval(env, &ctx)?;
+            let s = o.try_into_string()?;
+            string = format!("{p1}{s}{p2}");
+            offset += s.len()
+        }
+        Ok(Rc::new(string))
     }
 }
 
@@ -368,7 +373,7 @@ impl Expression for FunctionLiteralExpr {
         Ok(Rc::new(Lambda::new(
             self.arg.clone(),
             self.body.clone(),
-            Rc::downgrade(env)
+            env.clone(),
         )))
     }
 }
@@ -406,7 +411,11 @@ impl Expression for FunctionCallExpr {
         } else if let Ok(func) = e.try_into_lambda() {
             func.call(self.arg.eval(env, &ctx)?, &ctx)
         } else {
-            Err(EvalError::from(format!("attempt to call something which is not a function but a '{}'", e.typename())).into())
+            Err(EvalError::from(format!(
+                "attempt to call something which is not a function but a '{}'",
+                e.typename()
+            ))
+            .into())
         }
     }
 }
@@ -449,7 +458,13 @@ impl Expression for IfExpr {
                 self.alter.eval(env, &ctx)
             }
         } else {
-            Err(ctx.unwind(EvalError::from(format!("value is a '{}' while a bool was expected", cond.typename())).into()))
+            Err(ctx.unwind(
+                EvalError::from(format!(
+                    "value is a '{}' while a bool was expected",
+                    cond.typename()
+                ))
+                .into(),
+            ))
         }
     }
 }
@@ -494,7 +509,11 @@ impl BindingExpr {
             )
         } else if a.is::<InterpolateStringExpr>() {
             (
-                Str::try_from(convany!(a, InterpolateStringExpr))?,
+                convany!(a, InterpolateStringExpr)
+                    .eval(env, &ctx)?
+                    .try_into_string()
+                    .unwrap()
+                    .clone(),
                 EvaledOr::expr(env, self.value.clone(), ctx),
             )
         } else if a.is::<InfixExpr>() && convany!(a, InfixExpr).token == Token::DOT {
@@ -510,9 +529,9 @@ impl BindingExpr {
             )
             .pair(env, &ctx)?
         } else {
-            return Err(ctx.unwind(EvalError::from(
-                "invalid binding: ".to_owned() + &self.to_string(),
-            ).into()));
+            return Err(ctx.unwind(
+                EvalError::from("invalid binding: ".to_owned() + &self.to_string()).into(),
+            ));
         })
     }
 }
@@ -555,17 +574,19 @@ impl Expression for AttrsLiteralExpr {
         for b in self.bindings.iter() {
             if b.as_any().is::<BindingExpr>() {
                 let (name, value) = convany!(b.as_any(), BindingExpr).pair(
-                    if self.rec {
-                        &newenv
-                    } else {
-                        env
-                    },
+                    if self.rec { &newenv } else { env },
                     &ctx.with(EvalError::from("while evaluating attrs expr").into()),
                 )?;
                 let ret = newenv.borrow_mut().set(name.clone(), value.clone());
                 if ret.is_err() {
-                    drop(ret);
-                    newenv.borrow().get(&name).unwrap().eval()?.try_into_attrs()?.merge(value.eval()?.try_into_attrs()?);
+                    newenv
+                        .borrow()
+                        .get(&name)
+                        .unwrap()
+                        .eval()?
+                        .try_into_attrs()?
+                        .merge(value.eval()?.try_into_attrs()?)
+                        .unwrap();
                 }
             } else {
                 // InheritExpr
@@ -795,16 +816,17 @@ impl Expression for AssertExpr {
             if assertion {
                 self.expr.eval(env, &ctx)
             } else {
-                Err(ctx.unwind(EvalError::from(format!(
-                    "assertion {} failed",
-                    self.assertion
-                )).into()))
+                Err(ctx
+                    .unwind(EvalError::from(format!("assertion {} failed", self.assertion)).into()))
             }
         } else {
-            Err(ctx.unwind(EvalError::from(format!(
-            "value is a '{}' while a bool is expected",
-                self.assertion
-            )).into()))
+            Err(ctx.unwind(
+                EvalError::from(format!(
+                    "value is a '{}' while a bool is expected",
+                    self.assertion
+                ))
+                .into(),
+            ))
         }
     }
 }
@@ -851,7 +873,9 @@ impl InheritExpr {
                     f.eval(
                         env,
                         &ctx.with(EvalError::from("while evaluating inherit expr").into()),
-                    )?.try_into_string()?.clone()
+                    )?
+                    .try_into_string()?
+                    .clone()
                 })
                 .unwrap()
                 .eval()?
