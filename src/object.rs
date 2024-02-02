@@ -2,7 +2,7 @@ use crate::{
     ast::{AttrsLiteralExpr, ListLiteralExpr},
     eval::EvalResult,
 };
-use std::{any::Any, cell::RefCell, fmt::Debug, fmt::Display, rc::{Rc, Weak}};
+use std::{any::Any, cell::RefCell, fmt::Debug, fmt::Display, rc::{Rc}};
 
 use crate::{
     ast::{ArgSetExpr, Expression, IdentifierExpr},
