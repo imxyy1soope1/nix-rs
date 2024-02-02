@@ -12,6 +12,9 @@ fn main() -> Result<()> {
         let readline = rl.readline("nix-rs-eval> ");
         match readline {
             Ok(line) => {
+                if line.trim().is_empty() {
+                    continue
+                }
                 match eval_with_env(env.clone(), line) {
                     Ok(o) => println!("{}", o),
                     Err(e) => eprintln!("{}", e),

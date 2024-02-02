@@ -1,3 +1,5 @@
+#![feature(const_type_id)]
+
 mod ast;
 mod builtins;
 mod error;
@@ -11,6 +13,7 @@ use eval::{Environment, Eval, EvalResult};
 use std::{cell::RefCell, rc::Rc};
 
 pub use ast::Expression;
+pub use ast::BindingExpr;
 use builtins::new_builtins_env;
 pub use eval::Env;
 pub use lexer::Lexer;

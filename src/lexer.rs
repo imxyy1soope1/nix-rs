@@ -153,8 +153,8 @@ fn escape_string(s: String) -> (String, Vec<(usize, Vec<Token>)>) {
 
 impl Lexer {
     pub fn build(s: &str) -> Lexer {
-        assert!(!s.is_empty(), "s must not be empty!");
-        let input = s.to_string();
+        assert!(!s.trim().is_empty(), "s must not be empty!");
+        let input = s.trim().to_string();
         let mut l = Lexer {
             input,
             chars: s.chars().collect(),
