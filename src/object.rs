@@ -2,7 +2,7 @@ use crate::{
     ast::{AttrsLiteralExpr, ListLiteralExpr},
     eval::EvalResult,
 };
-use std::{any::Any, cell::RefCell, fmt::Debug, fmt::Display, rc::{Rc}};
+use std::{any::Any, cell::RefCell, fmt::Debug, fmt::Display, rc::Rc};
 
 use crate::{
     ast::{ArgSetExpr, Expression, IdentifierExpr},
@@ -43,7 +43,7 @@ impl _EvaledOr {
     }
     fn eval(&mut self) -> EvalResult {
         if let Expr(env, e, ctx) = &*self {
-            self.set(Evaled(e.eval(env.clone(), ctx.clone())?))
+            self.set(Evaled(e.eval(&env, &ctx)?))
         }
         self.get()
     }
@@ -151,7 +151,7 @@ impl Object for Str {
     }
 
     fn objclone(&self) -> Box<dyn Object> {
-        Box::new(Clone::clone(self))
+        Box::new(self.clone())
     }
 }
 
@@ -163,7 +163,7 @@ impl InterpolateStr {
         let mut value = value;
         for (i, o) in replaces.into_iter() {
             let (p1, p2) = value.split_at(i + offset);
-            let s = Clone::clone(convany!(o.as_any(), Str));
+            let s = convany!(o.as_any(), Str).clone();
             value = format!("{p1}{s}{p2}");
             offset += s.len()
         }
@@ -182,7 +182,7 @@ impl List {
     }
 
     pub fn concat(&self, other: &List) -> List {
-        let mut new = Clone::clone(self);
+        let mut new = self.clone();
         new.value
             .extend(other.value.clone());
         new
@@ -195,7 +195,7 @@ impl Object for List {
     }
 
     fn objclone(&self) -> Box<dyn Object> {
-        Box::new(Clone::clone(self))
+        Box::new(self.clone())
     }
 }
 
@@ -233,21 +233,21 @@ impl Lambda {
         Lambda { arg, body, env }
     }
 
-    pub fn call(&self, arg: Box<dyn Object>, ctx: ErrorCtx) -> EvalResult {
+    pub fn call(&self, arg: Box<dyn Object>, ctx: &ErrorCtx) -> EvalResult {
         let callenv = Rc::new(RefCell::new(Environment::new(Some(Rc::downgrade(&self.env)))));
         if !self.arg.as_any().is::<ArgSetExpr>() {
             // IdentifierExpr
             callenv
                 .borrow_mut()
                 .set(
-                    Clone::clone(&convany!(self.arg.as_any(), IdentifierExpr).ident),
+                    convany!(self.arg.as_any(), IdentifierExpr).ident.clone(),
                     EvaledOr::evaled(arg),
                 )
                 .unwrap();
-            return self.body.eval(callenv, ctx);
+            return self.body.eval(&callenv, ctx);
         }
         for a in convany!(self.arg.as_any(), ArgSetExpr).args.iter() {
-            let ident = Clone::clone(&a.0);
+            let ident = a.0.clone();
             let e = {
                 let t = convany!(arg.as_any(), Attrs).env.borrow().get(&ident);
                 if let Ok(o) = t {
@@ -265,7 +265,7 @@ impl Lambda {
             .alias
             .clone()
             .map(|a| callenv.borrow_mut().set(a, EvaledOr::evaled(arg.objclone())));
-        self.body.eval(callenv, ctx)
+        self.body.eval(&callenv, ctx)
     }
 }
 
@@ -275,7 +275,7 @@ impl Object for Lambda {
     }
 
     fn objclone(&self) -> Box<dyn Object> {
-        Box::new(Clone::clone(self))
+        Box::new(self.clone())
     }
 }
 
@@ -298,7 +298,7 @@ impl Attrs {
     pub fn merge(&self, other: Box<dyn Object>) -> Result<(), Rc<dyn NixRsError>> {
         let other = convany!(other.as_any(), Attrs);
         for (k, v) in other.env.borrow().iter() {
-            let ret = self.env.borrow_mut().set(Clone::clone(k), v.clone());
+            let ret = self.env.borrow_mut().set(k.clone(), v.clone());
             if ret.is_err() {
                 drop(ret);
                 convany!(self.env.borrow().get(k).unwrap().eval()?.as_any(), Attrs)
@@ -309,10 +309,10 @@ impl Attrs {
     }
 
     pub fn update(&self, other: &Attrs) -> EvalResult {
-        let new = Clone::clone(self);
+        let new = self.clone();
         let other = convany!(other.as_any(), Attrs);
         for (k, v) in other.env.borrow().iter() {
-            let ret = new.env.borrow_mut().set(Clone::clone(k), v.clone());
+            let ret = new.env.borrow_mut().set(k.clone(), v.clone());
             if ret.is_err() {
                 drop(ret);
                 let o = new.env.borrow().get(k).unwrap();
@@ -322,7 +322,7 @@ impl Attrs {
                 if o.is::<Attrs>() && v.as_any().is::<Attrs>() {
                     convany!(o, Attrs).update(v.as_any().downcast_ref::<Attrs>().unwrap())?;
                 } else {
-                    new.env.borrow_mut().over(Clone::clone(k), EvaledOr::evaled(v));
+                    new.env.borrow_mut().over(k.clone(), EvaledOr::evaled(v));
                 }
             }
         }
@@ -336,7 +336,7 @@ impl Object for Attrs {
     }
 
     fn objclone(&self) -> Box<dyn Object> {
-        Box::new(Clone::clone(self))
+        Box::new(self.clone())
     }
 }
 
