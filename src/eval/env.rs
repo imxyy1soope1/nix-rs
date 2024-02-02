@@ -49,9 +49,7 @@ impl Environment {
         } else if let Some(father) = &self.father {
             father.borrow().get(sym)
         } else {
-            Err(EnvironmentError::new(format!(
-                "undefined variable '{sym}'"
-            )))
+            Err(EnvironmentError::new(format!("undefined variable '{sym}'")))
         }
     }
 

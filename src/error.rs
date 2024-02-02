@@ -11,18 +11,6 @@ pub struct EvalError {
     msg: String,
 }
 
-impl EvalError {
-    pub fn new(msg: &str) -> Rc<dyn NixRsError> {
-        Rc::new(EvalError {
-            msg: msg.to_string(),
-        })
-    }
-
-    pub fn from_string(msg: String) -> Rc<dyn NixRsError> {
-        Rc::new(EvalError { msg })
-    }
-}
-
 impl NixRsError for EvalError {
     // fn pos
 }
@@ -32,6 +20,26 @@ impl Error for EvalError {}
 impl Display for EvalError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.msg)
+    }
+}
+
+impl From<&str> for EvalError {
+    fn from(value: &str) -> Self {
+        EvalError {
+            msg: value.to_string(),
+        }
+    }
+}
+
+impl From<String> for EvalError {
+    fn from(value: String) -> Self {
+        EvalError { msg: value }
+    }
+}
+
+impl From<EvalError> for Rc<dyn NixRsError> {
+    fn from(value: EvalError) -> Self {
+        Rc::new(value)
     }
 }
 
@@ -81,6 +89,6 @@ impl ErrorCtx {
             e.push('\n');
             this = this.prev.clone().unwrap();
         }
-        EvalError::from_string(e)
+        EvalError::from(e).into()
     }
 }

@@ -1,23 +1,24 @@
 use crate::convany;
+use crate::error::EvalError;
 use crate::eval::EvalResult;
 use crate::object::*;
 use std::fmt::Display;
 use std::rc::Rc;
 
 #[derive(Debug)]
-pub struct BuiltinFunction {
+pub struct PrimOp {
     argscount: u8,
     func: fn(Vec<EvaledOr>) -> EvalResult,
 }
 
 #[derive(Debug)]
-pub struct BuiltinFunctionApp {
+pub struct PrimOpApp {
     args: Vec<EvaledOr>,
     argsleft: u8,
     func: fn(Vec<EvaledOr>) -> EvalResult,
 }
 
-impl BuiltinFunctionApp {
+impl PrimOpApp {
     pub fn call(&self, arg: EvaledOr) -> EvalResult {
         let mut args = self.args.clone();
         args.push(arg);
@@ -26,7 +27,7 @@ impl BuiltinFunctionApp {
             let f = self.func;
             f(args)
         } else {
-            Ok(Rc::new(BuiltinFunctionApp {
+            Ok(Rc::new(PrimOpApp {
                 args,
                 argsleft: a,
                 func: self.func,
@@ -35,25 +36,29 @@ impl BuiltinFunctionApp {
     }
 }
 
-impl Object for BuiltinFunctionApp {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
+impl Object for PrimOpApp {
+    fn typename(&self) -> &'static str {
+        "lambda"
+    }
+
+    fn try_into_primop_app(&self) -> Result<&PrimOpApp, Rc<dyn crate::error::NixRsError>> {
+        Ok(self)
     }
 }
 
-impl Display for BuiltinFunctionApp {
+impl Display for PrimOpApp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "«primop-app»")
     }
 }
 
-impl BuiltinFunction {
-    pub fn new(argscount: u8, func: fn(Vec<EvaledOr>) -> EvalResult) -> BuiltinFunction {
-        BuiltinFunction { argscount, func }
+impl PrimOp {
+    pub fn new(argscount: u8, func: fn(Vec<EvaledOr>) -> EvalResult) -> PrimOp {
+        PrimOp { argscount, func }
     }
 
     pub fn call(&self, arg: EvaledOr) -> EvalResult {
-        let b = BuiltinFunctionApp {
+        let b = PrimOpApp {
             args: Vec::new(),
             argsleft: self.argscount,
             func: self.func,
@@ -62,113 +67,98 @@ impl BuiltinFunction {
     }
 }
 
-impl Object for BuiltinFunction {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
+impl Object for PrimOp {
+    fn typename(&self) -> &'static str {
+        "lambda"
+    }
+
+    fn try_into_primop(&self) -> Result<&PrimOp, Rc<dyn crate::error::NixRsError>> {
+        Ok(self)
     }
 }
 
-impl Display for BuiltinFunction {
+impl Display for PrimOp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "«primop»")
     }
 }
 
-pub fn builtin_fns() -> [(&'static str, bool, BuiltinFunction); 12] {
+pub fn builtin_fns() -> [(&'static str, bool, PrimOp); 12] {
     [
         (
             "ceil",
             false,
-            BuiltinFunction::new(1, |a| {
-                Ok(if a[0].eval()?.as_any().is::<Float>() {
-                    Rc::new(convany!(a[0].eval()?.as_any(), Float).ceil())
+            PrimOp::new(1, |a| {
+                let o = a[0].eval()?;
+                Ok(if let Ok(int) = o.try_into_int() {
+                    Rc::new(int)
+                } else if let Ok(float) = o.try_into_float() {
+                    Rc::new(float.ceil().round())
                 } else {
-                    Rc::new(*convany!(a[0].eval()?.as_any(), Int))
+                    return Err(EvalError::from(format!("value is a '{}' while a float was expected", o.typename())).into())
                 })
             }),
         ),
         (
             "floor",
             false,
-            BuiltinFunction::new(1, |a| {
-                Ok(if a[0].eval()?.as_any().is::<Float>() {
-                    Rc::new(convany!(a[0].eval()?.as_any(), Float).floor())
+            PrimOp::new(1, |a| {
+                let o = a[0].eval()?;
+                Ok(if let Ok(int) = o.try_into_int() {
+                    Rc::new(int)
+                } else if let Ok(float) = o.try_into_float() {
+                    Rc::new(float.floor().round())
                 } else {
-                    Rc::new(*convany!(a[0].eval()?.as_any(), Int))
+                    return Err(EvalError::from(format!("value is a '{}' while a float was expected", o.typename())).into())
                 })
             }),
         ),
         (
             "typeOf",
             false,
-            BuiltinFunction::new(1, |a| {
-                let a = a[0].eval()?;
-                let a = a.as_any();
-                macro_rules! is {
-                    ($t:tt) => {
-                        a.is::<$t>()
-                    };
-                }
-                Ok(if is!(Int) {
-                    Rc::new("int".to_string())
-                } else if is!(Float) {
-                    Rc::new("float".to_string())
-                } else if is!(Str) {
-                    Rc::new("string".to_string())
-                } else if is!(Bool) {
-                    Rc::new("bool".to_string())
-                } else if is!(Null) {
-                    Rc::new("null".to_string())
-                } else if is!(Attrs) {
-                    Rc::new("set".to_string())
-                } else if is!(List) {
-                    Rc::new("list".to_string())
-                } else if is!(Lambda) {
-                    Rc::new("lambda".to_string())
-                } else {
-                    unreachable!()
-                })
+            PrimOp::new(1, |a| {
+                Ok(Rc::new(a[0].eval()?.typename().to_string()))
             }),
         ),
         (
             "isNull",
             false,
-            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Null>()))),
+            PrimOp::new(1, |a| Ok(Rc::new(a[0].eval()?.is_null()))),
         ),
         (
             "isFunction",
             false,
-            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Lambda>()))),
+            PrimOp::new(1, |a| Ok(Rc::new(a[0].eval()?.typename() == "lambda"))),
         ),
         (
             "isInt",
             false,
-            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Int>()))),
+            PrimOp::new(1, |a| Ok(Rc::new(a[0].eval()?.try_into_int().is_ok()))),
         ),
         (
             "isFloat",
             false,
-            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Float>()))),
+            PrimOp::new(1, |a| Ok(Rc::new(a[0].eval()?.try_into_float().is_ok()))),
         ),
         (
             "isString",
             false,
-            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Str>()))),
+            PrimOp::new(1, |a| Ok(Rc::new(a[0].eval()?.try_into_string().is_ok()))),
         ),
         (
             "isBool",
             false,
-            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Bool>()))),
+            PrimOp::new(1, |a| Ok(Rc::new(a[0].eval()?.try_into_bool().is_ok()))),
         ),
         (
             "isPath",
             false,
-            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Path>())))
+            PrimOp::new(1, |a| Ok(Rc::new(a[0].eval()?.try_into_path().is_ok()))),
         ),
         (
             "seq",
             false,
-            BuiltinFunction::new(2, |a| {
+            PrimOp::new(2, |a| {
                 a[0].eval()?;
                 a[1].eval()
             }),
@@ -176,7 +166,7 @@ pub fn builtin_fns() -> [(&'static str, bool, BuiltinFunction); 12] {
         (
             "deepSeq",
             false,
-            BuiltinFunction::new(2, |a| {
+            PrimOp::new(2, |a| {
                 a[0].eval()?;
                 a[1].eval()
             }),

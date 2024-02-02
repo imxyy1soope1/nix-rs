@@ -26,7 +26,7 @@ pub fn new_env() -> Env {
     Rc::new(RefCell::new(Environment::new(Some(new_builtins_env()))))
 }
 
-pub fn eval_with_env(e: Env, s: String) -> EvalResult {
+pub fn eval_with_env(e: &Env, s: String) -> EvalResult {
     Eval::with_env(e, Parser::new(Box::new(Lexer::build(&s))).parse()).eval()
 }
 
