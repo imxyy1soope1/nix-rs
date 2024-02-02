@@ -1,5 +1,3 @@
-#![feature(const_type_id)]
-
 mod ast;
 mod builtins;
 mod error;
@@ -25,8 +23,9 @@ pub fn eval(s: String) -> EvalResult {
     Eval::new(Parser::new(Box::new(Lexer::build(&s))).parse()).eval()
 }
 
-pub fn new_env() -> Env {
-    Rc::new(RefCell::new(Environment::new(Some(new_builtins_env()))))
+pub fn new_env() -> (Env, Env) {
+    let builtins_env = new_builtins_env();
+    (Rc::new(RefCell::new(Environment::new(Some(Rc::downgrade(&builtins_env))))), builtins_env)
 }
 
 pub fn eval_with_env(e: Env, s: String) -> EvalResult {

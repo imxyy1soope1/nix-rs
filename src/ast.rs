@@ -42,16 +42,16 @@ impl Expression for PrefixExpr {
         match self.token {
             MINUS => {
                 if a.is::<Int>() {
-                    Ok(Rc::new(-convany!(a, Int)))
+                    Ok(Box::new(-convany!(a, Int)))
                 } else if a.is::<Float>() {
-                    Ok(Rc::new(-convany!(a, Float)))
+                    Ok(Box::new(-convany!(a, Float)))
                 } else {
                     Err(ctx.unwind(EvalError::new("unsupported operation")))
                 }
             }
             BANG => {
                 if a.is::<Bool>() {
-                    Ok(Rc::new(!a.downcast_ref::<bool>().unwrap()))
+                    Ok(Box::new(!a.downcast_ref::<bool>().unwrap()))
                 } else {
                     Err(ctx.unwind(EvalError::new("unsupported operation")))
                 }
@@ -91,8 +91,8 @@ impl Expression for InfixExpr {
         if le.as_any().is::<Attrs>() && self.token == Token::DOT {
             let ret = convany!(le.as_any(), Attrs)
                 .env
-                .borrow_mut()
-                .get(&if self.right.as_any().is::<IdentifierExpr>() {
+                .borrow()
+                .get_local(&if self.right.as_any().is::<IdentifierExpr>() {
                     convany!(self.right.as_any(), IdentifierExpr).ident.clone()
                 } else if self.right.as_any().is::<StringLiteralExpr>()
                     || self.right.as_any().is::<InterpolateStringExpr>()
@@ -113,9 +113,9 @@ impl Expression for InfixExpr {
             ($op:expr) => {
                 if la.is::<Int>() {
                     if ra.is::<Int>() {
-                        Ok(Rc::new($op(convany!(la, Int), convany!(ra, Int))))
+                        Ok(Box::new($op(convany!(la, Int), convany!(ra, Int))))
                     } else if ra.is::<Float>() {
-                        Ok(Rc::new($op(
+                        Ok(Box::new($op(
                             *convany!(la, Int) as Float,
                             convany!(ra, Float),
                         )))
@@ -124,12 +124,12 @@ impl Expression for InfixExpr {
                     }
                 } else if la.is::<Float>() {
                     if ra.is::<Int>() {
-                        Ok(Rc::new($op(
+                        Ok(Box::new($op(
                             convany!(la, Float),
                             *convany!(ra, Int) as Float,
                         )))
                     } else if ra.is::<Float>() {
-                        Ok(Rc::new($op(convany!(la, Float), convany!(ra, Float))))
+                        Ok(Box::new($op(convany!(la, Float), convany!(ra, Float))))
                     } else {
                         Err(ctx.unwind(EvalError::new("unsupported operation")))
                     }
@@ -141,7 +141,7 @@ impl Expression for InfixExpr {
         macro_rules! infix {
             ($t1:tt, $t2:tt, $op:expr) => {
                 if la.is::<$t1>() && ra.is::<$t2>() {
-                    Ok(Rc::from($op(convany!(la, $t1), convany!(ra, $t2))))
+                    Ok(Box::new($op(convany!(la, $t1), convany!(ra, $t2))))
                 } else {
                     Err(ctx.unwind(EvalError::new("unsupported type")))
                 }
@@ -157,18 +157,18 @@ impl Expression for InfixExpr {
             IMPL => infix!(Bool, Bool, |a: &Bool, b: &Bool| !*a || *b),
             UPDATE => {
                 if la.is::<Attrs>() && ra.is::<Attrs>() {
-                    Ok(convany!(la, Attrs).update(re.clone())?)
+                    Ok(convany!(la, Attrs).update(convany!(ra, Attrs))?)
                 } else {
                     Err(ctx.unwind(EvalError::new("unsupported operation")))
                 }
             }
-            CONCAT => infix!(List, List, |a: &List, _| a.concat(re.clone())),
-            EQ => Ok(Rc::new(objeq(le.clone(), re.clone(), ctx)?)),
-            NEQ => Ok(Rc::new(!(objeq(le.clone(), re.clone(), ctx)?))),
-            LANGLE => Ok(Rc::new(objlt(le.clone(), re.clone(), ctx)?)),
-            RANGLE => Ok(Rc::new(objlt(re.clone(), le.clone(), ctx)?)),
-            LEQ => Ok(Rc::new(!objlt(re.clone(), le.clone(), ctx)?)),
-            GEQ => Ok(Rc::new(!objlt(le.clone(), re.clone(), ctx)?)),
+            CONCAT => infix!(List, List, |a: &List, b| a.concat(b)),
+            EQ => Ok(Box::new(objeq(le, re, ctx)?)),
+            NEQ => Ok(Box::new(!(objeq(le, re, ctx)?))),
+            LANGLE => Ok(Box::new(objlt(le, re, ctx)?)),
+            RANGLE => Ok(Box::new(objlt(re, le, ctx)?)),
+            LEQ => Ok(Box::new(!objlt(re, le, ctx)?)),
+            GEQ => Ok(Box::new(!objlt(le, re, ctx)?)),
             _ => Err(ctx.unwind(EvalError::from_string(format!(
                 "unsupported operation: {}",
                 self.token
@@ -229,7 +229,7 @@ impl Expression for IntLiteralExpr {
     }
 
     fn eval(&self, _env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
-        Ok(Rc::new(self.literal))
+        Ok(Box::new(self.literal))
     }
 }
 
@@ -258,7 +258,7 @@ impl Expression for FloatLiteralExpr {
     }
 
     fn eval(&self, _env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
-        Ok(Rc::new(self.literal))
+        Ok(Box::new(self.literal))
     }
 }
 
@@ -304,7 +304,7 @@ impl Expression for StringLiteralExpr {
     }
 
     fn eval(&self, _env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
-        Ok(Rc::new(self.literal.clone()))
+        Ok(Box::new(self.literal.clone()))
     }
 }
 
@@ -336,7 +336,7 @@ impl Expression for InterpolateStringExpr {
 
     fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
         let ctx = ctx.with(EvalError::new("while evaluating string literal"));
-        Ok(Rc::new(InterpolateStr::new(self.literal.clone(), {
+        Ok(Box::new(InterpolateStr::new(self.literal.clone(), {
             let mut t = Vec::new();
             for (idx, r) in self
                 .replaces
@@ -374,10 +374,10 @@ impl Expression for FunctionLiteralExpr {
     }
 
     fn eval(&self, env: Rc<RefCell<Environment>>, _ctx: ErrorCtx) -> EvalResult {
-        Ok(Rc::new(Lambda::new(
+        Ok(Box::new(Lambda::new(
             self.arg.clone(),
             self.body.clone(),
-            env.clone(),
+            env.clone()
         )))
     }
 }
@@ -566,7 +566,7 @@ impl Expression for AttrsLiteralExpr {
     }
 
     fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
-        let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
+        let newenv = Rc::new(RefCell::new(Environment::new(Some(Rc::downgrade(&env)))));
         for b in self.bindings.iter() {
             if b.as_any().is::<BindingExpr>() {
                 let (name, value) = convany!(b.as_any(), BindingExpr).pair(
@@ -594,7 +594,7 @@ impl Expression for AttrsLiteralExpr {
                 }
             }
         }
-        Ok(Rc::new(Attrs::new(newenv)))
+        Ok(Box::new(Attrs::new(newenv)))
     }
 }
 
@@ -686,7 +686,7 @@ impl Expression for ListLiteralExpr {
 
     fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
         let ctx = ctx.with(EvalError::new("while evaluating list"));
-        Ok(Rc::new(List::new(
+        Ok(Box::new(List::new(
             self.items
                 .iter()
                 .map(|i| EvaledOr::expr(env.clone(), i.clone(), ctx.clone()))
@@ -724,15 +724,14 @@ impl Expression for LetExpr {
 
     fn eval(&self, env: Rc<RefCell<Environment>>, ctx: ErrorCtx) -> EvalResult {
         let ctx = ctx.with(EvalError::new("while evaluating let expr"));
-        let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
+        let newenv = Rc::new(RefCell::new(Environment::new(Some(Rc::downgrade(&env)))));
         for b in self.bindings.iter() {
             let b = b.as_any().downcast_ref::<BindingExpr>().unwrap();
-            let env = newenv.clone();
             newenv
                 .borrow_mut()
                 .set(
                     convany!(b.name.as_any(), IdentifierExpr).ident.clone(),
-                    EvaledOr::expr(env, b.value.clone(), ctx.clone()),
+                    EvaledOr::expr(newenv.clone(), b.value.clone(), ctx.clone()),
                 )
                 .unwrap();
         }
@@ -773,7 +772,7 @@ impl Expression for WithExpr {
             ctx.with(EvalError::new("while evaluating with expr")),
         )?;
         let newenv = convany!(e.as_any(), Attrs).env.clone();
-        newenv.borrow_mut().father = Some(env);
+        newenv.borrow_mut().father = Some(Rc::downgrade(&env));
         self.expr.eval(
             newenv,
             ctx.with(EvalError::new("while evaluating with expr")),

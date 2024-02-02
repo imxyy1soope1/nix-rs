@@ -6,7 +6,7 @@ use rustyline::error::ReadlineError;
 use rustyline::{Editor, Result, history::MemHistory};
 
 fn main() -> Result<()> {
-    let env = new_env();
+    let (env, _builtins_env) = new_env();
     let mut rl = Editor::<(), MemHistory>::with_history(Config::default(), MemHistory::new()).unwrap();
     loop {
         let readline = rl.readline("nix-rs-eval> ");

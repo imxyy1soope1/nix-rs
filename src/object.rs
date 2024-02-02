@@ -2,7 +2,7 @@ use crate::{
     ast::{AttrsLiteralExpr, ListLiteralExpr},
     eval::EvalResult,
 };
-use std::{any::Any, cell::RefCell, fmt::Debug, fmt::Display, rc::Rc};
+use std::{any::Any, cell::RefCell, fmt::Debug, fmt::Display, rc::{Rc, Weak}};
 
 use crate::{
     ast::{ArgSetExpr, Expression, IdentifierExpr},
@@ -11,11 +11,21 @@ use crate::{
     eval::Environment,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum _EvaledOr {
     Expr(Rc<RefCell<Environment>>, Rc<dyn Expression>, ErrorCtx),
-    Evaled(Rc<dyn Object>),
+    Evaled(Box<dyn Object>),
     Error(Rc<dyn NixRsError>),
+}
+
+impl Clone for _EvaledOr {
+    fn clone(&self) -> Self {
+        match self {
+            Expr(env, expr, ctx) => _EvaledOr::Expr(env.clone(), expr.clone(), ctx.clone()),
+            Evaled(obj) => _EvaledOr::Evaled(obj.as_ref().objclone()),
+            Error(err) => _EvaledOr::Error(err.clone())
+        }
+    }
 }
 
 pub use _EvaledOr::*;
@@ -26,7 +36,7 @@ impl _EvaledOr {
     }
     fn get(&self) -> EvalResult {
         match self {
-            Evaled(r) => Ok(r.clone()),
+            Evaled(r) => Ok(r.as_ref().objclone()),
             Error(e) => Err(e.clone()),
             _ => unreachable!(),
         }
@@ -45,7 +55,7 @@ pub struct EvaledOr {
 }
 
 impl EvaledOr {
-    pub fn evaled(r: Rc<dyn Object>) -> EvaledOr {
+    pub fn evaled(r: Box<dyn Object>) -> EvaledOr {
         EvaledOr {
             val: RefCell::new(_EvaledOr::Evaled(r)),
         }
@@ -75,6 +85,7 @@ impl EvaledOr {
 
 pub trait Object: Display + Debug {
     fn as_any(&self) -> &dyn Any;
+    fn objclone(&self) -> Box<dyn Object>;
 }
 
 pub type Int = i64;
@@ -82,6 +93,10 @@ pub type Int = i64;
 impl Object for Int {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn objclone(&self) -> Box<dyn Object> {
+        Box::new(*self)
     }
 }
 
@@ -91,6 +106,10 @@ impl Object for Float {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn objclone(&self) -> Box<dyn Object> {
+        Box::new(*self)
+    }
 }
 
 pub type Bool = bool;
@@ -98,6 +117,10 @@ pub type Bool = bool;
 impl Object for bool {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn objclone(&self) -> Box<dyn Object> {
+        Box::new(*self)
     }
 }
 
@@ -107,6 +130,10 @@ pub struct Null {}
 impl Object for Null {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn objclone(&self) -> Box<dyn Object> {
+        Box::new(Null {})
     }
 }
 
@@ -122,17 +149,21 @@ impl Object for Str {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn objclone(&self) -> Box<dyn Object> {
+        Box::new(Clone::clone(self))
+    }
 }
 
 pub struct InterpolateStr {}
 
 impl InterpolateStr {
-    pub fn new(value: String, replaces: Vec<(usize, Rc<dyn Object>)>) -> Str {
+    pub fn new(value: String, replaces: Vec<(usize, Box<dyn Object>)>) -> Str {
         let mut offset = 0;
         let mut value = value;
         for (i, o) in replaces.into_iter() {
             let (p1, p2) = value.split_at(i + offset);
-            let s = convany!(o.as_any(), Str).clone();
+            let s = Clone::clone(convany!(o.as_any(), Str));
             value = format!("{p1}{s}{p2}");
             offset += s.len()
         }
@@ -150,10 +181,10 @@ impl List {
         List { value }
     }
 
-    pub fn concat(&self, other: Rc<dyn Object>) -> List {
-        let mut new = self.clone();
+    pub fn concat(&self, other: &List) -> List {
+        let mut new = Clone::clone(self);
         new.value
-            .extend(convany!(other.as_any(), List).value.clone());
+            .extend(other.value.clone());
         new
     }
 }
@@ -161,6 +192,10 @@ impl List {
 impl Object for List {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn objclone(&self) -> Box<dyn Object> {
+        Box::new(Clone::clone(self))
     }
 }
 
@@ -182,7 +217,7 @@ impl Display for List {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Lambda {
     arg: Rc<dyn Expression>,
     body: Rc<dyn Expression>,
@@ -198,21 +233,21 @@ impl Lambda {
         Lambda { arg, body, env }
     }
 
-    pub fn call(&self, arg: Rc<dyn Object>, ctx: ErrorCtx) -> EvalResult {
-        let callenv = Rc::new(RefCell::new(Environment::new(Some(self.env.clone()))));
+    pub fn call(&self, arg: Box<dyn Object>, ctx: ErrorCtx) -> EvalResult {
+        let callenv = Rc::new(RefCell::new(Environment::new(Some(Rc::downgrade(&self.env)))));
         if !self.arg.as_any().is::<ArgSetExpr>() {
             // IdentifierExpr
             callenv
                 .borrow_mut()
                 .set(
-                    convany!(self.arg.as_any(), IdentifierExpr).ident.clone(),
+                    Clone::clone(&convany!(self.arg.as_any(), IdentifierExpr).ident),
                     EvaledOr::evaled(arg),
                 )
                 .unwrap();
             return self.body.eval(callenv, ctx);
         }
         for a in convany!(self.arg.as_any(), ArgSetExpr).args.iter() {
-            let ident = a.0.clone();
+            let ident = Clone::clone(&a.0);
             let e = {
                 let t = convany!(arg.as_any(), Attrs).env.borrow().get(&ident);
                 if let Ok(o) = t {
@@ -229,7 +264,7 @@ impl Lambda {
         convany!(self.arg.as_any(), ArgSetExpr)
             .alias
             .clone()
-            .map(|a| callenv.borrow_mut().set(a, EvaledOr::evaled(arg.clone())));
+            .map(|a| callenv.borrow_mut().set(a, EvaledOr::evaled(arg.objclone())));
         self.body.eval(callenv, ctx)
     }
 }
@@ -237,6 +272,10 @@ impl Lambda {
 impl Object for Lambda {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn objclone(&self) -> Box<dyn Object> {
+        Box::new(Clone::clone(self))
     }
 }
 
@@ -256,10 +295,10 @@ impl Attrs {
         Attrs { env }
     }
 
-    pub fn merge(&self, other: Rc<dyn Object>) -> Result<(), Rc<dyn NixRsError>> {
+    pub fn merge(&self, other: Box<dyn Object>) -> Result<(), Rc<dyn NixRsError>> {
         let other = convany!(other.as_any(), Attrs);
         for (k, v) in other.env.borrow().iter() {
-            let ret = self.env.borrow_mut().set(k.clone(), v.clone());
+            let ret = self.env.borrow_mut().set(Clone::clone(k), v.clone());
             if ret.is_err() {
                 drop(ret);
                 convany!(self.env.borrow().get(k).unwrap().eval()?.as_any(), Attrs)
@@ -269,11 +308,11 @@ impl Attrs {
         Ok(())
     }
 
-    pub fn update(&self, other: Rc<dyn Object>) -> EvalResult {
-        let new = self.clone();
+    pub fn update(&self, other: &Attrs) -> EvalResult {
+        let new = Clone::clone(self);
         let other = convany!(other.as_any(), Attrs);
         for (k, v) in other.env.borrow().iter() {
-            let ret = new.env.borrow_mut().set(k.clone(), v.clone());
+            let ret = new.env.borrow_mut().set(Clone::clone(k), v.clone());
             if ret.is_err() {
                 drop(ret);
                 let o = new.env.borrow().get(k).unwrap();
@@ -281,19 +320,23 @@ impl Attrs {
                 let o = o.as_any();
                 let v = v.eval()?;
                 if o.is::<Attrs>() && v.as_any().is::<Attrs>() {
-                    convany!(o, Attrs).update(v)?;
+                    convany!(o, Attrs).update(v.as_any().downcast_ref::<Attrs>().unwrap())?;
                 } else {
-                    new.env.borrow_mut().over(k.clone(), EvaledOr::evaled(v));
+                    new.env.borrow_mut().over(Clone::clone(k), EvaledOr::evaled(v));
                 }
             }
         }
-        Ok(Rc::new(new))
+        Ok(Box::new(new))
     }
 }
 
 impl Object for Attrs {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn objclone(&self) -> Box<dyn Object> {
+        Box::new(Clone::clone(self))
     }
 }
 
@@ -327,8 +370,8 @@ impl Path {
 }
 
 pub fn objeq(
-    obj1: Rc<dyn Object>,
-    obj2: Rc<dyn Object>,
+    obj1: Box<dyn Object>,
+    obj2: Box<dyn Object>,
     ctx: ErrorCtx,
 ) -> Result<bool, Rc<dyn NixRsError>> {
     let a1 = obj1.as_any();
@@ -422,8 +465,8 @@ pub fn objeq(
 } */
 
 pub fn objlt(
-    obj1: Rc<dyn Object>,
-    obj2: Rc<dyn Object>,
+    obj1: Box<dyn Object>,
+    obj2: Box<dyn Object>,
     ctx: ErrorCtx,
 ) -> Result<bool, Rc<dyn NixRsError>> {
     let a1 = obj1.as_any();

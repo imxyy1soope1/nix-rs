@@ -4,14 +4,14 @@ use std::cell::RefCell;
 use std::collections::hash_map::{HashMap, Iter};
 use std::error::Error;
 use std::fmt::Display;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 pub type Env = Rc<RefCell<Environment>>;
 
 #[derive(Debug, Clone)]
 pub struct Environment {
     pub env: HashMap<String, EvaledOr>,
-    pub father: Option<Rc<RefCell<Environment>>>,
+    pub father: Option<Weak<RefCell<Environment>>>,
 }
 
 #[derive(Debug)]
@@ -36,7 +36,7 @@ impl NixRsError for EnvironmentError {}
 impl Error for EnvironmentError {}
 
 impl Environment {
-    pub fn new(father: Option<Rc<RefCell<Environment>>>) -> Environment {
+    pub fn new(father: Option<Weak<RefCell<Environment>>>) -> Environment {
         Environment {
             env: HashMap::new(),
             father,
@@ -47,7 +47,7 @@ impl Environment {
         if let Some(val) = self.env.get(sym) {
             Ok(val.clone())
         } else if let Some(father) = &self.father {
-            father.borrow().get(sym)
+            father.upgrade().unwrap().borrow().get(sym)
         } else {
             Err(EnvironmentError::new(format!(
                 "undefined variable '{sym}'"
