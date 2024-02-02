@@ -170,7 +170,7 @@ impl Display for List {
         for v in self.value.iter() {
             write!(f, "{} ", {
                 if v.expr_is::<AttrsLiteralExpr>() {
-                    "...".to_string()
+                    "{ ... }".to_string()
                 } else if v.expr_is::<ListLiteralExpr>() {
                     "[ ... ]".to_string()
                 } else {
@@ -299,7 +299,19 @@ impl Object for Attrs {
 
 impl Display for Attrs {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{{ ... }}")
+        write!(f, "{{ ")?;
+        for (k, v) in self.env.borrow().iter() {
+            write!(f, "{k} = {} ", {
+                if v.expr_is::<AttrsLiteralExpr>() {
+                    "{ ... }".to_string()
+                } else if v.expr_is::<ListLiteralExpr>() {
+                    "[ ... ]".to_string()
+                } else {
+                    v.eval().unwrap().to_string()
+                }
+            })?;
+        }
+        write!(f, "}}")
     }
 }
 
