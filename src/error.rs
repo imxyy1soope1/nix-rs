@@ -11,15 +11,15 @@ pub struct EvalError {
     msg: String,
 }
 
-impl EvalError {
-    pub fn new(msg: &str) -> Rc<dyn NixRsError> {
-        Rc::new(EvalError {
-            msg: msg.to_string(),
-        })
+impl From<String> for EvalError {
+    fn from(value: String) -> Self {
+        EvalError { msg: value }
     }
+}
 
-    pub fn from_string(msg: String) -> Rc<dyn NixRsError> {
-        Rc::new(EvalError { msg })
+impl From<&str> for EvalError {
+    fn from(value: &str) -> Self {
+        EvalError { msg: value.to_string() }
     }
 }
 
@@ -30,6 +30,35 @@ impl NixRsError for EvalError {
 impl Error for EvalError {}
 
 impl Display for EvalError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.msg)
+    }
+}
+
+#[derive(Debug)]
+pub struct ParserError {
+    msg: String,
+}
+
+impl From<String> for ParserError {
+    fn from(value: String) -> Self {
+        ParserError { msg: value }
+    }
+}
+
+impl From<&str> for ParserError {
+    fn from(value: &str) -> Self {
+        ParserError { msg: value.to_string() }
+    }
+}
+
+impl NixRsError for ParserError {
+    // fn pos
+}
+
+impl Error for ParserError {}
+
+impl Display for ParserError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.msg)
     }
@@ -71,7 +100,7 @@ impl ErrorCtx {
         }
     }
 
-    pub fn unwind(&self, err: Rc<dyn NixRsError>) -> Rc<dyn NixRsError> {
+    pub fn unwind(&self, err: Rc<dyn NixRsError>) -> Box<dyn NixRsError> {
         let mut e = String::new();
         e.push_str(&err.to_string());
         e.push('\n');
@@ -81,6 +110,6 @@ impl ErrorCtx {
             e.push('\n');
             this = this.prev.clone().unwrap();
         }
-        EvalError::from_string(e)
+        Box::new(EvalError::from(e))
     }
 }

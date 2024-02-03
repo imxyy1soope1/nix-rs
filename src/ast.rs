@@ -18,11 +18,11 @@ pub trait Expression: Display + Debug {
 #[derive(Debug)]
 pub struct PrefixExpr {
     pub token: Token,
-    pub right: Rc<dyn Expression>,
+    pub right: Box<dyn Expression>,
 }
 
 impl PrefixExpr {
-    pub fn new(token: Token, right: Rc<dyn Expression>) -> PrefixExpr {
+    pub fn new(token: Token, right: Box<dyn Expression>) -> PrefixExpr {
         PrefixExpr { token, right }
     }
 }
@@ -70,12 +70,12 @@ impl Display for PrefixExpr {
 #[derive(Debug)]
 pub struct InfixExpr {
     pub token: Token,
-    pub left: Rc<dyn Expression>,
-    pub right: Rc<dyn Expression>,
+    pub left: Box<dyn Expression>,
+    pub right: Box<dyn Expression>,
 }
 
 impl InfixExpr {
-    pub fn new(token: Token, left: Rc<dyn Expression>, right: Rc<dyn Expression>) -> InfixExpr {
+    pub fn new(token: Token, left: Box<dyn Expression>, right: Box<dyn Expression>) -> InfixExpr {
         InfixExpr { token, left, right }
     }
 }
@@ -317,11 +317,11 @@ impl Display for StringLiteralExpr {
 #[derive(Debug)]
 pub struct InterpolateStringExpr {
     pub literal: String,
-    pub replaces: Vec<(usize, Rc<dyn Expression>)>,
+    pub replaces: Vec<(usize, Box<dyn Expression>)>,
 }
 
 impl InterpolateStringExpr {
-    pub fn new(s: String, replaces: Vec<(usize, Rc<dyn Expression>)>) -> InterpolateStringExpr {
+    pub fn new(s: String, replaces: Vec<(usize, Box<dyn Expression>)>) -> InterpolateStringExpr {
         InterpolateStringExpr {
             literal: s.clone(),
             replaces,
@@ -356,12 +356,12 @@ impl Display for InterpolateStringExpr {
 
 #[derive(Debug)]
 pub struct FunctionLiteralExpr {
-    arg: Rc<dyn Expression>,
-    body: Rc<dyn Expression>,
+    arg: Box<dyn Expression>,
+    body: Box<dyn Expression>,
 }
 
 impl FunctionLiteralExpr {
-    pub fn new(arg: Rc<dyn Expression>, body: Rc<dyn Expression>) -> FunctionLiteralExpr {
+    pub fn new(arg: Box<dyn Expression>, body: Box<dyn Expression>) -> FunctionLiteralExpr {
         FunctionLiteralExpr { arg, body }
     }
 }
@@ -393,7 +393,7 @@ pub struct FunctionCallExpr {
 }
 
 impl FunctionCallExpr {
-    pub fn new(func: Rc<dyn Expression>, arg: Rc<dyn Expression>) -> FunctionCallExpr {
+    pub fn new(func: Box<dyn Expression>, arg: Box<dyn Expression>) -> FunctionCallExpr {
         FunctionCallExpr { func, arg }
     }
 }
@@ -431,16 +431,16 @@ impl Display for FunctionCallExpr {
 
 #[derive(Debug)]
 pub struct IfExpr {
-    cond: Rc<dyn Expression>,
-    consq: Rc<dyn Expression>,
-    alter: Rc<dyn Expression>,
+    cond: Box<dyn Expression>,
+    consq: Box<dyn Expression>,
+    alter: Box<dyn Expression>,
 }
 
 impl IfExpr {
     pub fn new(
-        cond: Rc<dyn Expression>,
-        consq: Rc<dyn Expression>,
-        alter: Rc<dyn Expression>,
+        cond: Box<dyn Expression>,
+        consq: Box<dyn Expression>,
+        alter: Box<dyn Expression>,
     ) -> IfExpr {
         IfExpr { cond, consq, alter }
     }
@@ -479,12 +479,12 @@ impl Display for IfExpr {
 
 #[derive(Debug)]
 pub struct BindingExpr {
-    pub name: Rc<dyn Expression>,
-    pub value: Rc<dyn Expression>,
+    pub name: Box<dyn Expression>,
+    pub value: Box<dyn Expression>,
 }
 
 impl BindingExpr {
-    pub fn new(name: Rc<dyn Expression>, value: Rc<dyn Expression>) -> BindingExpr {
+    pub fn new(name: Box<dyn Expression>, value: Box<dyn Expression>) -> BindingExpr {
         BindingExpr { name, value }
     }
 
@@ -548,12 +548,12 @@ impl Display for BindingExpr {
 
 #[derive(Debug)]
 pub struct AttrsLiteralExpr {
-    bindings: Vec<Rc<dyn Expression>>,
+    bindings: Vec<Box<dyn Expression>>,
     rec: bool,
 }
 
 impl AttrsLiteralExpr {
-    pub fn new(bindings: Vec<Rc<dyn Expression>>, rec: bool) -> AttrsLiteralExpr {
+    pub fn new(bindings: Vec<Box<dyn Expression>>, rec: bool) -> AttrsLiteralExpr {
         AttrsLiteralExpr { bindings, rec }
     }
 }
@@ -611,14 +611,14 @@ impl Display for AttrsLiteralExpr {
 
 #[derive(Debug)]
 pub struct ArgSetExpr {
-    pub args: Vec<(String, Option<Rc<dyn Expression>>)>,
+    pub args: Vec<(String, Option<Box<dyn Expression>>)>,
     pub allow_more: bool,
     pub alias: Option<String>,
 }
 
 impl ArgSetExpr {
     pub fn new(
-        args: Vec<(String, Option<Rc<dyn Expression>>)>,
+        args: Vec<(String, Option<Box<dyn Expression>>)>,
         allow_more: bool,
         alias: Option<String>,
     ) -> ArgSetExpr {
@@ -668,11 +668,11 @@ impl Display for ArgSetExpr {
 
 #[derive(Debug)]
 pub struct ListLiteralExpr {
-    items: Vec<Rc<dyn Expression>>,
+    items: Vec<Box<dyn Expression>>,
 }
 
 impl ListLiteralExpr {
-    pub fn new(items: Vec<Rc<dyn Expression>>) -> ListLiteralExpr {
+    pub fn new(items: Vec<Box<dyn Expression>>) -> ListLiteralExpr {
         ListLiteralExpr { items }
     }
 }
