@@ -1,6 +1,4 @@
-extern crate nix_rs;
-
-use crate::nix_rs::*;
+use nix_rs::*;
 use rustyline::Config;
 use rustyline::error::ReadlineError;
 use rustyline::{Editor, Result, history::MemHistory};
