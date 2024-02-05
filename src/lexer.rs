@@ -1,5 +1,5 @@
 use crate::token::Token;
-use std::fmt::Display;
+use std::{collections::VecDeque, fmt::Display};
 
 /* pub enum SourcePath {
     None,
@@ -169,19 +169,19 @@ impl Lexer {
         l
     }
 
-    fn _read_wrap(&mut self) -> Option<char> {
-        if self.next_pos < self.input.len() {
+    fn read_char(&mut self) {
+        self.cur_ch = if self.next_pos < self.input.len() {
             Some(self.chars[self.next_pos])
         } else {
             None
-        }
-    }
-
-    fn read_char(&mut self) {
-        self.cur_ch = self._read_wrap();
+        };
         self.pos = self.next_pos;
         self.next_pos += 1;
-        self.next_ch = self._read_wrap();
+        self.next_ch = if self.next_pos < self.input.len() {
+            Some(self.chars[self.next_pos])
+        } else {
+            None
+        };
         if self.cur_ch.unwrap_or_default() == '\n' {
             self.hpos.nextline();
             self.hpos.clearchar();
@@ -255,29 +255,134 @@ impl Lexer {
     }
 
     fn read_string(&mut self) -> Token {
-        // FIXME
         self.read_char();
         let pos = self.pos;
-        while self.cur_ch.map_or(false, |c| c != '"') {
+        let mut buf = String::new();
+        let mut interpolates: Vec<(usize, Vec<Token>)> = Vec::new();
+        let mut offset = 0;
+        'outer: while self.cur_ch.map_or(false, |c| c != '"') {
+            let c = match self.cur_ch.unwrap() {
+                '\\' => {
+                    self.read_char();
+                    match self.cur_ch.unwrap() {
+                        'n' => '\n',
+                        't' => '\t',
+                        'r' => '\r',
+                        '$' => '$',
+                        '\\' => '\\',
+                        '\0' => return Token::ILLEGAL, // string not closed ("\)
+                        c => c,
+                    }
+                }
+                '$' => {
+                    self.read_char();
+                    match self.cur_ch.unwrap() {
+                        '{' => {
+                            self.read_char();
+                            let mut l = Lexer::build(&self.input[self.pos..]);
+                            let mut tokens: Vec<Token> = Vec::new();
+                            loop {
+                                match l.next().unwrap() {
+                                    Token::RBRACE => {
+                                        tokens.push(Token::EOF);
+                                        while self.cur_ch.unwrap() != '}' {
+                                            self.read_char();
+                                            offset += 1;
+                                        }
+                                        self.read_char();
+                                        // magic!
+                                        offset += 3; // '${' and '}'
+                                        interpolates.push((self.pos - pos - offset, tokens));
+                                        continue 'outer;
+                                    }
+                                    Token::EOF => return Token::ILLEGAL, // DOLLAR_CURLY not closed ("${")
+                                    v => tokens.push(v),
+                                }
+                            }
+                        }
+                        c => {
+                            buf.push('$');
+                            c
+                        }
+                    }
+                }
+                '\r' => match self.next_ch.unwrap_or_default() {
+                    '\n' => {
+                        self.read_char();
+                        '\n'
+                    }
+                    _ => continue,
+                },
+                c => c,
+            };
+            buf.push(c);
             self.read_char();
         }
 
-        let (s, r) = escape_string(self.input[pos..self.pos].to_string());
-        Token::STRING(s, r)
+        Token::STRING(buf, interpolates)
     }
 
     fn read_lines(&mut self) -> Token {
-        // FIXME
-        unimplemented!();
-        /*
         self.read_char();
         self.read_char();
-        let pos = self.pos;
-        while self.next_ch.map_or(false, |c| c != '\'') || self.cur_ch.map_or(false, |c| c != '\'') {
-            self.read_char();
+        let mut lines = VecDeque::new();
+        'outer: loop {
+            let mut buf = String::new();
+            while self.cur_ch.unwrap_or('\n') != '\n' {
+                match self.cur_ch.unwrap() {
+                    '\'' => match self.next_ch.unwrap_or_default() {
+                        '\'' => {
+                            self.read_char();
+                            self.read_char();
+                            match self.cur_ch.unwrap() {
+                                '\'' => buf.push_str("'''"),
+                                '$' => buf.push_str("\\$"),
+                                '\\' => match self.next_ch.unwrap_or_default() {
+                                    '$' => buf.push_str("\\$"),
+                                    'n' => buf.push('\n'),
+                                    't' => buf.push('\t'),
+                                    'r' => buf.push('\r'),
+                                    '\0' => return Token::ILLEGAL, // lines unclosed (''blablabla''\)
+                                    c => buf.push(c),
+                                }
+                                _ => {
+                                    lines.push_back(buf);
+                                    break 'outer;
+                                }
+                            }
+                        }
+                        '\0' => return Token::ILLEGAL,
+                        c => {buf.push('\'');buf.push(c);},
+                    }
+                    '\r' => match self.next_ch.unwrap_or_default() {
+                        '\n' => {
+                            self.read_char();
+                            buf.push('\n');
+                        }
+                        _ => continue,
+                    }
+                    c => buf.push(c)
+                }
+                self.read_char();
+            }
+            lines.push_back(buf);
         }
 
-        Token::ILLEGAL */
+        if lines.len() >= 1 && lines.front().unwrap().trim().is_empty() {
+            lines.pop_front();
+        }
+        if lines.len() >= 1 && lines.back().unwrap().trim().is_empty() {
+            lines.pop_back();
+        }
+        if lines.len() == 0 {
+            return Token::STRING("".to_owned(), Vec::new());
+        }
+
+        let off = lines.iter().map(|l| l.len() - l.trim_start().len()).min();
+        let 
+        let string = lines.iter().fold(init, f)
+
+        Token::ILLEGAL
     }
 
     fn skip_comment(&mut self) {

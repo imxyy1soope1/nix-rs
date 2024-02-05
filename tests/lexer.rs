@@ -24,7 +24,7 @@ fn test_lexer() {
         b2 = attr ? ten;
         l = ["1" "2" 1 2];
         p = ../.;
-        s1 = "${test}test${test}";
+        s1 = "${test}$test${test}";
     }"#;
     let expect = [
         LET,
@@ -143,10 +143,10 @@ fn test_lexer() {
         IDENT("s1".to_string()),
         ASSIGN,
         STRING(
-            "test".to_string(),
+            "$test".to_string(),
             vec![
                 (0, vec![IDENT("test".to_string()), EOF]),
-                (4, vec![IDENT("test".to_string()), EOF]),
+                (5, vec![IDENT("test".to_string()), EOF]),
             ],
         ),
         SEMI,

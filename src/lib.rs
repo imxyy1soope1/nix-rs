@@ -1,5 +1,3 @@
-#![feature(const_type_id)]
-
 mod ast;
 mod builtins;
 mod error;
@@ -12,8 +10,8 @@ mod token;
 use eval::{Environment, Eval, EvalResult};
 use std::{cell::RefCell, rc::Rc};
 
-pub use ast::Expression;
 pub use ast::BindingExpr;
+pub use ast::Expression;
 use builtins::new_builtins_env;
 pub use eval::Env;
 pub use lexer::Lexer;

@@ -163,7 +163,7 @@ pub fn builtin_fns() -> [(&'static str, bool, BuiltinFunction); 12] {
         (
             "isPath",
             false,
-            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Path>())))
+            BuiltinFunction::new(1, |a| Ok(Rc::new(a[0].eval()?.as_any().is::<Path>()))),
         ),
         (
             "seq",
