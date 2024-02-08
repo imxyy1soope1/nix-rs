@@ -20,7 +20,7 @@ pub use parser::Parser;
 pub use token::Token;
 
 pub fn eval(s: String) -> EvalResult {
-    Eval::new(Parser::new(Box::new(Lexer::build(&s))).parse()).eval()
+    Eval::new(Parser::new(Box::new(Lexer::from(s))).parse()).eval()
 }
 
 pub fn new_env() -> Env {
@@ -28,7 +28,7 @@ pub fn new_env() -> Env {
 }
 
 pub fn eval_with_env(e: Env, s: String) -> EvalResult {
-    Eval::with_env(e, Parser::new(Box::new(Lexer::build(&s))).parse()).eval()
+    Eval::with_env(e, Parser::new(Box::new(Lexer::from(s))).parse()).eval()
 }
 
 #[macro_export]

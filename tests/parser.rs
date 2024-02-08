@@ -2,7 +2,7 @@ use nix_rs::Lexer;
 use nix_rs::Parser;
 
 fn _test_parse(input: &str, expect: &str) {
-    let mut parser = Parser::new(Box::new(Lexer::build(input)));
+    let mut parser = Parser::new(Box::new(Lexer::from(input)));
     assert_eq!(parser.parse().to_string(), expect)
 }
 

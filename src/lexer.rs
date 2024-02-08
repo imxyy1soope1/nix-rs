@@ -1,5 +1,5 @@
 use crate::token::Token;
-use std::{collections::VecDeque, fmt::Display};
+use std::fmt::Display;
 
 /* pub enum SourcePath {
     None,
@@ -71,88 +71,20 @@ fn is_white(ch: char) -> bool {
     ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r'
 }
 
-fn escape_string(s: String) -> (String, Vec<(usize, Vec<Token>)>) {
-    if s == "\\" {
-        panic!();
-    } else if let 0..=1 = s.len() {
-        return (s, Vec::new());
+impl From<&str> for Lexer {
+    fn from(value: &str) -> Self {
+        Lexer::build(value.to_string())
     }
+}
 
-    let mut buf = String::new();
-    let mut chars = s.chars().peekable();
-    let mut c = Some('\0');
-    let mut replaces: Vec<(usize, Vec<Token>)> = Vec::new();
-    let mut i = 0;
-    let mut skip = true;
-    'outer: while c.is_some() {
-        if !skip {
-            i += 1;
-        } else {
-            skip = false;
-        }
-        c = chars.next();
-        if c.is_none() {
-            break;
-        }
-        buf.push(match c.unwrap() {
-            '\\' => {
-                c = chars.next();
-                i += 1;
-                match c.unwrap_or_default() {
-                    'n' => '\n',
-                    't' => '\t',
-                    'r' => '\r',
-                    '$' => '$',
-                    '\\' => '\\',
-                    '\0' => panic!("string not closed"),
-                    _ => panic!(),
-                }
-            }
-            '$' => {
-                c = chars.next();
-                match c.unwrap_or_default() {
-                    '{' => {
-                        let mut l = Lexer::build(&String::from_iter(chars.clone()));
-                        let mut tokens: Vec<Token> = Vec::new();
-                        loop {
-                            match l.next().unwrap() {
-                                Token::RBRACE => {
-                                    tokens.push(Token::EOF);
-                                    replaces.push((i, tokens));
-                                    while c.unwrap() != '}' {
-                                        c = chars.next();
-                                    }
-                                    skip = true;
-                                    continue 'outer;
-                                }
-                                Token::EOF => panic!("unclosed DOLLAR_CURLY"),
-                                v => tokens.push(v),
-                            }
-                        }
-                    }
-                    c => c,
-                }
-            }
-            '\r' => {
-                c = chars.peek().copied();
-                match c.unwrap_or_default() {
-                    '\n' => {
-                        c = chars.next();
-                        i += 1;
-                        '\n'
-                    }
-                    _ => continue,
-                }
-            }
-            c => c,
-        })
+impl From<String> for Lexer {
+    fn from(value: String) -> Self {
+        Lexer::build(value)
     }
-
-    (buf, replaces)
 }
 
 impl Lexer {
-    pub fn build(s: &str) -> Lexer {
+    pub fn build(s: String) -> Lexer {
         assert!(!s.trim().is_empty(), "s must not be empty!");
         let input = s.trim().to_string();
         let mut l = Lexer {
@@ -279,7 +211,7 @@ impl Lexer {
                     match self.cur_ch.unwrap() {
                         '{' => {
                             self.read_char();
-                            let mut l = Lexer::build(&self.input[self.pos..]);
+                            let mut l = Lexer::from(&self.input[self.pos..]);
                             let mut tokens: Vec<Token> = Vec::new();
                             loop {
                                 match l.next().unwrap() {
@@ -325,7 +257,7 @@ impl Lexer {
     fn read_lines(&mut self) -> Token {
         self.read_char();
         self.read_char();
-        let mut lines = VecDeque::new();
+        let mut lines = Vec::new();
         'outer: loop {
             let mut buf = String::new();
             while self.cur_ch.unwrap_or('\n') != '\n' {
@@ -333,8 +265,7 @@ impl Lexer {
                     '\'' => match self.next_ch.unwrap_or_default() {
                         '\'' => {
                             self.read_char();
-                            self.read_char();
-                            match self.cur_ch.unwrap() {
+                            match self.next_ch.unwrap() {
                                 '\'' => buf.push_str("'''"),
                                 '$' => buf.push_str("\\$"),
                                 '\\' => match self.next_ch.unwrap_or_default() {
@@ -343,13 +274,17 @@ impl Lexer {
                                     't' => buf.push('\t'),
                                     'r' => buf.push('\r'),
                                     '\0' => return Token::ILLEGAL, // lines unclosed (''blablabla''\)
+                                    // '\0' => panic!(),
                                     c => buf.push(c),
                                 }
                                 _ => {
-                                    lines.push_back(buf);
+                                    if !buf.is_empty() {
+                                        lines.push(buf);
+                                    }
                                     break 'outer;
                                 }
                             }
+                            self.read_char();
                         }
                         '\0' => return Token::ILLEGAL,
                         c => {buf.push('\'');buf.push(c);},
@@ -365,24 +300,64 @@ impl Lexer {
                 }
                 self.read_char();
             }
-            lines.push_back(buf);
+            lines.push(buf);
         }
 
-        if lines.len() >= 1 && lines.front().unwrap().trim().is_empty() {
+        /* if lines.len() >= 1 && lines.front().unwrap().trim().is_empty() {
             lines.pop_front();
         }
         if lines.len() >= 1 && lines.back().unwrap().trim().is_empty() {
             lines.pop_back();
-        }
+        } */
         if lines.len() == 0 {
             return Token::STRING("".to_owned(), Vec::new());
         }
 
-        let off = lines.iter().map(|l| l.len() - l.trim_start().len()).min();
-        let 
-        let string = lines.iter().fold(init, f)
+        let off = lines.iter().map(|l| l.len() - l.trim_start().len()).min().unwrap();
+        let lines = lines.iter().map(|s| &s[off..]).collect::<Vec<_>>();
+        let string = lines.join("\n");
+        let mut string = string.chars().peekable();
 
-        Token::ILLEGAL
+        let mut buf = String::new();
+        let mut interpolates: Vec<(usize, Vec<Token>)> = Vec::new();
+        let mut i = 0;
+        let mut skip = true;
+        'outer: while string.peek().is_some() {
+            if skip {
+                skip = false;
+            } else {
+                i += 1;
+            }
+            match string.next().unwrap() {
+                '\\' => match string.next().unwrap_or_default() {
+                    '$' => buf.push('$'),
+                    _ => unreachable!(),
+                }
+                '$' => match string.next().unwrap_or_default() {
+                    '{' => {
+                        let mut l = Lexer::build(String::from_iter(string.clone()));
+                        let mut tokens = Vec::new();
+                        loop {
+                            match l.next().unwrap() {
+                                Token::RBRACE => {
+                                    tokens.push(Token::EOF);
+                                    interpolates.push((i, tokens));
+                                    let _: Vec<_> = (&mut string).take_while(|c| c != &'}').collect();
+                                    skip = true;
+                                    continue 'outer;
+                                }
+                                Token::EOF => return Token::ILLEGAL, // DOLLAR_CURLY not closed
+                                v => tokens.push(v)
+                            }
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+                c => buf.push(c),
+            }
+        }
+
+        Token::STRING(buf, interpolates)
     }
 
     fn skip_comment(&mut self) {
@@ -514,7 +489,6 @@ impl Iterator for Lexer {
                         PARENT
                     }
                 } else if self.next_ch.unwrap_or_default().is_ascii_digit() {
-                    println!("{}", self.next_ch.unwrap_or_default());
                     self.read_float()
                 } else {
                     DOT
@@ -545,13 +519,13 @@ impl Iterator for Lexer {
             }
 
             '"' => self.read_string(),
-            /* '\'' => {
+            '\'' => {
                 if self.next_ch.unwrap_or_default() == '\'' {
                     self.read_lines()
                 } else {
                     ILLEGAL
                 }
-            } */
+            }
             '#' => {
                 self.skip_comment();
                 return self.next();

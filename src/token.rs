@@ -10,6 +10,7 @@ pub enum Token {
     INT(String),
     FLOAT(String),
     STRING(String, Vec<(usize, Vec<Token>)>),
+    ATTRPATH(Vec<String>),
 
     ASSIGN,
     PLUS,
@@ -71,6 +72,7 @@ impl fmt::Display for Token {
             INT(literal) => write!(f, "{literal}"),
             FLOAT(literal) => write!(f, "{literal}"),
             STRING(literal, replaces) => write!(f, r#""{literal}"({:?})"#, replaces),
+            ATTRPATH(path) => write!(f, "{}", path.join(".")),
 
             ASSIGN => write!(f, "="),
             PLUS => write!(f, "+"),

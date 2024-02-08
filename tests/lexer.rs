@@ -25,6 +25,7 @@ fn test_lexer() {
         l = ["1" "2" 1 2];
         p = ../.;
         s1 = "${test}$test${test}";
+        lines = ''${test}'';
     }"#;
     let expect = [
         LET,
@@ -150,11 +151,20 @@ fn test_lexer() {
             ],
         ),
         SEMI,
+        IDENT("lines".to_string()),
+        ASSIGN,
+        STRING(
+            "".to_string(),
+            vec![
+                (0, vec![IDENT("test".to_string()), EOF]),
+            ],
+        ),
+        SEMI,
         RBRACE,
         EOF,
     ];
 
-    let l = Lexer::build(input);
+    let l = Lexer::from(input);
 
     for (actual, exp) in zip(l, expect) {
         assert_eq!(actual, exp);
