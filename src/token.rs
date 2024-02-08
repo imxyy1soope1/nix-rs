@@ -10,7 +10,8 @@ pub enum Token {
     INT(String),
     FLOAT(String),
     STRING(String, Vec<(usize, Vec<Token>)>),
-    ATTRPATH(Vec<String>),
+    INTER(Vec<Token>),
+    ATTRPATH(Vec<(Token, bool)>),
 
     ASSIGN,
     PLUS,
@@ -47,7 +48,6 @@ pub enum Token {
     RBRACE,
     LANGLE,
     RANGLE,
-    DOLLARCURLY,
 
     IF,
     THEN,
@@ -72,7 +72,19 @@ impl fmt::Display for Token {
             INT(literal) => write!(f, "{literal}"),
             FLOAT(literal) => write!(f, "{literal}"),
             STRING(literal, replaces) => write!(f, r#""{literal}"({:?})"#, replaces),
-            ATTRPATH(path) => write!(f, "{}", path.join(".")),
+            INTER(tokens) => write!(f, "${{{tokens:?}}}"),
+            ATTRPATH(path) => write!(
+                f,
+                "{}",
+                path.iter()
+                    .map(|(t, is_var)| if *is_var {
+                        format!("${{{t}}}")
+                    } else {
+                        t.to_string()
+                    })
+                    .collect::<Vec<_>>()
+                    .join(".")
+            ),
 
             ASSIGN => write!(f, "="),
             PLUS => write!(f, "+"),
@@ -109,7 +121,6 @@ impl fmt::Display for Token {
             RBRACE => write!(f, "}}"),
             LANGLE => write!(f, "<"),
             RANGLE => write!(f, ">"),
-            DOLLARCURLY => write!(f, "${{"),
 
             IF => write!(f, "if"),
             THEN => write!(f, "then"),

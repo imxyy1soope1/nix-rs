@@ -152,7 +152,7 @@ fn test_call() {
 }
 
 #[test]
-fn test_thunk() {
+fn test_interpolates() {
     _test_parse("a.${b} = 1", "(a . ${b}) = 1");
 }
 

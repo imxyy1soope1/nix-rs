@@ -155,9 +155,7 @@ fn test_lexer() {
         ASSIGN,
         STRING(
             "".to_string(),
-            vec![
-                (0, vec![IDENT("test".to_string()), EOF]),
-            ],
+            vec![(0, vec![IDENT("test".to_string()), EOF])],
         ),
         SEMI,
         RBRACE,

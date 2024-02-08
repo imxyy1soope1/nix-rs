@@ -61,8 +61,7 @@ impl Parser {
             ($token:tt, $exprtype:tt) => {
                 Some(|s| {
                     Rc::new($exprtype::new(
-                        if let Token::$token(string) = s.cur_token.clone().unwrap() {
-                            s.next();
+                        if let Token::$token(string) = s.consume().unwrap() {
                             string
                         } else {
                             unreachable!()
@@ -83,8 +82,7 @@ impl Parser {
             INT(_) => strexpr!(INT, IntLiteralExpr),
             FLOAT(_) => strexpr!(FLOAT, FloatLiteralExpr),
             STRING(..) => Some(|s| {
-                if let Token::STRING(string, interpolates) = s.cur_token.clone().unwrap() {
-                    s.next();
+                if let Token::STRING(string, interpolates) = s.consume().unwrap() {
                     if !interpolates.is_empty() {
                         Rc::new(InterpolateStringExpr::new(
                             string,
@@ -98,6 +96,16 @@ impl Parser {
                     } else {
                         Rc::new(StringLiteralExpr::new(string))
                     }
+                } else {
+                    unreachable!()
+                }
+            }),
+            INTER(_) => Some(|s| {
+                println!("{:?} {:?}", s.cur_token, s.next_token);
+                if let Token::INTER(tokens) = s.consume().unwrap() {
+                    Rc::new(InterpolateExpr::new(
+                        Parser::new(Box::new(tokens.into_iter())).parse(),
+                    ))
                 } else {
                     unreachable!()
                 }
@@ -121,7 +129,6 @@ impl Parser {
             WAVY => parser!(parse_rel_path),
             SLASH => parser!(parse_abs_path),
             LANGLE => parser!(parse_search_path),
-            DOLLARCURLY => parser!(parse_interpolate),
             _ => None,
         }
     }
@@ -619,19 +626,14 @@ impl Parser {
     }
 
     fn parse_infix(&mut self, left: Rc<dyn Expression>) -> Rc<dyn Expression> {
-        let token = self.unwrap_cur().clone();
-        let precedence = self.cur_precedence();
-        self.next();
+        let token = self.consume().unwrap();
+        let precedence = if token == Token::IMPL {
+            Precedence::IMPLLOWER
+        } else {
+            Self::_precedence(&token)
+        };
 
-        Rc::new(InfixExpr::new(
-            token.clone(),
-            left,
-            self.parse_expr(if token == Token::IMPL {
-                Precedence::IMPLLOWER
-            } else {
-                precedence
-            }),
-        ))
+        Rc::new(InfixExpr::new(token, left, self.parse_expr(precedence)))
     }
 
     fn parse_function(&mut self, arg: Rc<dyn Expression>) -> Rc<dyn Expression> {
@@ -672,10 +674,8 @@ impl Parser {
             self
         );
 
-        while !self.cur_is(Token::SEMI)
-            && !self.cur_is(Token::EOF)
-            && precedence < self.cur_precedence()
-        {
+        println!("{left} {:?} {:?}", self.cur_token, self.next_token);
+        while precedence < self.cur_precedence() {
             match self.infix_parser(self.unwrap_cur()) {
                 None => return left,
                 Some(f) => {
@@ -700,8 +700,13 @@ impl Parser {
     }
 
     fn next(&mut self) {
-        self.cur_token = self.next_token.clone();
+        self.consume();
+    }
+
+    fn consume(&mut self) -> Option<Token> {
+        let cur = std::mem::replace(&mut self.cur_token, std::mem::take(&mut self.next_token));
         self.next_token = self.l.next();
+        cur
     }
 
     pub fn parse(&mut self) -> Rc<dyn Expression> {
