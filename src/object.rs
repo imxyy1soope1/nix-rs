@@ -33,7 +33,7 @@ impl _EvaledOr {
     }
     fn eval(&mut self) -> EvalResult {
         if let Expr(env, e, ctx) = &*self {
-            self.set(Evaled(e.eval(env.clone(), ctx.clone())?))
+            self.set(Evaled(e.eval(env, ctx)?))
         }
         self.get()
     }
@@ -209,7 +209,7 @@ impl Lambda {
                     EvaledOr::evaled(arg),
                 )
                 .unwrap();
-            return self.body.eval(callenv, ctx);
+            return self.body.eval(&callenv, &ctx);
         }
         for a in convany!(self.arg.as_any(), ArgSetExpr).args.iter() {
             let ident = a.0.clone();
@@ -230,7 +230,7 @@ impl Lambda {
             .alias
             .clone()
             .map(|a| callenv.borrow_mut().set(a, EvaledOr::evaled(arg.clone())));
-        self.body.eval(callenv, ctx)
+        self.body.eval(&callenv, &ctx)
     }
 }
 
