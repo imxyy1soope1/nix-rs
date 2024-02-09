@@ -36,7 +36,7 @@ impl Expression for LogicalNegExpr {
         if !r.as_any().is::<Bool>() {
             Err(ctx.unwind(EvalError::new("expected a bool")))
         } else {
-            Ok(Rc::new(!convany!(r.as_any(), Bool)))
+            Ok(Box::new(!convany!(r.as_any(), Bool)))
         }
     }
 }
@@ -71,9 +71,9 @@ impl Expression for AddExpr {
         let ra = re.as_any();
         if la.is::<Int>() {
             if ra.is::<Int>() {
-                Ok(Rc::new(convany!(la, Int) + convany!(ra, Int)))
+                Ok(Box::new(convany!(la, Int) + convany!(ra, Int)))
             } else if ra.is::<Float>() {
-                Ok(Rc::new(
+                Ok(Box::new(
                     *convany!(la, Int) as Float +
                     convany!(ra, Float)
                 ))
@@ -82,12 +82,12 @@ impl Expression for AddExpr {
             }
         } else if la.is::<Float>() {
             if ra.is::<Int>() {
-                Ok(Rc::new(
+                Ok(Box::new(
                     convany!(la, Float) +
                     *convany!(ra, Int) as Float
                 ))
             } else if ra.is::<Float>() {
-                Ok(Rc::new(convany!(la, Float) + convany!(ra, Float)))
+                Ok(Box::new(convany!(la, Float) + convany!(ra, Float)))
             } else {
                 Err(ctx.unwind(EvalError::new("unsupported operation")))
             }
@@ -110,11 +110,11 @@ impl Display for AddExpr {
 #[derive(Debug)]
 pub struct PrefixExpr {
     pub token: Token,
-    pub right: Rc<dyn Expression>,
+    pub right: Box<dyn Expression>,
 }
 
 impl PrefixExpr {
-    pub fn new(token: Token, right: Rc<dyn Expression>) -> PrefixExpr {
+    pub fn new(token: Token, right: Box<dyn Expression>) -> PrefixExpr {
         PrefixExpr { token, right }
     }
 }
@@ -134,16 +134,16 @@ impl Expression for PrefixExpr {
         match self.token {
             MINUS => {
                 if a.is::<Int>() {
-                    Ok(Rc::new(-convany!(a, Int)))
+                    Ok(Box::new(-convany!(a, Int)))
                 } else if a.is::<Float>() {
-                    Ok(Rc::new(-convany!(a, Float)))
+                    Ok(Box::new(-convany!(a, Float)))
                 } else {
                     Err(ctx.unwind(EvalError::new("unsupported operation")))
                 }
             }
             BANG => {
                 if a.is::<Bool>() {
-                    Ok(Rc::new(!a.downcast_ref::<bool>().unwrap()))
+                    Ok(Box::new(!a.downcast_ref::<bool>().unwrap()))
                 } else {
                     Err(ctx.unwind(EvalError::new("unsupported operation")))
                 }
@@ -162,12 +162,12 @@ impl Display for PrefixExpr {
 #[derive(Debug)]
 pub struct InfixExpr {
     pub token: Token,
-    pub left: Rc<dyn Expression>,
-    pub right: Rc<dyn Expression>,
+    pub left: Box<dyn Expression>,
+    pub right: Box<dyn Expression>,
 }
 
 impl InfixExpr {
-    pub fn new(token: Token, left: Rc<dyn Expression>, right: Rc<dyn Expression>) -> InfixExpr {
+    pub fn new(token: Token, left: Box<dyn Expression>, right: Box<dyn Expression>) -> InfixExpr {
         InfixExpr { token, left, right }
     }
 }
@@ -205,9 +205,9 @@ impl Expression for InfixExpr {
             ($op:expr) => {
                 if la.is::<Int>() {
                     if ra.is::<Int>() {
-                        Ok(Rc::new($op(convany!(la, Int), convany!(ra, Int))))
+                        Ok(Box::new($op(convany!(la, Int), convany!(ra, Int))))
                     } else if ra.is::<Float>() {
-                        Ok(Rc::new($op(
+                        Ok(Box::new($op(
                             *convany!(la, Int) as Float,
                             convany!(ra, Float),
                         )))
@@ -216,12 +216,12 @@ impl Expression for InfixExpr {
                     }
                 } else if la.is::<Float>() {
                     if ra.is::<Int>() {
-                        Ok(Rc::new($op(
+                        Ok(Box::new($op(
                             convany!(la, Float),
                             *convany!(ra, Int) as Float,
                         )))
                     } else if ra.is::<Float>() {
-                        Ok(Rc::new($op(convany!(la, Float), convany!(ra, Float))))
+                        Ok(Box::new($op(convany!(la, Float), convany!(ra, Float))))
                     } else {
                         Err(ctx.unwind(EvalError::new("unsupported operation")))
                     }
@@ -233,7 +233,7 @@ impl Expression for InfixExpr {
         macro_rules! infix {
             ($t1:tt, $t2:tt, $op:expr) => {
                 if la.is::<$t1>() && ra.is::<$t2>() {
-                    Ok(Rc::from($op(convany!(la, $t1), convany!(ra, $t2))))
+                    Ok(Box::new($op(convany!(la, $t1), convany!(ra, $t2))))
                 } else {
                     Err(ctx.unwind(EvalError::new("unsupported type")))
                 }
@@ -249,18 +249,18 @@ impl Expression for InfixExpr {
             IMPL => infix!(Bool, Bool, |a: &Bool, b: &Bool| !*a || *b),
             UPDATE => {
                 if la.is::<Attrs>() && ra.is::<Attrs>() {
-                    Ok(convany!(la, Attrs).update(re.clone())?)
+                    Ok(convany!(la, Attrs).update(re.as_ref())?)
                 } else {
                     Err(ctx.unwind(EvalError::new("unsupported operation")))
                 }
             }
-            CONCAT => infix!(List, List, |a: &List, _| a.concat(re.clone())),
-            EQ => Ok(Rc::new(objeq(le.clone(), re.clone(), ctx)?)),
-            NEQ => Ok(Rc::new(!(objeq(le.clone(), re.clone(), ctx)?))),
-            LANGLE => Ok(Rc::new(objlt(le.clone(), re.clone(), ctx)?)),
-            RANGLE => Ok(Rc::new(objlt(re.clone(), le.clone(), ctx)?)),
-            LEQ => Ok(Rc::new(!objlt(re.clone(), le.clone(), ctx)?)),
-            GEQ => Ok(Rc::new(!objlt(le.clone(), re.clone(), ctx)?)),
+            CONCAT => infix!(List, List, |a: &List, _| a.concat(re.as_ref())),
+            EQ => Ok(Box::new(objeq(le.as_ref(), re.as_ref(), &ctx)?)),
+            NEQ => Ok(Box::new(!(objeq(le.as_ref(), re.as_ref(), &ctx)?))),
+            LANGLE => Ok(Box::new(objlt(le.as_ref(), re.as_ref(), &ctx)?)),
+            RANGLE => Ok(Box::new(objlt(re.as_ref(), le.as_ref(), &ctx)?)),
+            LEQ => Ok(Box::new(!objlt(re.as_ref(), le.as_ref(), &ctx)?)),
+            GEQ => Ok(Box::new(!objlt(le.as_ref(), re.as_ref(), &ctx)?)),
             _ => Err(ctx.unwind(EvalError::from_string(format!(
                 "unsupported operation: {}",
                 self.token
@@ -321,7 +321,7 @@ impl Expression for IntLiteralExpr {
     }
 
     fn eval(&self, _env: &Rc<RefCell<Environment>>, _ctx: &ErrorCtx) -> EvalResult {
-        Ok(Rc::new(self.literal))
+        Ok(Box::new(self.literal))
     }
 }
 
@@ -350,7 +350,7 @@ impl Expression for FloatLiteralExpr {
     }
 
     fn eval(&self, _env: &Rc<RefCell<Environment>>, _ctx: &ErrorCtx) -> EvalResult {
-        Ok(Rc::new(self.literal))
+        Ok(Box::new(self.literal))
     }
 }
 
@@ -396,7 +396,7 @@ impl Expression for StringLiteralExpr {
     }
 
     fn eval(&self, _env: &Rc<RefCell<Environment>>, _ctx: &ErrorCtx) -> EvalResult {
-        Ok(Rc::new(self.literal.clone()))
+        Ok(Box::new(self.literal.clone()))
     }
 }
 
@@ -409,11 +409,11 @@ impl Display for StringLiteralExpr {
 #[derive(Debug)]
 pub struct InterpolateStringExpr {
     pub literal: String,
-    pub replaces: Vec<(usize, Rc<dyn Expression>)>,
+    pub replaces: Vec<(usize, Box<dyn Expression>)>,
 }
 
 impl InterpolateStringExpr {
-    pub fn new(s: String, replaces: Vec<(usize, Rc<dyn Expression>)>) -> InterpolateStringExpr {
+    pub fn new(s: String, replaces: Vec<(usize, Box<dyn Expression>)>) -> InterpolateStringExpr {
         InterpolateStringExpr {
             literal: s.clone(),
             replaces,
@@ -428,7 +428,7 @@ impl Expression for InterpolateStringExpr {
 
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
         let ctx = ctx.with(EvalError::new("while evaluating string literal"));
-        Ok(Rc::new(InterpolateStr::new(self.literal.clone(), {
+        Ok(Box::new(InterpolateStr::new(self.literal.clone(), {
             let mut t = Vec::new();
             for (idx, r) in self
                 .replaces
@@ -455,8 +455,8 @@ pub struct FunctionLiteralExpr {
 }
 
 impl FunctionLiteralExpr {
-    pub fn new(arg: Rc<dyn Expression>, body: Rc<dyn Expression>) -> FunctionLiteralExpr {
-        FunctionLiteralExpr { arg, body }
+    pub fn new(arg: Box<dyn Expression>, body: Box<dyn Expression>) -> FunctionLiteralExpr {
+        FunctionLiteralExpr { arg: arg.into(), body: body.into() }
     }
 }
 
@@ -466,7 +466,7 @@ impl Expression for FunctionLiteralExpr {
     }
 
     fn eval(&self, env: &Rc<RefCell<Environment>>, _ctx: &ErrorCtx) -> EvalResult {
-        Ok(Rc::new(Lambda::new(
+        Ok(Box::new(Lambda::new(
             self.arg.clone(),
             self.body.clone(),
             env.clone(),
@@ -482,12 +482,12 @@ impl Display for FunctionLiteralExpr {
 
 #[derive(Debug)]
 pub struct FunctionCallExpr {
-    func: Rc<dyn Expression>,
-    arg: Rc<dyn Expression>,
+    func: Box<dyn Expression>,
+    arg: Box<dyn Expression>,
 }
 
 impl FunctionCallExpr {
-    pub fn new(func: Rc<dyn Expression>, arg: Rc<dyn Expression>) -> FunctionCallExpr {
+    pub fn new(func: Box<dyn Expression>, arg: Box<dyn Expression>) -> FunctionCallExpr {
         FunctionCallExpr { func, arg }
     }
 }
@@ -525,16 +525,16 @@ impl Display for FunctionCallExpr {
 
 #[derive(Debug)]
 pub struct IfExpr {
-    cond: Rc<dyn Expression>,
-    consq: Rc<dyn Expression>,
-    alter: Rc<dyn Expression>,
+    cond: Box<dyn Expression>,
+    consq: Box<dyn Expression>,
+    alter: Box<dyn Expression>,
 }
 
 impl IfExpr {
     pub fn new(
-        cond: Rc<dyn Expression>,
-        consq: Rc<dyn Expression>,
-        alter: Rc<dyn Expression>,
+        cond: Box<dyn Expression>,
+        consq: Box<dyn Expression>,
+        alter: Box<dyn Expression>,
     ) -> IfExpr {
         IfExpr { cond, consq, alter }
     }
@@ -573,12 +573,12 @@ impl Display for IfExpr {
 
 #[derive(Debug)]
 pub struct BindingExpr {
-    pub name: Rc<dyn Expression>,
-    pub value: Rc<dyn Expression>,
+    pub name: Box<dyn Expression>,
+    pub value: Box<dyn Expression>,
 }
 
 impl BindingExpr {
-    pub fn new(name: Rc<dyn Expression>, value: Rc<dyn Expression>) -> BindingExpr {
+    pub fn new(name: Box<dyn Expression>, value: Box<dyn Expression>) -> BindingExpr {
         BindingExpr { name, value }
     }
 
@@ -607,8 +607,8 @@ impl BindingExpr {
         } else if a.is::<InfixExpr>() && convany!(a, InfixExpr).token == Token::DOT {
             BindingExpr::new(
                 convany!(a, InfixExpr).left.clone(),
-                Rc::new(AttrsLiteralExpr::new(
-                    vec![Rc::new(BindingExpr::new(
+                Box::new(AttrsLiteralExpr::new(
+                    vec![Box::new(BindingExpr::new(
                         convany!(a, InfixExpr).right.clone(),
                         self.value.clone(),
                     ))],
@@ -642,12 +642,12 @@ impl Display for BindingExpr {
 
 #[derive(Debug)]
 pub struct AttrsLiteralExpr {
-    bindings: Vec<Rc<dyn Expression>>,
+    bindings: Vec<Box<dyn Expression>>,
     rec: bool,
 }
 
 impl AttrsLiteralExpr {
-    pub fn new(bindings: Vec<Rc<dyn Expression>>, rec: bool) -> AttrsLiteralExpr {
+    pub fn new(bindings: Vec<Box<dyn Expression>>, rec: bool) -> AttrsLiteralExpr {
         AttrsLiteralExpr { bindings, rec }
     }
 }
@@ -658,7 +658,7 @@ impl Expression for AttrsLiteralExpr {
     }
 
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
-        let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
+        let newenv = Box::new(RefCell::new(Environment::new(Some(env.clone()))));
         for b in self.bindings.iter() {
             if b.as_any().is::<BindingExpr>() {
                 let (name, value) = convany!(b.as_any(), BindingExpr).pair(
@@ -686,7 +686,7 @@ impl Expression for AttrsLiteralExpr {
                 }
             }
         }
-        Ok(Rc::new(Attrs::new(newenv)))
+        Ok(Box::new(Attrs::new(newenv)))
     }
 }
 
@@ -705,14 +705,14 @@ impl Display for AttrsLiteralExpr {
 
 #[derive(Debug)]
 pub struct ArgSetExpr {
-    pub args: Vec<(String, Option<Rc<dyn Expression>>)>,
+    pub args: Vec<(String, Option<Box<dyn Expression>>)>,
     pub allow_more: bool,
     pub alias: Option<String>,
 }
 
 impl ArgSetExpr {
     pub fn new(
-        args: Vec<(String, Option<Rc<dyn Expression>>)>,
+        args: Vec<(String, Option<Box<dyn Expression>>)>,
         allow_more: bool,
         alias: Option<String>,
     ) -> ArgSetExpr {
@@ -762,11 +762,11 @@ impl Display for ArgSetExpr {
 
 #[derive(Debug)]
 pub struct ListLiteralExpr {
-    items: Vec<Rc<dyn Expression>>,
+    items: Vec<Box<dyn Expression>>,
 }
 
 impl ListLiteralExpr {
-    pub fn new(items: Vec<Rc<dyn Expression>>) -> ListLiteralExpr {
+    pub fn new(items: Vec<Box<dyn Expression>>) -> ListLiteralExpr {
         ListLiteralExpr { items }
     }
 }
@@ -778,7 +778,7 @@ impl Expression for ListLiteralExpr {
 
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
         let ctx = ctx.with(EvalError::new("while evaluating list"));
-        Ok(Rc::new(List::new(
+        Ok(Box::new(List::new(
             self.items
                 .iter()
                 .map(|i| EvaledOr::expr(env.clone(), i.clone(), ctx.clone()))
@@ -799,12 +799,12 @@ impl Display for ListLiteralExpr {
 
 #[derive(Debug)]
 pub struct LetExpr {
-    bindings: Vec<Rc<dyn Expression>>,
-    expr: Rc<dyn Expression>,
+    bindings: Vec<Box<dyn Expression>>,
+    expr: Box<dyn Expression>,
 }
 
 impl LetExpr {
-    pub fn new(bindings: Vec<Rc<dyn Expression>>, expr: Rc<dyn Expression>) -> LetExpr {
+    pub fn new(bindings: Vec<Box<dyn Expression>>, expr: Box<dyn Expression>) -> LetExpr {
         LetExpr { bindings, expr }
     }
 }
@@ -816,7 +816,7 @@ impl Expression for LetExpr {
 
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
         let ctx = ctx.with(EvalError::new("while evaluating let expr"));
-        let newenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
+        let newenv = Box::new(RefCell::new(Environment::new(Some(env.clone()))));
         for b in self.bindings.iter() {
             let b = b.as_any().downcast_ref::<BindingExpr>().unwrap();
             let env = newenv;
@@ -844,12 +844,12 @@ impl Display for LetExpr {
 
 #[derive(Debug)]
 pub struct WithExpr {
-    attrs: Rc<dyn Expression>,
-    expr: Rc<dyn Expression>,
+    attrs: Box<dyn Expression>,
+    expr: Box<dyn Expression>,
 }
 
 impl WithExpr {
-    pub fn new(attrs: Rc<dyn Expression>, expr: Rc<dyn Expression>) -> WithExpr {
+    pub fn new(attrs: Box<dyn Expression>, expr: Box<dyn Expression>) -> WithExpr {
         WithExpr { attrs, expr }
     }
 }
@@ -881,12 +881,12 @@ impl Display for WithExpr {
 
 #[derive(Debug)]
 pub struct AssertExpr {
-    assertion: Rc<dyn Expression>,
-    expr: Rc<dyn Expression>,
+    assertion: Box<dyn Expression>,
+    expr: Box<dyn Expression>,
 }
 
 impl AssertExpr {
-    pub fn new(assertion: Rc<dyn Expression>, expr: Rc<dyn Expression>) -> AssertExpr {
+    pub fn new(assertion: Box<dyn Expression>, expr: Box<dyn Expression>) -> AssertExpr {
         AssertExpr { assertion, expr }
     }
 }
@@ -926,15 +926,15 @@ impl Display for AssertExpr {
 
 #[derive(Debug)]
 pub struct InheritExpr {
-    inherits: Vec<Rc<dyn Expression>>,
-    from: Option<Rc<dyn Expression>>,
+    inherits: Vec<Box<dyn Expression>>,
+    from: Option<Box<dyn Expression>>,
 }
 
 impl InheritExpr {
-    pub fn new(inherits: Vec<Rc<dyn Expression>>, from: Option<Rc<dyn Expression>>) -> InheritExpr {
+    pub fn new(inherits: Vec<Box<dyn Expression>>, from: Option<Box<dyn Expression>>) -> InheritExpr {
         InheritExpr {
             inherits,
-            from: from.map(Rc::from),
+            from,
         }
     }
 
@@ -944,8 +944,6 @@ impl InheritExpr {
         ctx: &ErrorCtx,
     ) -> Result<Vec<(String, EvaledOr)>, Rc<dyn NixRsError>> {
         let mut ret = Vec::new();
-        /* let env = self.from.clone().map_or(env, |f| {
-        }); */
         let env = if let Some(f) = &self.from {
             env
                 .borrow_mut()
@@ -1057,11 +1055,11 @@ impl Display for PathLiteralExpr {
 
 #[derive(Debug)]
 pub struct SearchPathExpr {
-    path: Rc<dyn Expression>,
+    path: Box<dyn Expression>,
 }
 
 impl SearchPathExpr {
-    pub fn new(path: Rc<dyn Expression>) -> SearchPathExpr {
+    pub fn new(path: Box<dyn Expression>) -> SearchPathExpr {
         SearchPathExpr { path }
     }
 }
@@ -1084,11 +1082,11 @@ impl Display for SearchPathExpr {
 
 #[derive(Debug)]
 pub struct InterpolateExpr {
-    pub ident: Rc<dyn Expression>,
+    pub ident: Box<dyn Expression>,
 }
 
 impl InterpolateExpr {
-    pub fn new(ident: Rc<dyn Expression>) -> InterpolateExpr {
+    pub fn new(ident: Box<dyn Expression>) -> InterpolateExpr {
         InterpolateExpr { ident }
     }
 }

@@ -23,18 +23,18 @@ impl From<String> for EvalError {
     }
 }
 
-impl From<EvalError> for Rc<dyn NixRsError> {
+impl From<EvalError> for Box<dyn NixRsError> {
     fn from(value: EvalError) -> Self {
-        Rc::new(value)
+        Box::new(value)
     }
 }
 
 impl EvalError {
-    pub fn new<T>(msg: T) -> Rc<dyn NixRsError> {
+    pub fn new<T>(msg: T) -> Box<dyn NixRsError> {
         EvalError::from(msg).into()
     }
 
-    pub fn from_string(msg: String) -> Rc<dyn NixRsError> {
+    pub fn from_string(msg: String) -> Box<dyn NixRsError> {
         EvalError::from(msg).into()
     }
 }
@@ -53,8 +53,8 @@ impl Display for EvalError {
 
 #[derive(Debug)]
 struct Stack {
-    this: Option<Rc<dyn NixRsError>>,
-    prev: Option<Rc<Stack>>,
+    this: Option<Box<dyn NixRsError>>,
+    prev: Option<Box<Stack>>,
 }
 
 #[derive(Clone, Debug)]
@@ -71,14 +71,14 @@ impl Default for ErrorCtx {
 impl ErrorCtx {
     pub fn new() -> ErrorCtx {
         ErrorCtx {
-            stack: Rc::new(Stack {
+            stack: Box::new(Stack {
                 this: None,
                 prev: None,
             }),
         }
     }
 
-    pub fn with(&self, err: Rc<dyn NixRsError>) -> ErrorCtx {
+    pub fn with(&self, err: Box<dyn NixRsError>) -> ErrorCtx {
         ErrorCtx {
             stack: Rc::new(Stack {
                 this: Some(err),
@@ -87,7 +87,7 @@ impl ErrorCtx {
         }
     }
 
-    pub fn unwind(&self, err: Rc<dyn NixRsError>) -> Rc<dyn NixRsError> {
+    pub fn unwind(&self, err: Box<dyn NixRsError>) -> Box<dyn NixRsError> {
         let mut e = String::new();
         e.push_str(&err.to_string());
         e.push('\n');

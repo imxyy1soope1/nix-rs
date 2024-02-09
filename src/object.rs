@@ -127,7 +127,7 @@ impl Object for Str {
 pub struct InterpolateStr {}
 
 impl InterpolateStr {
-    pub fn new(value: String, replaces: Vec<(usize, Rc<dyn Object>)>) -> Str {
+    pub fn new(value: String, replaces: Vec<(usize, Box<dyn Object>)>) -> Str {
         let mut offset = 0;
         let mut value = value;
         for (i, o) in replaces.into_iter() {
@@ -150,7 +150,7 @@ impl List {
         List { value }
     }
 
-    pub fn concat(&self, other: Rc<dyn Object>) -> List {
+    pub fn concat(&self, other: &dyn Object) -> List {
         let mut new = self.clone();
         new.value
             .extend(convany!(other.as_any(), List).value.clone());
@@ -269,7 +269,7 @@ impl Attrs {
         Ok(())
     }
 
-    pub fn update(&self, other: Rc<dyn Object>) -> EvalResult {
+    pub fn update(&self, other: &dyn Object) -> EvalResult {
         let new = self.clone();
         let other = convany!(other.as_any(), Attrs);
         for (k, v) in other.env.borrow().iter() {
@@ -327,10 +327,10 @@ impl Path {
 }
 
 pub fn objeq(
-    obj1: Rc<dyn Object>,
-    obj2: Rc<dyn Object>,
-    ctx: ErrorCtx,
-) -> Result<bool, Rc<dyn NixRsError>> {
+    obj1: &dyn Object,
+    obj2: &dyn Object,
+    ctx: &ErrorCtx,
+) -> Result<bool, Box<dyn NixRsError>> {
     let a1 = obj1.as_any();
     let a2 = obj2.as_any();
     Ok(if a1.is::<Int>() {
@@ -371,7 +371,7 @@ pub fn objeq(
                 if !tmp {
                     break;
                 }
-                tmp = tmp && *convany!(objeq(o1?, o2?, ctx.clone())?.as_any(), Bool);
+                tmp = tmp && *convany!(objeq(o1?.as_ref(), o2?.as_ref(), ctx)?.as_any(), Bool);
             }
             tmp
         } else {
@@ -422,10 +422,10 @@ pub fn objeq(
 } */
 
 pub fn objlt(
-    obj1: Rc<dyn Object>,
-    obj2: Rc<dyn Object>,
-    ctx: ErrorCtx,
-) -> Result<bool, Rc<dyn NixRsError>> {
+    obj1: &dyn Object,
+    obj2: &dyn Object,
+    ctx: &ErrorCtx,
+) -> Result<bool, Box<dyn NixRsError>> {
     let a1 = obj1.as_any();
     let a2 = obj2.as_any();
     Ok(if a1.is::<Int>() {
@@ -460,7 +460,7 @@ pub fn objlt(
                 if tmp {
                     break;
                 }
-                tmp = tmp || objlt(o1?, o2?, ctx.clone())?;
+                tmp = tmp || objlt(o1?.as_ref(), o2?.as_ref(), ctx)?;
             }
             tmp || {
                 let mut tmp = true;

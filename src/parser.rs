@@ -264,11 +264,11 @@ impl Parser {
                 if a.is::<IdentifierExpr>() {
                     args.push((convany!(a, IdentifierExpr).ident.clone(), None));
                 } else if a.is::<InfixExpr>() {
-                    let e = convany!(a, InfixExpr);
+                    let e = a.downcast_mut::<InfixExpr>().unwrap();
                     assert_eq!(e.token, Token::QUEST);
                     args.push((
                         convany!(e.left.as_any(), IdentifierExpr).ident.clone(),
-                        Some(e.right.clone()),
+                        Some(std::mem::replace(&mut e.right, Box::new(EllipsisLiteralExpr{}))),
                     ));
                 } else if a.is::<EllipsisLiteralExpr>() {
                     allow_more = true;

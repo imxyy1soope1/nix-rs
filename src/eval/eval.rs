@@ -5,7 +5,7 @@ use crate::{ast::*, object::*};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-pub type EvalResult = core::result::Result<Rc<dyn Object>, Rc<dyn NixRsError>>;
+pub type EvalResult = core::result::Result<Box<dyn Object>, Box<dyn NixRsError>>;
 
 pub struct Eval {
     root: EvaledOr,
