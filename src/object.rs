@@ -13,7 +13,7 @@ use std::fmt::{Debug, Display};
 enum _Object {
     Int(i64),
     Float(f64),
-    Boll(bool),
+    Bool(bool),
     Null,
     Str(String),
     List(Vec<Object>),
@@ -70,32 +70,68 @@ macro_rules! mkval {
         }
     };
 }
+macro_rules! matchtuple {
+    ($name:ident, $t:ident) => {
+        pub fn $name(&self) -> bool {
+            matches!(self, _Object::$t(..))
+        }
+    };
+}
+macro_rules! matchstruct {
+    ($name:ident, $t:ident) => {
+        pub fn $name(&self) -> bool {
+            matches!(self, _Object::$t{..})
+        }
+    };
+}
 impl Object {
     mkval!{mk_int, i64}
     mkval!{mk_float, f64}
     mkval!{mk_bool, bool}
     mkval!{mk_string, String}
     mkval!{mk_list, Vec<Object>}
+
     pub fn mk_null() -> Object {
         Object { val: _Object::Null }
     }
+
     pub fn mk_lambda(func: FunctionLiteralExpr, env: Env) -> Object {
         Object { val: _Object::Lambda { func, env } }
     }
+
     pub fn mk_attrs(env: Env) -> Object {
         Object { val: _Object::Attrs(env) }
     }
+
     pub fn mk_thunk(env: Env, expr: Box<dyn Expression>) -> Object {
         Object { val: _Object::ClosureThunk(env, expr) }
     }
+
     pub fn mk_call(func: Object, arg: Object) -> Object {
         Object { val: _Object::FunctionCallThunk { func, arg } }
     }
+
     pub fn mk_prim_op(arity: u8, ctx: ErrorCtx, func: fn(Vec<Object>, ctx: &ErrorCtx) -> Object) -> Object {
-        Object { val: _Object::PrimOp(PrimOp::new(arity, ctx, func ) }
+        Object { val: _Object::PrimOp(PrimOp::new(arity, ctx, func )) }
     }
+
     pub fn mk_prim_op_app(arity: u8, ctx: ErrorCtx, func: fn(Vec<Object>, ctx: &ErrorCtx) -> Object) -> Object {
-        Object { val: _Object::PrimOpApp { arity, ctx, func } }
+        Object { val: _Object::PrimOpApp(PrimOpApp::new( arity, ctx, func)) }
+    }
+
+    matchtuple!{is_int, Int}
+    matchtuple!{is_float, Float}
+    matchtuple!{is_bool, Bool}
+    matchtuple!{is_str, Str}
+    matchtuple!{is_list, List}
+    matchstruct!{is_lambda, Lambda}
+    matchtuple!{is_attrs, Attrs}
+    matchtuple!{is_prim_op, PrimOp}
+    matchtuple!{is_prim_op_app, PrimOpApp}
+    matchtuple!{is_thunk, ClosureThunk}
+    matchtuple!{is_call, FunctionCallThunk}
+    pub fn is_null(&self) -> bool {
+        matches!(self, _Object::Null)
     }
 }
 
@@ -484,8 +520,8 @@ pub fn objeq(
 } */
 
 pub fn objlt(
-    obj1: &dyn Object,
-    obj2: &dyn Object,
+    obj1: &Object,
+    obj2: &Object,
     ctx: &ErrorCtx,
 ) -> Result<bool, Box<dyn NixRsError>> {
     let a1 = obj1.as_any();

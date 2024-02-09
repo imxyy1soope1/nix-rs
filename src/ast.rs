@@ -17,17 +17,17 @@ pub trait Expression: Display + Debug {
 }
 
 #[derive(Debug)]
-pub struct LogicalNegExpr {
+pub struct OpNotExpr {
     right: Box<dyn Expression>
 }
 
-impl LogicalNegExpr {
-    pub fn new(right: Box<dyn Expression>) -> LogicalNegExpr {
-        LogicalNegExpr { right }
+impl OpNotExpr {
+    pub fn new(right: Box<dyn Expression>) -> OpNotExpr {
+        OpNotExpr { right }
     }
 }
 
-impl Expression for LogicalNegExpr {
+impl Expression for OpNotExpr {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -46,25 +46,25 @@ impl Expression for LogicalNegExpr {
     }
 }
 
-impl Display for LogicalNegExpr {
+impl Display for OpNotExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "(!{})", self.right)
     }
 }
 
 #[derive(Debug)]
-pub struct AddExpr {
+pub struct OpAddExpr {
     left: Box<dyn Expression>,
     right: Box<dyn Expression>
 }
 
-impl AddExpr {
-    pub fn new(left: Box<dyn Expression>, right: Box<dyn Expression>) -> AddExpr {
-        AddExpr { left, right }
+impl OpAddExpr {
+    pub fn new(left: Box<dyn Expression>, right: Box<dyn Expression>) -> OpAddExpr {
+        OpAddExpr { left, right }
     }
 }
 
-impl Expression for AddExpr {
+impl Expression for OpAddExpr {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -106,7 +106,7 @@ impl Expression for AddExpr {
     }
 }
 
-impl Display for AddExpr {
+impl Display for OpAddExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "({} + {})", self.left, self.right)
     }
