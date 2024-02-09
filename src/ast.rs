@@ -15,6 +15,16 @@ pub trait Expression: Display + Debug {
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult;
 }
 
+pub trait IntoAny {
+    fn into_any(self) -> Box<dyn Any>;
+}
+
+impl<T: Expression> IntoAny for Box<T> {
+    fn into_any(self) -> Box<dyn Any> {
+        self
+    }
+}
+
 #[derive(Debug)]
 pub struct LogicalNegExpr {
     right: Box<dyn Expression>
