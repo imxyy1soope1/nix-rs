@@ -6,19 +6,19 @@ use std::fmt::Display;
 #[derive(Debug)]
 pub struct BuiltinFunction {
     argscount: u8,
-    func: fn(Vec<EvaledOr>) -> EvalResult,
+    func: fn(Vec<Box<dyn Object>>) -> EvalResult,
 }
 
 #[derive(Debug)]
 pub struct BuiltinFunctionApp {
-    args: Vec<EvaledOr>,
+    args: Vec<Box<dyn Object>>,
     argsleft: u8,
-    func: fn(Vec<EvaledOr>) -> EvalResult,
+    func: fn(Vec<Box<dyn Object>>) -> EvalResult,
 }
 
 impl BuiltinFunctionApp {
-    pub fn call(&self, arg: EvaledOr) -> EvalResult {
-        let mut args = self.args.clone();
+    pub fn call(self, arg: Box<dyn Object>) -> EvalResult {
+        let mut args = self.args;
         args.push(arg);
         let a = self.argsleft - 1;
         if a == 0 {
@@ -47,11 +47,11 @@ impl Display for BuiltinFunctionApp {
 }
 
 impl BuiltinFunction {
-    pub fn new(argscount: u8, func: fn(Vec<EvaledOr>) -> EvalResult) -> BuiltinFunction {
+    pub fn new(argscount: u8, func: fn(Vec<Box<dyn Object>>) -> EvalResult) -> BuiltinFunction {
         BuiltinFunction { argscount, func }
     }
 
-    pub fn call(&self, arg: EvaledOr) -> EvalResult {
+    pub fn call(&self, arg: Box<dyn Object>) -> EvalResult {
         let b = BuiltinFunctionApp {
             args: Vec::new(),
             argsleft: self.argscount,
@@ -79,10 +79,10 @@ pub fn builtin_fns() -> [(&'static str, bool, BuiltinFunction); 12] {
             "ceil",
             false,
             BuiltinFunction::new(1, |a| {
-                Ok(if a[0].eval()?.as_any().is::<Float>() {
-                    Box::new(convany!(a[0].eval()?.as_any(), Float).ceil())
+                Ok(if a[0].as_any().is::<Float>() {
+                    Box::new(convany!(a[0].as_any(), Float).ceil())
                 } else {
-                    Box::new(*convany!(a[0].eval()?.as_any(), Int))
+                    Box::new(*convany!(a[0].as_any(), Int))
                 })
             }),
         ),
@@ -90,10 +90,10 @@ pub fn builtin_fns() -> [(&'static str, bool, BuiltinFunction); 12] {
             "floor",
             false,
             BuiltinFunction::new(1, |a| {
-                Ok(if a[0].eval()?.as_any().is::<Float>() {
-                    Box::new(convany!(a[0].eval()?.as_any(), Float).floor())
+                Ok(if a[0].as_any().is::<Float>() {
+                    Box::new(convany!(a[0].as_any(), Float).floor())
                 } else {
-                    Box::new(*convany!(a[0].eval()?.as_any(), Int))
+                    Box::new(*convany!(a[0].as_any(), Int))
                 })
             }),
         ),
@@ -101,7 +101,7 @@ pub fn builtin_fns() -> [(&'static str, bool, BuiltinFunction); 12] {
             "typeOf",
             false,
             BuiltinFunction::new(1, |a| {
-                let a = a[0].eval()?;
+                let a = a[0];
                 let a = a.as_any();
                 macro_rules! is {
                     ($t:tt) => {
@@ -132,52 +132,52 @@ pub fn builtin_fns() -> [(&'static str, bool, BuiltinFunction); 12] {
         (
             "isNull",
             false,
-            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].eval()?.as_any().is::<Null>()))),
+            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].as_any().is::<Null>()))),
         ),
         (
             "isFunction",
             false,
-            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].eval()?.as_any().is::<Lambda>()))),
+            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].as_any().is::<Lambda>()))),
         ),
         (
             "isInt",
             false,
-            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].eval()?.as_any().is::<Int>()))),
+            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].as_any().is::<Int>()))),
         ),
         (
             "isFloat",
             false,
-            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].eval()?.as_any().is::<Float>()))),
+            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].as_any().is::<Float>()))),
         ),
         (
             "isString",
             false,
-            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].eval()?.as_any().is::<Str>()))),
+            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].as_any().is::<Str>()))),
         ),
         (
             "isBool",
             false,
-            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].eval()?.as_any().is::<Bool>()))),
+            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].as_any().is::<Bool>()))),
         ),
         (
             "isPath",
             false,
-            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].eval()?.as_any().is::<Path>()))),
+            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].as_any().is::<Path>()))),
         ),
         (
             "seq",
             false,
             BuiltinFunction::new(2, |a| {
-                a[0].eval()?;
-                a[1].eval()
+                a[0].force_value();
+                a[1].force_value()
             }),
         ),
         (
             "deepSeq",
             false,
             BuiltinFunction::new(2, |a| {
-                a[0].eval()?;
-                a[1].eval()
+                a[0].force_value_deep();
+                a[1].force_value()
             }),
         ),
     ]

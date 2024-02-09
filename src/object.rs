@@ -198,7 +198,7 @@ impl Lambda {
         Lambda { arg, body, env }
     }
 
-    pub fn call(&self, arg: Rc<dyn Object>, ctx: ErrorCtx) -> EvalResult {
+    pub fn call(&self, arg: Box<dyn Object>, ctx: ErrorCtx) -> EvalResult {
         let callenv = Rc::new(RefCell::new(Environment::new(Some(self.env.clone()))));
         if !self.arg.as_any().is::<ArgSetExpr>() {
             // IdentifierExpr
@@ -206,7 +206,7 @@ impl Lambda {
                 .borrow_mut()
                 .set(
                     convany!(self.arg.as_any(), IdentifierExpr).ident.clone(),
-                    EvaledOr::evaled(arg),
+                    EvaledOr::evaled(arg.into()),
                 )
                 .unwrap();
             return self.body.eval(&callenv, &ctx);

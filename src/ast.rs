@@ -12,17 +12,8 @@ use std::rc::Rc;
 
 pub trait Expression: Display + Debug {
     fn as_any(&self) -> &dyn Any;
+    fn into_any(self: Box<Self>) -> Box<dyn Any>;
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult;
-}
-
-pub trait IntoAny {
-    fn into_any(self) -> Box<dyn Any>;
-}
-
-impl<T: Expression> IntoAny for Box<T> {
-    fn into_any(self) -> Box<dyn Any> {
-        self
-    }
 }
 
 #[derive(Debug)]
@@ -38,6 +29,10 @@ impl LogicalNegExpr {
 
 impl Expression for LogicalNegExpr {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
 
@@ -71,6 +66,10 @@ impl AddExpr {
 
 impl Expression for AddExpr {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
 
@@ -134,6 +133,10 @@ impl Expression for PrefixExpr {
         self
     }
 
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
         let val = self.right.eval(
             env,
@@ -184,6 +187,10 @@ impl InfixExpr {
 
 impl Expression for InfixExpr {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
 
@@ -301,6 +308,10 @@ impl Expression for IdentifierExpr {
         self
     }
 
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
     fn eval(&self, env: &Rc<RefCell<Environment>>, _ctx: &ErrorCtx) -> EvalResult {
         env.borrow().get(&self.ident).unwrap().eval()
     }
@@ -327,6 +338,10 @@ impl IntLiteralExpr {
 
 impl Expression for IntLiteralExpr {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
 
@@ -359,6 +374,10 @@ impl Expression for FloatLiteralExpr {
         self
     }
 
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
     fn eval(&self, _env: &Rc<RefCell<Environment>>, _ctx: &ErrorCtx) -> EvalResult {
         Ok(Box::new(self.literal))
     }
@@ -375,6 +394,10 @@ pub struct EllipsisLiteralExpr;
 
 impl Expression for EllipsisLiteralExpr {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
 
@@ -402,6 +425,10 @@ impl StringLiteralExpr {
 
 impl Expression for StringLiteralExpr {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
 
@@ -433,6 +460,10 @@ impl InterpolateStringExpr {
 
 impl Expression for InterpolateStringExpr {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
 
@@ -475,6 +506,10 @@ impl Expression for FunctionLiteralExpr {
         self
     }
 
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
     fn eval(&self, env: &Rc<RefCell<Environment>>, _ctx: &ErrorCtx) -> EvalResult {
         Ok(Box::new(Lambda::new(
             self.arg.clone(),
@@ -507,10 +542,14 @@ impl Expression for FunctionCallExpr {
         self
     }
 
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
         let ctx = ctx.with(EvalError::new("while evaluating function call"));
         let e = self.func.eval(env, &ctx)?;
-        let fa = e.as_any();
+        let fa = e.into_any();
         if fa.is::<BuiltinFunction>() {
             convany!(fa, BuiltinFunction).call(EvaledOr::expr(env.clone(), self.arg.clone(), ctx.clone()))
         } else if fa.is::<BuiltinFunctionApp>() {
@@ -552,6 +591,10 @@ impl IfExpr {
 
 impl Expression for IfExpr {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
 
@@ -639,6 +682,10 @@ impl Expression for BindingExpr {
         self
     }
 
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
     fn eval(&self, _env: &Rc<RefCell<Environment>>, _ctx: &ErrorCtx) -> EvalResult {
         unimplemented!()
     }
@@ -664,6 +711,10 @@ impl AttrsLiteralExpr {
 
 impl Expression for AttrsLiteralExpr {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
 
@@ -739,6 +790,10 @@ impl Expression for ArgSetExpr {
         self
     }
 
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
     fn eval(&self, _env: &Rc<RefCell<Environment>>, _ctx: &ErrorCtx) -> EvalResult {
         unimplemented!()
     }
@@ -786,6 +841,10 @@ impl Expression for ListLiteralExpr {
         self
     }
 
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
         let ctx = ctx.with(EvalError::new("while evaluating list"));
         Ok(Box::new(List::new(
@@ -821,6 +880,10 @@ impl LetExpr {
 
 impl Expression for LetExpr {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
 
@@ -869,6 +932,10 @@ impl Expression for WithExpr {
         self
     }
 
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
         let e = self.attrs.eval(
             env,
@@ -903,6 +970,10 @@ impl AssertExpr {
 
 impl Expression for AssertExpr {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
 
@@ -1011,6 +1082,10 @@ impl Expression for InheritExpr {
         self
     }
 
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
     fn eval(&self, _env: &Rc<RefCell<Environment>>, _ctx: &ErrorCtx) -> EvalResult {
         unimplemented!()
     }
@@ -1052,6 +1127,10 @@ impl Expression for PathLiteralExpr {
         self
     }
 
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
     fn eval(&self, _env: &Rc<RefCell<Environment>>, _ctx: &ErrorCtx) -> EvalResult {
         todo!()
     }
@@ -1079,6 +1158,10 @@ impl Expression for SearchPathExpr {
         self
     }
 
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
     fn eval(&self, _env: &Rc<RefCell<Environment>>, _ctx: &ErrorCtx) -> EvalResult {
         todo!()
     }
@@ -1103,6 +1186,10 @@ impl InterpolateExpr {
 
 impl Expression for InterpolateExpr {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
 

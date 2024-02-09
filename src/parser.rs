@@ -261,15 +261,15 @@ impl Parser {
                 self.next();
             } else {
                 let expr = self.parse_expr(Precedence::LOWEST)?;
-                let a = expr.as_any();
+                let a = expr.into_any();
                 if a.is::<IdentifierExpr>() {
                     args.push((convany!(a, IdentifierExpr).ident.clone(), None));
                 } else if a.is::<InfixExpr>() {
-                    let e = a.downcast_mut::<InfixExpr>().unwrap();
+                    let e = a.downcast::<InfixExpr>().unwrap();
                     assert_eq!(e.token, Token::QUEST);
                     args.push((
-                        convany!(e.left.as_any(), IdentifierExpr).ident.clone(),
-                        Some(std::mem::replace(&mut e.right, Box::new(EllipsisLiteralExpr{}))),
+                        e.left.into_any().downcast::<IdentifierExpr>().unwrap().ident.clone(),
+                        Some(e.right),
                     ));
                 } else if a.is::<EllipsisLiteralExpr>() {
                     allow_more = true;
