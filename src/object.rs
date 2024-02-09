@@ -1,16 +1,14 @@
-use crate::{
-    ast::{AttrsLiteralExpr, FunctionLiteralExpr, ListLiteralExpr},
-    eval::EvalResult,
-};
-use std::{any::Any, cell::RefCell, fmt::Debug, fmt::Display, rc::Rc};
+use crate::ast::{ArgSetExpr, Expression, IdentifierExpr, AttrsLiteralExpr, FunctionLiteralExpr, ListLiteralExpr};
+use crate::convany;
+use crate::error::*;
+use crate::eval::{Environment, Env, EvalResult};
 
-use crate::{
-    ast::{ArgSetExpr, Expression, IdentifierExpr},
-    convany,
-    error::*,
-    eval::Environment,
-};
+use std::any::Any;
+use std::rc::Rc;
+use std::cell::RefCell;
+use std::fmt::{Debug, Display};
 
+#[derive(Debug, Clone)]
 enum _Object {
     Int(i64),
     Float(f64),
@@ -23,18 +21,72 @@ enum _Object {
 
     ClosureThunk(Env, Box<dyn Expression>),
     FunctionCallThunk{left: Object, right: Object},
-
 }
 
+#[derive(Debug, Clone)]
 pub struct Object {
     val: _Object
 }
 
-pub trait Object: Display + Debug {
+impl From<i64> for Object {
+    fn from(value: i64) -> Self {
+        Object { val: _Object::Int(value) }
+    }
+}
+
+impl From<f64> for Object {
+    fn from(value: f64) -> Self {
+        Object { val: _Object::Float(value) }
+    }
+}
+
+impl From<bool> for Object {
+    fn from(value: bool) -> Self {
+        Object { val: _Object::Bool(value) }
+    }
+}
+
+impl From<String> for Object {
+    fn from(value: String) -> Self {
+        Object { val: _Object::Str(value) }
+    }
+}
+
+impl From<Vec<Object>> for Object {
+    fn from(value: Vec<Object>) -> Self {
+        Object { val: _Object::List(value) }
+    }
+}
+
+macro_rules! mkval {
+    ($name:ident, $t:ty) => {
+        pub fn $name(value: $t) -> Object {
+            value.into()
+        }
+    };
+}
+impl Object {
+    mkval!{mk_int, i64}
+    mkval!{mk_float, f64}
+    mkval!{mk_bool, bool}
+    mkval!{mk_string, String}
+    mkval!{mk_list, Vec<Object>}
+    pub fn mk_null() -> Object {
+        Object { val: _Object::Null }
+    }
+    pub fn mk_lambda(func: FunctionLiteralExpr, env: Env) -> Object {
+        Object { val: _Object::Lambda { func, env } }
+    }
+    pub fn mk_attrs(env: Env) -> Object {
+        Object { val: _Object::Attrs(env) }
+    }
+}
+
+/* pub trait Object: Display + Debug {
     fn as_any(&self) -> &dyn Any;
     fn into_any(self: Box<Self>) -> Box<dyn Any>;
     fn force_value(&self)
-}
+} */
 
 pub type Int = i64;
 
