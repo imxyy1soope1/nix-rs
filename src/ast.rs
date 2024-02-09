@@ -1,4 +1,4 @@
-use crate::builtins::{BuiltinFunction, BuiltinFunctionApp};
+use crate::builtins::{PrimOp, PrimOpApp};
 use crate::convany;
 use crate::error::*;
 use crate::eval::{Environment, EvalResult};
@@ -550,10 +550,10 @@ impl Expression for FunctionCallExpr {
         let ctx = ctx.with(EvalError::new("while evaluating function call"));
         let e = self.func.eval(env, &ctx)?;
         let fa = e.into_any();
-        if fa.is::<BuiltinFunction>() {
-            convany!(fa, BuiltinFunction).call(self.arg.eval(env, &ctx))
-        } else if fa.is::<BuiltinFunctionApp>() {
-            convany!(fa, BuiltinFunctionApp).call(self.arg.eval(env, &ctx))
+        if fa.is::<PrimOp>() {
+            convany!(fa, PrimOp).call(self.arg.eval(env, &ctx))
+        } else if fa.is::<PrimOpApp>() {
+            convany!(fa, PrimOpApp).call(self.arg.eval(env, &ctx))
         } else {
             fa.downcast_ref::<Lambda>()
                 .unwrap()

@@ -1,84 +1,62 @@
 use crate::convany;
+use crate::error::ErrorCtx;
 use crate::eval::EvalResult;
 use crate::object::*;
 use std::fmt::Display;
 
 #[derive(Debug)]
-pub struct BuiltinFunction {
-    argscount: u8,
-    func: fn(Vec<Box<dyn Object>>) -> EvalResult,
+pub struct PrimOp {
+    arity: u8,
+    ctx: ErrorCtx,
+    func: fn(Vec<Object>, &ErrorCtx) -> EvalResult,
 }
 
 #[derive(Debug)]
-pub struct BuiltinFunctionApp {
-    args: Vec<Box<dyn Object>>,
-    argsleft: u8,
-    func: fn(Vec<Box<dyn Object>>) -> EvalResult,
+pub struct PrimOpApp {
+    args: Vec<Object>,
+    arity: u8,
+    ctx: ErrorCtx,
+    func: fn(Vec<Object>, &ErrorCtx) -> EvalResult,
 }
 
-impl BuiltinFunctionApp {
-    pub fn call(self, arg: Box<dyn Object>) -> EvalResult {
+impl PrimOpApp {
+    pub fn call(self, arg: Object) -> EvalResult {
         let mut args = self.args;
         args.push(arg);
-        let a = self.argsleft - 1;
+        let a = self.arity - 1;
         if a == 0 {
             let f = self.func;
-            f(args)
+            f(args, &self.ctx)
         } else {
-            Ok(Box::new(BuiltinFunctionApp {
+            Ok(Box::new(PrimOpApp {
                 args,
-                argsleft: a,
-                func: self.func,
+                arity: a,
+                ..self
             }))
         }
     }
 }
 
-impl Object for BuiltinFunctionApp {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-}
-
-impl Display for BuiltinFunctionApp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "«primop-app»")
-    }
-}
-
-impl BuiltinFunction {
-    pub fn new(argscount: u8, func: fn(Vec<Box<dyn Object>>) -> EvalResult) -> BuiltinFunction {
-        BuiltinFunction { argscount, func }
+impl PrimOp {
+    pub fn new(arity: u8, ctx: ErrorCtx, func: fn(Vec<Box<dyn Object>>) -> EvalResult) -> PrimOp {
+        PrimOp { arity, ctx, func }
     }
 
-    pub fn call(&self, arg: Box<dyn Object>) -> EvalResult {
-        let b = BuiltinFunctionApp {
-            args: Vec::new(),
-            argsleft: self.argscount,
-            func: self.func,
+    pub fn call(&self, arg: Object) -> EvalResult {
+        let b = PrimOpApp {
+            args: Vec::with_capacity(self.arity),
+            ..self
         };
         b.call(arg)
     }
 }
 
-impl Object for BuiltinFunction {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-}
-
-impl Display for BuiltinFunction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "«primop»")
-    }
-}
-
-pub fn builtin_fns() -> [(&'static str, bool, BuiltinFunction); 12] {
+pub fn builtin_fns() -> [(&'static str, bool, PrimOp); 12] {
     [
         (
             "ceil",
             false,
-            BuiltinFunction::new(1, |a| {
+            PrimOp::new(1, |a| {
                 Ok(if a[0].as_any().is::<Float>() {
                     Box::new(convany!(a[0].as_any(), Float).ceil())
                 } else {
@@ -89,7 +67,7 @@ pub fn builtin_fns() -> [(&'static str, bool, BuiltinFunction); 12] {
         (
             "floor",
             false,
-            BuiltinFunction::new(1, |a| {
+            PrimOp::new(1, |a| {
                 Ok(if a[0].as_any().is::<Float>() {
                     Box::new(convany!(a[0].as_any(), Float).floor())
                 } else {
@@ -100,7 +78,7 @@ pub fn builtin_fns() -> [(&'static str, bool, BuiltinFunction); 12] {
         (
             "typeOf",
             false,
-            BuiltinFunction::new(1, |a| {
+            PrimOp::new(1, |a| {
                 let a = a[0];
                 let a = a.as_any();
                 macro_rules! is {
@@ -132,42 +110,42 @@ pub fn builtin_fns() -> [(&'static str, bool, BuiltinFunction); 12] {
         (
             "isNull",
             false,
-            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].as_any().is::<Null>()))),
+            PrimOp::new(1, |a| Ok(Box::new(a[0].as_any().is::<Null>()))),
         ),
         (
             "isFunction",
             false,
-            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].as_any().is::<Lambda>()))),
+            PrimOp::new(1, |a| Ok(Box::new(a[0].as_any().is::<Lambda>()))),
         ),
         (
             "isInt",
             false,
-            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].as_any().is::<Int>()))),
+            PrimOp::new(1, |a| Ok(Box::new(a[0].as_any().is::<Int>()))),
         ),
         (
             "isFloat",
             false,
-            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].as_any().is::<Float>()))),
+            PrimOp::new(1, |a| Ok(Box::new(a[0].as_any().is::<Float>()))),
         ),
         (
             "isString",
             false,
-            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].as_any().is::<Str>()))),
+            PrimOp::new(1, |a| Ok(Box::new(a[0].as_any().is::<Str>()))),
         ),
         (
             "isBool",
             false,
-            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].as_any().is::<Bool>()))),
+            PrimOp::new(1, |a| Ok(Box::new(a[0].as_any().is::<Bool>()))),
         ),
         (
             "isPath",
             false,
-            BuiltinFunction::new(1, |a| Ok(Box::new(a[0].as_any().is::<Path>()))),
+            PrimOp::new(1, |a| Ok(Box::new(a[0].as_any().is::<Path>()))),
         ),
         (
             "seq",
             false,
-            BuiltinFunction::new(2, |a| {
+            PrimOp::new(2, |a| {
                 a[0].force_value();
                 a[1].force_value()
             }),
@@ -175,7 +153,7 @@ pub fn builtin_fns() -> [(&'static str, bool, BuiltinFunction); 12] {
         (
             "deepSeq",
             false,
-            BuiltinFunction::new(2, |a| {
+            PrimOp::new(2, |a| {
                 a[0].force_value_deep();
                 a[1].force_value()
             }),

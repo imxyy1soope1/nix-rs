@@ -1,4 +1,5 @@
 use crate::ast::{ArgSetExpr, Expression, IdentifierExpr, AttrsLiteralExpr, FunctionLiteralExpr, ListLiteralExpr};
+use crate::builtins::{PrimOp, PrimOpApp};
 use crate::convany;
 use crate::error::*;
 use crate::eval::{Environment, Env, EvalResult};
@@ -18,9 +19,13 @@ enum _Object {
     List(Vec<Object>),
     Lambda{func: FunctionLiteralExpr, env: Env},
     Attrs(Env),
+    // PrimOp{arity:u8, ctx: ErrorCtx, func: fn(Vec<Object>, ctx: &ErrorCtx) -> Object},
+    // PrimOpApp{arity:u8, args: ctx: ErrorCtx, func: fn(Vec<Object>, ctx: &ErrorCtx) -> Object},
+    PrimOp(PrimOp),
+    PrimOpApp(PrimOpApp),
 
     ClosureThunk(Env, Box<dyn Expression>),
-    FunctionCallThunk{left: Object, right: Object},
+    FunctionCallThunk{func: Object, arg: Object},
 }
 
 #[derive(Debug, Clone)]
@@ -80,13 +85,26 @@ impl Object {
     pub fn mk_attrs(env: Env) -> Object {
         Object { val: _Object::Attrs(env) }
     }
+    pub fn mk_thunk(env: Env, expr: Box<dyn Expression>) -> Object {
+        Object { val: _Object::ClosureThunk(env, expr) }
+    }
+    pub fn mk_call(func: Object, arg: Object) -> Object {
+        Object { val: _Object::FunctionCallThunk { func, arg } }
+    }
+    pub fn mk_prim_op(arity: u8, ctx: ErrorCtx, func: fn(Vec<Object>, ctx: &ErrorCtx) -> Object) -> Object {
+        Object { val: _Object::PrimOp(PrimOp::new(arity, ctx, func ) }
+    }
+    pub fn mk_prim_op_app(arity: u8, ctx: ErrorCtx, func: fn(Vec<Object>, ctx: &ErrorCtx) -> Object) -> Object {
+        Object { val: _Object::PrimOpApp { arity, ctx, func } }
+    }
 }
 
-/* pub trait Object: Display + Debug {
+/*
+pub trait Object: Display + Debug {
     fn as_any(&self) -> &dyn Any;
     fn into_any(self: Box<Self>) -> Box<dyn Any>;
     fn force_value(&self)
-} */
+}
 
 pub type Int = i64;
 
@@ -368,10 +386,11 @@ impl Path {
         Path { path }
     }
 }
+*/
 
 pub fn objeq(
-    obj1: &dyn Object,
-    obj2: &dyn Object,
+    obj1: &Object,
+    obj2: &Object,
     ctx: &ErrorCtx,
 ) -> Result<bool, Box<dyn NixRsError>> {
     let a1 = obj1.as_any();
