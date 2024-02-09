@@ -551,13 +551,9 @@ impl Expression for FunctionCallExpr {
         let e = self.func.eval(env, &ctx)?;
         let fa = e.into_any();
         if fa.is::<BuiltinFunction>() {
-            convany!(fa, BuiltinFunction).call(EvaledOr::expr(env.clone(), self.arg.clone(), ctx.clone()))
+            convany!(fa, BuiltinFunction).call(self.arg.eval(env, &ctx))
         } else if fa.is::<BuiltinFunctionApp>() {
-            convany!(fa, BuiltinFunctionApp).call(EvaledOr::expr(
-                env.clone(),
-                self.arg.clone(),
-                ctx.clone(),
-            ))
+            convany!(fa, BuiltinFunctionApp).call(self.arg.eval(env, &ctx))
         } else {
             fa.downcast_ref::<Lambda>()
                 .unwrap()
@@ -639,23 +635,23 @@ impl BindingExpr {
         &self,
         env: &Rc<RefCell<Environment>>,
         ctx: &ErrorCtx,
-    ) -> Result<(String, EvaledOr), Rc<dyn NixRsError>> {
+    ) -> Result<(String, Box<dyn Object>), Rc<dyn NixRsError>> {
         let ctx = ctx.with(EvalError::new("while evaluating binding expr"));
         let a = self.name.as_any();
         Ok(if a.is::<IdentifierExpr>() {
             (
                 a.downcast_ref::<IdentifierExpr>().unwrap().ident.clone(),
-                EvaledOr::expr(env.clone(), self.value.clone(), ctx),
+                self.value.eval(env, &ctx)
             )
         } else if a.is::<StringLiteralExpr>() {
             (
                 convany!(a, StringLiteralExpr).literal.clone(),
-                EvaledOr::expr(env.clone(), self.value.clone(), ctx),
+                self.value.eval(env, &ctx)
             )
         } else if a.is::<InterpolateStringExpr>() {
             (
                 convany!(self.name.eval(env, &ctx)?.as_any(), Str).clone(),
-                EvaledOr::expr(env.clone(), self.value.clone(), ctx),
+                self.value.eval(env, &ctx)
             )
         } else if a.is::<InfixExpr>() && convany!(a, InfixExpr).token == Token::DOT {
             BindingExpr::new(
@@ -850,7 +846,7 @@ impl Expression for ListLiteralExpr {
         Ok(Box::new(List::new(
             self.items
                 .iter()
-                .map(|i| EvaledOr::expr(env.clone(), i.clone(), ctx.clone()))
+                .map(|i| Box<dyn Object>::expr(env.clone(), i.clone(), ctx.clone()))
                 .collect(),
         )))
     }
@@ -897,7 +893,7 @@ impl Expression for LetExpr {
                 .borrow_mut()
                 .set(
                     convany!(b.name.as_any(), IdentifierExpr).ident.clone(),
-                    EvaledOr::expr(env, b.value.clone(), ctx.clone()),
+                    Box<dyn Object>::expr(env, b.value.clone(), ctx.clone()),
                 )
                 .unwrap();
         }
@@ -1023,7 +1019,7 @@ impl InheritExpr {
         &self,
         env: &Rc<RefCell<Environment>>,
         ctx: &ErrorCtx,
-    ) -> Result<Vec<(String, EvaledOr)>, Rc<dyn NixRsError>> {
+    ) -> Result<Vec<(String, Box<dyn Object>)>, Rc<dyn NixRsError>> {
         let mut ret = Vec::new();
         let env = if let Some(f) = &self.from {
             env

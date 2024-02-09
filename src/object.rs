@@ -1,5 +1,5 @@
 use crate::{
-    ast::{AttrsLiteralExpr, ListLiteralExpr},
+    ast::{AttrsLiteralExpr, FunctionLiteralExpr, ListLiteralExpr},
     eval::EvalResult,
 };
 use std::{any::Any, cell::RefCell, fmt::Debug, fmt::Display, rc::Rc};
@@ -11,76 +11,39 @@ use crate::{
     eval::Environment,
 };
 
-#[derive(Debug, Clone)]
-pub enum _EvaledOr {
-    Expr(Rc<RefCell<Environment>>, Rc<dyn Expression>, ErrorCtx),
-    Evaled(Rc<dyn Object>),
-    Error(Rc<dyn NixRsError>),
+enum _Object {
+    Int(i64),
+    Float(f64),
+    Boll(bool),
+    Null,
+    Str(String),
+    List(Vec<Object>),
+    Lambda{func: FunctionLiteralExpr, env: Env},
+    Attrs(Env),
+
+    ClosureThunk(Env, Box<dyn Expression>),
+    FunctionCallThunk{left: Object, right: Object},
+
 }
 
-pub use _EvaledOr::*;
-
-impl _EvaledOr {
-    fn set(&mut self, new: Self) {
-        *self = new
-    }
-    fn get(&self) -> EvalResult {
-        match self {
-            Evaled(r) => Ok(r.clone()),
-            Error(e) => Err(e.clone()),
-            _ => unreachable!(),
-        }
-    }
-    fn eval(&mut self) -> EvalResult {
-        if let Expr(env, e, ctx) = &*self {
-            self.set(Evaled(e.eval(env, ctx)?))
-        }
-        self.get()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct EvaledOr {
-    val: RefCell<_EvaledOr>,
-}
-
-impl EvaledOr {
-    pub fn evaled(r: Rc<dyn Object>) -> EvaledOr {
-        EvaledOr {
-            val: RefCell::new(_EvaledOr::Evaled(r)),
-        }
-    }
-
-    pub fn expr(
-        env: Rc<RefCell<Environment>>,
-        expr: Rc<dyn Expression>,
-        ctx: ErrorCtx,
-    ) -> EvaledOr {
-        EvaledOr {
-            val: RefCell::new(_EvaledOr::Expr(env, expr, ctx)),
-        }
-    }
-
-    pub fn eval(&self) -> EvalResult {
-        self.val.borrow_mut().eval()
-    }
-
-    pub fn expr_is<T: 'static>(&self) -> bool {
-        match &*self.val.borrow() {
-            _EvaledOr::Error(_) | _EvaledOr::Evaled(_) => false,
-            _EvaledOr::Expr(_, e, _) => e.as_any().is::<T>(),
-        }
-    }
+pub struct Object {
+    val: _Object
 }
 
 pub trait Object: Display + Debug {
     fn as_any(&self) -> &dyn Any;
+    fn into_any(self: Box<Self>) -> Box<dyn Any>;
+    fn force_value(&self)
 }
 
 pub type Int = i64;
 
 impl Object for Int {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
 }
@@ -91,12 +54,20 @@ impl Object for Float {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
 }
 
 pub type Bool = bool;
 
 impl Object for bool {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
 }
@@ -106,6 +77,10 @@ pub struct Null {}
 
 impl Object for Null {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
 }
@@ -120,6 +95,10 @@ pub type Str = String;
 
 impl Object for Str {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
 }
@@ -142,11 +121,11 @@ impl InterpolateStr {
 
 #[derive(Debug, Clone)]
 pub struct List {
-    pub value: Vec<EvaledOr>,
+    pub value: Vec<Box<dyn Object>>,
 }
 
 impl List {
-    pub fn new(value: Vec<EvaledOr>) -> List {
+    pub fn new(value: Vec<Box<dyn Object>>) -> List {
         List { value }
     }
 
@@ -160,6 +139,10 @@ impl List {
 
 impl Object for List {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
 }
@@ -206,7 +189,7 @@ impl Lambda {
                 .borrow_mut()
                 .set(
                     convany!(self.arg.as_any(), IdentifierExpr).ident.clone(),
-                    EvaledOr::evaled(arg.into()),
+                    Box<dyn Object>::evaled(arg.into()),
                 )
                 .unwrap();
             return self.body.eval(&callenv, &ctx);
@@ -220,7 +203,7 @@ impl Lambda {
                 } else {
                     drop(t); // to prevent multiple borrow of env (from `t` above)
                     println!("default {ident}");
-                    EvaledOr::expr(callenv.clone(), a.1.clone().unwrap(), ctx.clone())
+                    Box<dyn Object>::expr(callenv.clone(), a.1.clone().unwrap(), ctx.clone())
                 }
             };
 
@@ -229,13 +212,17 @@ impl Lambda {
         convany!(self.arg.as_any(), ArgSetExpr)
             .alias
             .clone()
-            .map(|a| callenv.borrow_mut().set(a, EvaledOr::evaled(arg.clone())));
+            .map(|a| callenv.borrow_mut().set(a, Box<dyn Object>::evaled(arg.clone())));
         self.body.eval(&callenv, &ctx)
     }
 }
 
 impl Object for Lambda {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
 }
@@ -277,13 +264,13 @@ impl Attrs {
             if ret.is_err() {
                 drop(ret);
                 let o = new.env.borrow().get(k).unwrap();
-                let o = o.eval()?;
+                let o = o.force_value()?;
                 let o = o.as_any();
-                let v = v.eval()?;
+                let v = v.force_value()?;
                 if o.is::<Attrs>() && v.as_any().is::<Attrs>() {
                     convany!(o, Attrs).update(v)?;
                 } else {
-                    new.env.borrow_mut().over(k.clone(), EvaledOr::evaled(v));
+                    new.env.borrow_mut().over(k.clone(), v);
                 }
             }
         }
@@ -293,6 +280,10 @@ impl Attrs {
 
 impl Object for Attrs {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
 }

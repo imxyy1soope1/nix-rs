@@ -1,5 +1,6 @@
 use crate::error::NixRsError;
-use crate::object::EvaledOr;
+use crate::object::Object;
+
 use std::cell::RefCell;
 use std::collections::hash_map::{HashMap, Iter};
 use std::error::Error;
@@ -10,7 +11,7 @@ pub type Env = Rc<RefCell<Environment>>;
 
 #[derive(Debug, Clone)]
 pub struct Environment {
-    pub env: HashMap<String, EvaledOr>,
+    pub env: HashMap<String, Box<dyn Object>>,
     pub father: Option<Rc<RefCell<Environment>>>,
 }
 
@@ -43,7 +44,7 @@ impl Environment {
         }
     }
 
-    pub fn get(&self, sym: &String) -> Result<EvaledOr, EnvironmentError> {
+    pub fn get(&self, sym: &String) -> Result<Box<dyn Object>, EnvironmentError> {
         if let Some(val) = self.env.get(sym) {
             Ok(val.clone())
         } else if let Some(father) = &self.father {
@@ -53,7 +54,7 @@ impl Environment {
         }
     }
 
-    pub fn get_local(&self, sym: &String) -> Result<EvaledOr, EnvironmentError> {
+    pub fn get_local(&self, sym: &String) -> Result<Box<dyn Object>, EnvironmentError> {
         if let Some(val) = self.env.get(sym) {
             Ok(val.clone())
         } else {
@@ -65,7 +66,7 @@ impl Environment {
         self.env.contains_key(sym)
     }
 
-    pub fn set(&mut self, sym: String, obj: EvaledOr) -> Result<(), EnvironmentError> {
+    pub fn set(&mut self, sym: String, obj: Box<dyn Object>) -> Result<(), EnvironmentError> {
         if self.exsits(&sym) {
             Err(EnvironmentError::new(format!(
                 "{sym} exsits in environment!"
@@ -76,11 +77,11 @@ impl Environment {
         }
     }
 
-    pub fn over(&mut self, sym: String, obj: EvaledOr) {
+    pub fn over(&mut self, sym: String, obj: Box<dyn Object>) {
         self.env.insert(sym, obj);
     }
 
-    pub fn iter(&self) -> Iter<String, EvaledOr> {
+    pub fn iter(&self) -> Iter<String, Box<dyn Object>> {
         self.env.iter()
     }
 
