@@ -8,16 +8,22 @@ pub type EvalResult = core::result::Result<Object, Box<dyn NixRsError>>;
 
 pub struct EvalState {
     env: Env,
-    ctx: ErrorCtx
+    ctx: ErrorCtx,
 }
 
 impl EvalState {
     pub fn new() -> EvalState {
-        EvalState {env: new_builtins_env(), ctx: ErrorCtx::new()}
+        EvalState {
+            env: new_builtins_env(),
+            ctx: ErrorCtx::new(),
+        }
     }
 
     pub fn with_env(env: Env) -> EvalState {
-        EvalState {env, ctx: ErrorCtx::new()}
+        EvalState {
+            env,
+            ctx: ErrorCtx::new(),
+        }
     }
 }
 
@@ -30,14 +36,14 @@ impl Eval {
     pub fn new(expr: Box<dyn Expression>) -> Eval {
         Eval {
             state: EvalState::new(),
-            root: expr
+            root: expr,
         }
     }
 
     pub fn with_env(env: Env, expr: Rc<dyn Expression>) -> Eval {
         Eval {
             state: EvalState::with_env(env),
-            root: expr
+            root: expr,
         }
     }
 

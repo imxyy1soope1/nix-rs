@@ -84,16 +84,13 @@ impl Parser {
             STRING(..) => Some(|s| {
                 if let Token::STRING(string, interpolates) = s.consume().unwrap() {
                     if !interpolates.is_empty() {
-                        Ok(Box::new(InterpolateStringExpr::new(
-                            string,
-                            {
-                                let mut t = Vec::with_capacity(interpolates.len());
-                                for (idx, tokens) in interpolates.into_iter() {
-                                    t.push((idx, Parser::new(Box::new(tokens.into_iter())).parse()?))
-                                }
-                                t
+                        Ok(Box::new(InterpolateStringExpr::new(string, {
+                            let mut t = Vec::with_capacity(interpolates.len());
+                            for (idx, tokens) in interpolates.into_iter() {
+                                t.push((idx, Parser::new(Box::new(tokens.into_iter())).parse()?))
                             }
-                        )))
+                            t
+                        })))
                     } else {
                         Ok(Box::new(StringLiteralExpr::new(string)))
                     }
@@ -268,7 +265,12 @@ impl Parser {
                     let e = a.downcast::<InfixExpr>().unwrap();
                     assert_eq!(e.token, Token::QUEST);
                     args.push((
-                        e.left.into_any().downcast::<IdentifierExpr>().unwrap().ident.clone(),
+                        e.left
+                            .into_any()
+                            .downcast::<IdentifierExpr>()
+                            .unwrap()
+                            .ident
+                            .clone(),
                         Some(e.right),
                     ));
                 } else if a.is::<EllipsisLiteralExpr>() {
@@ -334,7 +336,10 @@ impl Parser {
                 assert_eq!(e.token, Token::QUEST);
                 args.push((
                     convany!(e.left.as_any(), IdentifierExpr).ident.clone(),
-                    Some(std::mem::replace(&mut e.right, Box::new(EllipsisLiteralExpr{}))),
+                    Some(std::mem::replace(
+                        &mut e.right,
+                        Box::new(EllipsisLiteralExpr {}),
+                    )),
                 ));
             } else if a.is::<EllipsisLiteralExpr>() {
                 allow_more = true;
@@ -396,7 +401,10 @@ impl Parser {
         }
         self.next();
 
-        Ok(Box::new(LetExpr::new(bindings, self.parse_expr(Precedence::LOWEST)?)))
+        Ok(Box::new(LetExpr::new(
+            bindings,
+            self.parse_expr(Precedence::LOWEST)?,
+        )))
     }
 
     fn parse_with(&mut self) -> ParseResult {
@@ -407,7 +415,10 @@ impl Parser {
         }
         self.next();
 
-        Ok(Box::new(WithExpr::new(attrs, self.parse_expr(Precedence::LOWEST)?)))
+        Ok(Box::new(WithExpr::new(
+            attrs,
+            self.parse_expr(Precedence::LOWEST)?,
+        )))
     }
 
     fn parse_assert(&mut self) -> ParseResult {
@@ -586,9 +597,9 @@ impl Parser {
         }
         self.next();
 
-        Ok(Box::new(SearchPathExpr::new(Box::new(PathLiteralExpr::new(
-            literal, true,
-        )))))
+        Ok(Box::new(SearchPathExpr::new(Box::new(
+            PathLiteralExpr::new(literal, true),
+        ))))
     }
 
     fn parse_interpolate(&mut self) -> ParseResult {
@@ -634,7 +645,11 @@ impl Parser {
             Self::_precedence(&token)
         };
 
-        Ok(Box::new(InfixExpr::new(token, left, self.parse_expr(precedence)?)))
+        Ok(Box::new(InfixExpr::new(
+            token,
+            left,
+            self.parse_expr(precedence)?,
+        )))
     }
 
     fn parse_function(&mut self, arg: Box<dyn Expression>) -> ParseResult {
@@ -692,7 +707,7 @@ impl Parser {
                 left = Box::new(FunctionCallExpr::new(
                     left,
                     self.parse_expr(Precedence::CALL)?,
-                )) ;
+                ));
             }
         }
 

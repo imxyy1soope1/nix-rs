@@ -1,7 +1,7 @@
 use crate::builtins::{PrimOp, PrimOpApp};
 use crate::convany;
 use crate::error::*;
-use crate::eval::{Environment, EvalResult};
+use crate::eval::{Env, Environment, EvalResult};
 use crate::object::*;
 use crate::token::Token;
 
@@ -18,7 +18,7 @@ pub trait Expression: Display + Debug {
 
 #[derive(Debug)]
 pub struct OpNotExpr {
-    right: Box<dyn Expression>
+    right: Box<dyn Expression>,
 }
 
 impl OpNotExpr {
@@ -37,12 +37,11 @@ impl Expression for OpNotExpr {
     }
 
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
-        let r = self.right.eval(env, ctx)?;
-        if !r.as_any().is::<Bool>() {
-            Err(ctx.unwind(EvalError::new("expected a bool")))
-        } else {
-            Ok(Box::new(!convany!(r.as_any(), Bool)))
-        }
+        let ctx = ctx.with(EvalError::new(
+            "in the argument of the not operator",
+        ));
+        let r = self.right.eval(env, &ctx)?;
+        Ok(Object::mk_bool(!r.try_into().map_err(|e| ctx.unwind(e))?))
     }
 }
 
@@ -55,7 +54,7 @@ impl Display for OpNotExpr {
 #[derive(Debug)]
 pub struct OpAddExpr {
     left: Box<dyn Expression>,
-    right: Box<dyn Expression>
+    right: Box<dyn Expression>,
 }
 
 impl OpAddExpr {
@@ -74,34 +73,29 @@ impl Expression for OpAddExpr {
     }
 
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
-        let le = self.left.eval(env, &ctx.with(EvalError::new("while evaluating left arm of add expression")))?;
-        let re = self.right.eval(env, &ctx.with(EvalError::new("while evaluating right arm of add expression")))?;
-        let la = le.as_any();
-        let ra = re.as_any();
-        if la.is::<Int>() {
-            if ra.is::<Int>() {
-                Ok(Box::new(convany!(la, Int) + convany!(ra, Int)))
-            } else if ra.is::<Float>() {
-                Ok(Box::new(
-                    *convany!(la, Int) as Float +
-                    convany!(ra, Float)
-                ))
-            } else {
-                Err(ctx.unwind(EvalError::new("unsupported operation")))
-            }
-        } else if la.is::<Float>() {
-            if ra.is::<Int>() {
-                Ok(Box::new(
-                    convany!(la, Float) +
-                    *convany!(ra, Int) as Float
-                ))
-            } else if ra.is::<Float>() {
-                Ok(Box::new(convany!(la, Float) + convany!(ra, Float)))
-            } else {
-                Err(ctx.unwind(EvalError::new("unsupported operation")))
-            }
+        let lctx = ctx.with(EvalError::new(
+            "in the left arm of the ADD (+) operator",
+        ));
+        let rctx = ctx.with(EvalError::new(
+            "in the right arm of the ADD (+) operator",
+        ));
+        let l = self.left.eval(env, &lctx)?;
+        let r = self.right.eval(env, &rctx)?;
+
+        if l.is_float() || r.is_float() {
+            let float1: f64 = l.try_into().map_err(|e| lctx.unwind(e))?;
+            let float2: f64 = r.try_into().map_err(|e| rctx.unwind(e))?;
+            Ok(Object::mk_float(float1 + float2))
+        } else if l.is_int() || r.is_int() {
+            let int1: i64 = l.try_into().map_err(|e| lctx.unwind(e))?;
+            let int2: i64 = r.try_into().map_err(|e| rctx.unwind(e))?;
+            Ok(Object::mk_int(int1 + int2))
         } else {
-            Err(ctx.unwind(EvalError::new("unsupported operation")))
+            let str1: String = l.try_into().map_err(|e| lctx.unwind(e))?;
+            let str2: String = r.try_into().map_err(|e| rctx.unwind(e))?;
+            Ok(Object::mk_string(
+                str1 + &str2
+            ))
         }
     }
 }
@@ -112,23 +106,135 @@ impl Display for OpAddExpr {
     }
 }
 
-/* macro_rules! bin_num_op {
-    (typename:tt, op:tt) => 
-} */
+macro_rules! bin_num_op {
+    ($typename:ident, $s:expr, $op:tt) => {
+        #[derive(Debug)]
+        pub struct $typename {
+            left: Box<dyn Expression>,
+            right: Box<dyn Expression>
+        }
 
-#[derive(Debug)]
-pub struct PrefixExpr {
-    pub token: Token,
-    pub right: Box<dyn Expression>,
-}
+        impl $typename {
+            pub fn new(left: Box<dyn Expression>, right: Box<dyn Expression>) -> $typename {
+                $typename { left, right }
+            }
+        }
 
-impl PrefixExpr {
-    pub fn new(token: Token, right: Box<dyn Expression>) -> PrefixExpr {
-        PrefixExpr { token, right }
+        impl Expression for $typename {
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+
+            fn into_any(self: Box<Self>) -> Box<dyn Any> {
+                self
+            }
+
+            fn eval(&self, env: &Env, ctx: &ErrorCtx) -> EvalResult {
+                let lctx = ctx.with(EvalError::new(format!("in the left arm of the {} operator", $s)));
+                let rctx = ctx.with(EvalError::new(format!("in the right arm of the {} operator", $s)));
+                let l = self.left.eval(env, &lctx)?;
+                let r = self.right.eval(env, &rctx)?;
+
+                if l.is_float() || r.is_float() {
+                    let float1: f64 = l.try_into().map_err(|e| lctx.unwind(e))?;
+                    let float2: f64 = r.try_into().map_err(|e| rctx.unwind(e))?;
+                    Ok(Object::mk_float(float1 $op float2))
+                } else {
+                    let int1: i64 = l.try_into().map_err(|e| lctx.unwind(e))?;
+                    let int2: i64 = r.try_into().map_err(|e| rctx.unwind(e))?;
+                    Ok(Object::mk_int(int1 $op int2))
+                }
+            }
+        }
+
+        impl Display for $typename {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "({} {} {})", self.left, stringify!($op), self.right)
+            }
+        }
     }
 }
 
-impl Expression for PrefixExpr {
+bin_num_op! {OpSubExpr, "SUB (-)", -}
+bin_num_op! {OpMulExpr, "MUL (*)", *}
+bin_num_op! {OpDivExpr, "DIV (/)", /}
+
+#[derive(Debug)]
+pub struct OpEqExpr {
+    left: Box<dyn Expression>,
+    right: Box<dyn Expression>,
+}
+
+impl OpEqExpr {
+    pub fn new(left: Box<dyn Expression>, right: Box<dyn Expression>) -> OpEqExpr {
+        OpEqExpr { left, right }
+    }
+}
+
+fn objeq(l: Object, r: Object, ctx: &ErrorCtx) -> Result<bool, Box<dyn NixRsError>> {
+    l.force_value();
+    r.force_value();
+
+    if l.is_int() && r.is_float() {
+        let int: i64 = l.try_into().unwrap();
+        let float: f64 = r.try_into().unwrap();
+        return Ok(float == int as f64)
+    } else if l.is_float() && r.is_int() {
+        let float: f64 = l.try_into().unwrap();
+        let int: i64 = r.try_into().unwrap();
+        return Ok(float == int as f64)
+    }
+    if l.typename() != r.typename() {
+        return Ok(false);
+    }
+
+    Ok(if l.is_int() {
+        let int1: i64 = l.try_into().unwrap();
+        let int2: i64 = r.try_into().unwrap();
+        int1 == int2
+    } else if l.is_float() {
+        let float1: f64 = l.try_into().unwrap();
+        let float2: f64 = r.try_into().unwrap();
+        float1 == float2
+    } else if l.is_str() {
+        let str1: String = l.try_into().unwrap();
+        let str2: String = r.try_into().unwrap();
+        str1 == str2
+    } else if l.is_null() {
+        true
+    } else if l.is_list() {
+        let lst1: Vec<Object> = l.try_into().unwrap();
+        let lst2: Vec<Object> = r.try_into().unwrap();
+        if lst1.len() != lst2.len() {
+            return Ok(false);
+        }
+        for (o1, o2) in std::iter::zip(lst1.into_iter(), lst2.into_iter()) {
+            if !objeq(o1, o2, ctx)? {
+                return Ok(false);
+            }
+        }
+        true
+    } else if l.is_attrs() {
+        let set1: Env = l.try_into().unwrap();
+        let set2: Env = r.try_into().unwrap();
+        if set1.borrow().len() != set2.borrow().len() {
+            return Ok(false);
+        }
+        for (k1, v1) in set1.borrow().iter() {
+            let v2 = set2.borrow().get_local(k1);
+            if v2.is_err() || !objeq(v1.clone(), v2.unwrap(), ctx)? {
+                return Ok(false);
+            }
+        }
+        true
+    } else if l.is_lambda() {
+        false
+    } else {
+        return Err(ctx.unwind(EvalError::new(format!("cannot compare {} with {}", l.typename(), r.typename()))));
+    })
+}
+
+impl Expression for OpEqExpr {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -138,53 +244,293 @@ impl Expression for PrefixExpr {
     }
 
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
-        let val = self.right.eval(
-            env,
-            &ctx.with(EvalError::new("while evaluating prefix expr")),
-        )?;
-        let a = val.as_any();
-        use Token::*;
-        match self.token {
-            MINUS => {
-                if a.is::<Int>() {
-                    Ok(Box::new(-convany!(a, Int)))
-                } else if a.is::<Float>() {
-                    Ok(Box::new(-convany!(a, Float)))
-                } else {
-                    Err(ctx.unwind(EvalError::new("unsupported operation")))
-                }
-            }
-            BANG => {
-                if a.is::<Bool>() {
-                    Ok(Box::new(!a.downcast_ref::<bool>().unwrap()))
-                } else {
-                    Err(ctx.unwind(EvalError::new("unsupported operation")))
-                }
-            }
-            _ => Err(ctx.unwind(EvalError::new("unsupported operation"))),
-        }
+        let lctx = ctx.with(EvalError::new(
+            "in the left arm of the EQ (==) operator",
+        ));
+        let rctx = ctx.with(EvalError::new(
+            "in the right arm of the EQ (==) operator",
+        ));
+        let l = self.left.eval(env, &lctx)?;
+        let r = self.right.eval(env, &rctx)?;
+
+        objeq(l, r, ctx).map(Object::mk_bool)
     }
 }
 
-impl Display for PrefixExpr {
+impl Display for OpEqExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "({}{})", self.token, self.right)
+        write!(f, "({} == {})", self.left, self.right)
     }
 }
 
 #[derive(Debug)]
-pub struct InfixExpr {
-    pub token: Token,
-    pub left: Box<dyn Expression>,
-    pub right: Box<dyn Expression>,
+pub struct OpNeqExpr {
+    left: Box<dyn Expression>,
+    right: Box<dyn Expression>,
 }
 
-impl InfixExpr {
-    pub fn new(token: Token, left: Box<dyn Expression>, right: Box<dyn Expression>) -> InfixExpr {
-        InfixExpr { token, left, right }
+impl OpNeqExpr {
+    pub fn new(left: Box<dyn Expression>, right: Box<dyn Expression>) -> OpNeqExpr {
+        OpNeqExpr { left, right }
     }
 }
 
+impl Expression for OpNeqExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
+    fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
+        let lctx = ctx.with(EvalError::new(
+            "in the left arm of the NEQ (!=) operator",
+        ));
+        let rctx = ctx.with(EvalError::new(
+            "in the right arm of the NEQ (!=) operator",
+        ));
+        let l = self.left.eval(env, &lctx)?;
+        let r = self.right.eval(env, &rctx)?;
+
+        objeq(l, r, ctx).map(|b| Object::mk_bool(!b))
+    }
+}
+
+impl Display for OpNeqExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "({} == {})", self.left, self.right)
+    }
+}
+
+#[derive(Debug)]
+pub struct OpLtExpr {
+    left: Box<dyn Expression>,
+    right: Box<dyn Expression>,
+}
+
+impl OpLtExpr {
+    pub fn new(left: Box<dyn Expression>, right: Box<dyn Expression>) -> OpLtExpr {
+        OpLtExpr { left, right }
+    }
+}
+
+fn objlt(l: Object, r: Object, ctx: &ErrorCtx) -> Result<bool, Box<dyn NixRsError>> {
+    l.force_value();
+    r.force_value();
+
+    if l.is_int() && r.is_float() {
+        let int: i64 = l.try_into().unwrap();
+        let float: f64 = r.try_into().unwrap();
+        return Ok(float < int as f64)
+    } else if l.is_float() && r.is_int() {
+        let float: f64 = l.try_into().unwrap();
+        let int: i64 = r.try_into().unwrap();
+        return Ok(float < int as f64)
+    }
+    if l.typename() != r.typename() {
+        return Err(ctx.unwind(EvalError::new(format!("cannot compare {} with {}", l.typename(), r.typename()))));
+    }
+
+    Ok(if l.is_int() {
+        let int1: i64 = l.try_into().unwrap();
+        let int2: i64 = r.try_into().unwrap();
+        int1 < int2
+    } else if l.is_float() {
+        let float1: f64 = l.try_into().unwrap();
+        let float2: f64 = r.try_into().unwrap();
+        float1 < float2
+    } else if l.is_str() {
+        let str1: String = l.try_into().unwrap();
+        let str2: String = r.try_into().unwrap();
+        str1 < str2
+    } else if l.is_list() {
+        let lst1: Vec<Object> = l.try_into().unwrap();
+        let lst2: Vec<Object> = r.try_into().unwrap();
+        let len1 = lst1.len();
+        let len2 = lst2.len();
+        for i in 0..len1 {
+            if i == len2 {
+                return Ok(false);
+            } else if !objeq(lst1[i], lst2[i], ctx)? {
+                return objlt(lst1[i], lst2[i], ctx);
+            }
+        }
+        true
+    } else if l.is_attrs() {
+        let set1: Env = l.try_into().unwrap();
+        let set2: Env = r.try_into().unwrap();
+        if set1.borrow().len() != set2.borrow().len() {
+            return Ok(false);
+        }
+        for (k1, v1) in set1.borrow().iter() {
+            let v2 = set2.borrow().get_local(k1);
+            if v2.is_err() || !objeq(v1.clone(), v2.unwrap(), ctx)? {
+                return Ok(false);
+            }
+        }
+        true
+    } else if l.is_lambda() {
+        false
+    } else {
+        return Err(ctx.unwind(EvalError::new(format!("cannot compare {} with {}", l.typename(), r.typename()))));
+    })
+}
+
+impl Expression for OpLtExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
+    fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
+        let lctx = ctx.with(EvalError::new(
+            "in the left arm of the LT (<) operator",
+        ));
+        let rctx = ctx.with(EvalError::new(
+            "in the right arm of the LT (<) operator",
+        ));
+        let l = self.left.eval(env, &lctx)?;
+        let r = self.right.eval(env, &rctx)?;
+
+        objlt(l, r, ctx).map(Object::mk_bool)
+    }
+}
+
+impl Display for OpLtExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "({} < {})", self.left, self.right)
+    }
+}
+
+#[derive(Debug)]
+pub struct OpGtExpr {
+    left: Box<dyn Expression>,
+    right: Box<dyn Expression>,
+}
+
+impl OpGtExpr {
+    pub fn new(left: Box<dyn Expression>, right: Box<dyn Expression>) -> OpGtExpr {
+        OpGtExpr { left, right }
+    }
+}
+
+impl Expression for OpGtExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
+    fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
+        let lctx = ctx.with(EvalError::new(
+            "in the left arm of the GT (>) operator",
+        ));
+        let rctx = ctx.with(EvalError::new(
+            "in the right arm of the GT (>) operator",
+        ));
+        let l = self.left.eval(env, &lctx)?;
+        let r = self.right.eval(env, &rctx)?;
+
+        objlt(r, l, ctx).map(Object::mk_bool)
+    }
+}
+
+impl Display for OpGtExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "({} > {})", self.left, self.right)
+    }
+}
+
+#[derive(Debug)]
+pub struct OpLeqExpr {
+    left: Box<dyn Expression>,
+    right: Box<dyn Expression>,
+}
+
+impl OpLeqExpr {
+    pub fn new(left: Box<dyn Expression>, right: Box<dyn Expression>) -> OpLeqExpr {
+        OpLeqExpr { left, right }
+    }
+}
+
+impl Expression for OpLeqExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
+    fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
+        let lctx = ctx.with(EvalError::new(
+            "in the left arm of the LEQ (<=) operator",
+        ));
+        let rctx = ctx.with(EvalError::new(
+            "in the right arm of the LEQ (<=) operator",
+        ));
+        let l = self.left.eval(env, &lctx)?;
+        let r = self.right.eval(env, &rctx)?;
+
+        objlt(r, l, ctx).map(|b| Object::mk_bool(!b))
+    }
+}
+
+impl Display for OpLeqExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "({} <= {})", self.left, self.right)
+    }
+}
+
+#[derive(Debug)]
+pub struct OpGeqExpr {
+    left: Box<dyn Expression>,
+    right: Box<dyn Expression>,
+}
+
+impl OpGeqExpr {
+    pub fn new(left: Box<dyn Expression>, right: Box<dyn Expression>) -> OpGeqExpr {
+        OpGeqExpr { left, right }
+    }
+}
+
+impl Expression for OpGeqExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
+    fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
+        let lctx = ctx.with(EvalError::new(
+            "in the left arm of the GEQ (>=) operator",
+        ));
+        let rctx = ctx.with(EvalError::new(
+            "in the right arm of the GEQ (>=) operator",
+        ));
+        let l = self.left.eval(env, &lctx)?;
+        let r = self.right.eval(env, &rctx)?;
+
+        objlt(l, r, ctx).map(|b| Object::mk_bool(!b))
+    }
+}
+
+impl Display for OpGeqExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "({} >= {})", self.left, self.right)
+    }
+}
+
+/*
 impl Expression for InfixExpr {
     fn as_any(&self) -> &dyn Any {
         self
@@ -1199,3 +1545,4 @@ impl Display for InterpolateExpr {
         write!(f, "${{{}}}", self.ident)
     }
 }
+*/

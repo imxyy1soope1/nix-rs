@@ -13,13 +13,15 @@ pub struct EvalError {
 
 impl From<&str> for EvalError {
     fn from(value: &str) -> Self {
-        EvalError {msg: value.to_string()}
+        EvalError {
+            msg: value.to_string(),
+        }
     }
 }
 
 impl From<String> for EvalError {
     fn from(value: String) -> Self {
-        EvalError {msg: value}
+        EvalError { msg: value }
     }
 }
 

@@ -11,7 +11,7 @@ pub type Env = Rc<RefCell<Environment>>;
 
 #[derive(Debug, Clone)]
 pub struct Environment {
-    pub env: HashMap<String, Box<dyn Object>>,
+    pub env: HashMap<String, Object>,
     pub father: Option<Rc<RefCell<Environment>>>,
 }
 
@@ -44,7 +44,7 @@ impl Environment {
         }
     }
 
-    pub fn get(&self, sym: &String) -> Result<Box<dyn Object>, EnvironmentError> {
+    pub fn get(&self, sym: &String) -> Result<Object, EnvironmentError> {
         if let Some(val) = self.env.get(sym) {
             Ok(val.clone())
         } else if let Some(father) = &self.father {
@@ -54,7 +54,7 @@ impl Environment {
         }
     }
 
-    pub fn get_local(&self, sym: &String) -> Result<Box<dyn Object>, EnvironmentError> {
+    pub fn get_local(&self, sym: &String) -> Result<Object, EnvironmentError> {
         if let Some(val) = self.env.get(sym) {
             Ok(val.clone())
         } else {
@@ -66,7 +66,7 @@ impl Environment {
         self.env.contains_key(sym)
     }
 
-    pub fn set(&mut self, sym: String, obj: Box<dyn Object>) -> Result<(), EnvironmentError> {
+    pub fn set(&mut self, sym: String, obj: Object) -> Result<(), EnvironmentError> {
         if self.exsits(&sym) {
             Err(EnvironmentError::new(format!(
                 "{sym} exsits in environment!"
@@ -77,11 +77,11 @@ impl Environment {
         }
     }
 
-    pub fn over(&mut self, sym: String, obj: Box<dyn Object>) {
+    pub fn over(&mut self, sym: String, obj: Object) {
         self.env.insert(sym, obj);
     }
 
-    pub fn iter(&self) -> Iter<String, Box<dyn Object>> {
+    pub fn iter(&self) -> Iter<String, Object> {
         self.env.iter()
     }
 

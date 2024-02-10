@@ -4,14 +4,14 @@ use crate::eval::EvalResult;
 use crate::object::*;
 use std::fmt::Display;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PrimOp {
     arity: u8,
     ctx: ErrorCtx,
     func: fn(Vec<Object>, &ErrorCtx) -> EvalResult,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PrimOpApp {
     args: Vec<Object>,
     arity: u8,
@@ -38,14 +38,16 @@ impl PrimOpApp {
 }
 
 impl PrimOp {
-    pub fn new(arity: u8, ctx: ErrorCtx, func: fn(Vec<Box<dyn Object>>) -> EvalResult) -> PrimOp {
+    pub fn new(arity: u8, ctx: ErrorCtx, func: fn(Vec<Object>, &ErrorCtx) -> EvalResult) -> PrimOp {
         PrimOp { arity, ctx, func }
     }
 
-    pub fn call(&self, arg: Object) -> EvalResult {
+    pub fn call(&self, arg: Object, ctx: ErrorCtx) -> EvalResult {
         let b = PrimOpApp {
-            args: Vec::with_capacity(self.arity),
-            ..self
+            args: Vec::with_capacity(self.arity as usize),
+            arity: self.arity,
+            func: self.func,
+            ctx,
         };
         b.call(arg)
     }
@@ -53,17 +55,7 @@ impl PrimOp {
 
 pub fn builtin_fns() -> [(&'static str, bool, PrimOp); 12] {
     [
-        (
-            "ceil",
-            false,
-            PrimOp::new(1, |a| {
-                Ok(if a[0].as_any().is::<Float>() {
-                    Box::new(convany!(a[0].as_any(), Float).ceil())
-                } else {
-                    Box::new(*convany!(a[0].as_any(), Int))
-                })
-            }),
-        ),
+        ("ceil", false, PrimOp::new(1, |a| Ok())),
         (
             "floor",
             false,
