@@ -31,8 +31,11 @@ impl From<EvalError> for Box<dyn NixRsError> {
     }
 }
 
-impl EvalError {
-    pub fn new<T>(msg: T) -> Box<dyn NixRsError> {
+impl EvalError
+{
+    pub fn new<T>(msg: T) -> Box<dyn NixRsError> 
+        where EvalError: From<T>
+    {
         EvalError::from(msg).into()
     }
 
@@ -56,7 +59,7 @@ impl Display for EvalError {
 #[derive(Debug)]
 struct Stack {
     this: Option<Box<dyn NixRsError>>,
-    prev: Option<Box<Stack>>,
+    prev: Option<Rc<Stack>>,
 }
 
 #[derive(Clone, Debug)]
@@ -73,7 +76,7 @@ impl Default for ErrorCtx {
 impl ErrorCtx {
     pub fn new() -> ErrorCtx {
         ErrorCtx {
-            stack: Box::new(Stack {
+            stack: Rc::new(Stack {
                 this: None,
                 prev: None,
             }),
@@ -95,7 +98,7 @@ impl ErrorCtx {
         e.push('\n');
         let mut this = self.stack.clone();
         while this.this.is_some() {
-            e.push_str(&this.this.clone().unwrap().to_string());
+            e.push_str(&this.this.as_ref().unwrap().to_string());
             e.push('\n');
             this = this.prev.clone().unwrap();
         }

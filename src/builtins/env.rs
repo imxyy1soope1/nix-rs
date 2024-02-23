@@ -12,9 +12,9 @@ pub fn new_builtins_env() -> Env {
         };
     }
 
-    set!(String::from("true"), EvaledOr::evaled(Rc::new(true)));
-    set!(String::from("false"), EvaledOr::evaled(Rc::new(false)));
-    set!(String::from("null"), EvaledOr::evaled(Rc::new(Null {})));
+    set!(String::from("true"), Object::mk_bool(true));
+    set!(String::from("false"), Object::mk_bool(false));
+    set!(String::from("null"), Object::mk_null());
 
     let builtinsenv = Rc::new(RefCell::new(Environment::new(Some(env.clone()))));
     macro_rules! bset {
@@ -24,17 +24,17 @@ pub fn new_builtins_env() -> Env {
     }
     set!(
         String::from("builtins"),
-        EvaledOr::evaled(Rc::new(Attrs::new(builtinsenv.clone())))
+        Object::mk_attrs(builtinsenv.clone())
     );
 
     for b in builtin_fns().into_iter() {
-        let v = Rc::new(b.2);
+        let v = b.2;
         if b.1 {
-            set!(b.0.to_string(), EvaledOr::evaled(v.clone()));
+            set!(b.0.to_string(), v.clone().into());
         } else {
-            set!("__".to_string() + b.0, EvaledOr::evaled(v.clone()));
+            set!("__".to_string() + b.0, v.clone().into());
         }
-        bset!(b.0.to_string(), EvaledOr::evaled(v));
+        bset!(b.0.to_string(), v.into());
     }
 
     env

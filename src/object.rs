@@ -73,6 +73,14 @@ impl From<String> for Object {
     }
 }
 
+impl From<PrimOp> for Object {
+    fn from(value: PrimOp) -> Self {
+        Object {
+            val: RefCell::new(_Object::PrimOp(value))
+        }
+    }
+}
+
 impl From<Vec<Object>> for Object {
     fn from(value: Vec<Object>) -> Self {
         Object {
@@ -143,25 +151,21 @@ impl Object {
         }
     }
 
-    pub fn mk_prim_op(
-        arity: u8,
-        ctx: ErrorCtx,
-        func: fn(Vec<Object>, ctx: &ErrorCtx) -> EvalResult,
-    ) -> Object {
+    pub fn mk_prim_op(arity: u8, func: fn(Vec<Object>, ctx: &ErrorCtx) -> EvalResult) -> Object {
         Object {
-            val: RefCell::new(_Object::PrimOp(PrimOp::new(arity, ctx, func))),
+            val: RefCell::new(_Object::PrimOp(PrimOp::new(arity, func))),
         }
     }
-    /*
+
     pub fn mk_prim_op_app(
+        args: Vec<Object>,
         arity: u8,
-        ctx: ErrorCtx,
         func: fn(Vec<Object>, ctx: &ErrorCtx) -> EvalResult,
     ) -> Object {
         Object {
-            val: RefCell::new(_Object::PrimOpApp(PrimOpApp::new(arity, ctx, func))),
+            val: RefCell::new(_Object::PrimOpApp(PrimOpApp::new(args, arity, func))),
         }
-    } */
+    }
 
     matchtuple! {is_int, Int}
     matchtuple! {is_float, Float}
@@ -176,6 +180,10 @@ impl Object {
     matchstruct! {is_call, FunctionCallThunk}
     pub fn is_null(&self) -> bool {
         matches!(&*self.val.borrow(), _Object::Null)
+    }
+    
+    pub fn is_function(&self) -> bool {
+        matches!(&*self.val.borrow(), _Object::Lambda { .. } | _Object::PrimOp(..) | _Object::PrimOpApp(..))
     }
 
     pub fn typename(&self) -> &'static str {
@@ -193,15 +201,17 @@ impl Object {
         }
     }
 
-    pub fn call(&self, arg: &Object, ctx: &ErrorCtx) -> EvalResult {
-
-    }
+    pub fn call(&self, arg: &Object, ctx: &ErrorCtx) -> EvalResult {}
 
     pub fn force_value(&self) -> Result<(), Box<dyn NixRsError>> {
         use _Object::*;
         match &*self.val.borrow() {
-            ClosureThunk(env, ctx, expr) => *self.val.borrow_mut() = expr.eval(env, ctx)?.val.into_inner(),
-            FunctionCallThunk { func, arg, ctx } => *self.val.borrow_mut() = func.call(arg.as_ref(), ctx)?.val.into_inner(),
+            ClosureThunk(env, ctx, expr) => {
+                *self.val.borrow_mut() = expr.eval(env, ctx)?.val.into_inner()
+            }
+            FunctionCallThunk { func, arg, ctx } => {
+                *self.val.borrow_mut() = func.call(arg.as_ref(), ctx)?.val.into_inner()
+            }
             _ => return Ok(()),
         }
         self.force_value()
@@ -222,8 +232,12 @@ impl Object {
                     .collect();
                 return Ok(());
             }
-            ClosureThunk(env, ctx, expr) => *self.val.borrow_mut() = expr.eval(env, ctx)?.val.into_inner(),
-            FunctionCallThunk { func, arg, ctx } => *self.val.borrow_mut() = func.call(arg.as_ref(), ctx)?.val.into_inner(),
+            ClosureThunk(env, ctx, expr) => {
+                *self.val.borrow_mut() = expr.eval(env, ctx)?.val.into_inner()
+            }
+            FunctionCallThunk { func, arg, ctx } => {
+                *self.val.borrow_mut() = func.call(arg.as_ref(), ctx)?.val.into_inner()
+            }
             _ => return Ok(()),
         }
         self.force_value_deep()

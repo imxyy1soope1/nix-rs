@@ -37,9 +37,7 @@ impl Expression for OpNotExpr {
     }
 
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
-        let ctx = ctx.with(EvalError::new(
-            "in the argument of the not operator",
-        ));
+        let ctx = ctx.with(EvalError::new("in the argument of the not operator"));
         let r = self.right.eval(env, &ctx)?;
         Ok(Object::mk_bool(!r.try_into().map_err(|e| ctx.unwind(e))?))
     }
@@ -73,12 +71,8 @@ impl Expression for OpAddExpr {
     }
 
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
-        let lctx = ctx.with(EvalError::new(
-            "in the left arm of the ADD (+) operator",
-        ));
-        let rctx = ctx.with(EvalError::new(
-            "in the right arm of the ADD (+) operator",
-        ));
+        let lctx = ctx.with(EvalError::new("in the left arm of the ADD (+) operator"));
+        let rctx = ctx.with(EvalError::new("in the right arm of the ADD (+) operator"));
         let l = self.left.eval(env, &lctx)?;
         let r = self.right.eval(env, &rctx)?;
 
@@ -93,9 +87,7 @@ impl Expression for OpAddExpr {
         } else {
             let str1: String = l.try_into().map_err(|e| lctx.unwind(e))?;
             let str2: String = r.try_into().map_err(|e| rctx.unwind(e))?;
-            Ok(Object::mk_string(
-                str1 + &str2
-            ))
+            Ok(Object::mk_string(str1 + &str2))
         }
     }
 }
@@ -159,6 +151,59 @@ bin_num_op! {OpSubExpr, "SUB (-)", -}
 bin_num_op! {OpMulExpr, "MUL (*)", *}
 bin_num_op! {OpDivExpr, "DIV (/)", /}
 
+macro_rules! bin_bool_op {
+    ($typename:ident, $s:expr, $func:expr, $op:expr) => {
+        #[derive(Debug)]
+        pub struct $typename {
+            left: Box<dyn Expression>,
+            right: Box<dyn Expression>,
+        }
+
+        impl $typename {
+            pub fn new(left: Box<dyn Expression>, right: Box<dyn Expression>) -> $typename {
+                $typename { left, right }
+            }
+        }
+
+        impl Expression for $typename {
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+
+            fn into_any(self: Box<Self>) -> Box<dyn Any> {
+                self
+            }
+
+            fn eval(&self, env: &Env, ctx: &ErrorCtx) -> EvalResult {
+                let lctx = ctx.with(EvalError::new(format!(
+                    "in the left arm of the {} operator",
+                    $s
+                )));
+                let rctx = ctx.with(EvalError::new(format!(
+                    "in the right arm of the {} operator",
+                    $s
+                )));
+                let l = self.left.eval(env, &lctx)?;
+                let r = self.right.eval(env, &rctx)?;
+
+                let bool1: bool = l.try_into().map_err(|e| lctx.unwind(e))?;
+                let bool2: bool = r.try_into().map_err(|e| rctx.unwind(e))?;
+                Ok(Object::mk_bool($func(bool1, bool2)))
+            }
+        }
+
+        impl Display for $typename {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "({} {} {})", self.left, $op, self.right)
+            }
+        }
+    };
+}
+
+bin_bool_op! {OpAndExpr, "AND (&&)", |a, b| a && b, "&&"}
+bin_bool_op! {OpOrExpr, "OR (||)", |a, b| a || b, "||"}
+bin_bool_op! {OpImplExpr, "IMPL (->)", |a: bool, b| !a || b, "->"}
+
 #[derive(Debug)]
 pub struct OpEqExpr {
     left: Box<dyn Expression>,
@@ -178,11 +223,11 @@ fn objeq(l: Object, r: Object, ctx: &ErrorCtx) -> Result<bool, Box<dyn NixRsErro
     if l.is_int() && r.is_float() {
         let int: i64 = l.try_into().unwrap();
         let float: f64 = r.try_into().unwrap();
-        return Ok(float == int as f64)
+        return Ok(float == int as f64);
     } else if l.is_float() && r.is_int() {
         let float: f64 = l.try_into().unwrap();
         let int: i64 = r.try_into().unwrap();
-        return Ok(float == int as f64)
+        return Ok(float == int as f64);
     }
     if l.typename() != r.typename() {
         return Ok(false);
@@ -230,7 +275,11 @@ fn objeq(l: Object, r: Object, ctx: &ErrorCtx) -> Result<bool, Box<dyn NixRsErro
     } else if l.is_lambda() {
         false
     } else {
-        return Err(ctx.unwind(EvalError::new(format!("cannot compare {} with {}", l.typename(), r.typename()))));
+        return Err(ctx.unwind(EvalError::new(format!(
+            "cannot compare {} with {}",
+            l.typename(),
+            r.typename()
+        ))));
     })
 }
 
@@ -244,12 +293,8 @@ impl Expression for OpEqExpr {
     }
 
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
-        let lctx = ctx.with(EvalError::new(
-            "in the left arm of the EQ (==) operator",
-        ));
-        let rctx = ctx.with(EvalError::new(
-            "in the right arm of the EQ (==) operator",
-        ));
+        let lctx = ctx.with(EvalError::new("in the left arm of the EQ (==) operator"));
+        let rctx = ctx.with(EvalError::new("in the right arm of the EQ (==) operator"));
         let l = self.left.eval(env, &lctx)?;
         let r = self.right.eval(env, &rctx)?;
 
@@ -285,12 +330,8 @@ impl Expression for OpNeqExpr {
     }
 
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
-        let lctx = ctx.with(EvalError::new(
-            "in the left arm of the NEQ (!=) operator",
-        ));
-        let rctx = ctx.with(EvalError::new(
-            "in the right arm of the NEQ (!=) operator",
-        ));
+        let lctx = ctx.with(EvalError::new("in the left arm of the NEQ (!=) operator"));
+        let rctx = ctx.with(EvalError::new("in the right arm of the NEQ (!=) operator"));
         let l = self.left.eval(env, &lctx)?;
         let r = self.right.eval(env, &rctx)?;
 
@@ -323,14 +364,18 @@ fn objlt(l: Object, r: Object, ctx: &ErrorCtx) -> Result<bool, Box<dyn NixRsErro
     if l.is_int() && r.is_float() {
         let int: i64 = l.try_into().unwrap();
         let float: f64 = r.try_into().unwrap();
-        return Ok(float < int as f64)
+        return Ok(float < int as f64);
     } else if l.is_float() && r.is_int() {
         let float: f64 = l.try_into().unwrap();
         let int: i64 = r.try_into().unwrap();
-        return Ok(float < int as f64)
+        return Ok(float < int as f64);
     }
     if l.typename() != r.typename() {
-        return Err(ctx.unwind(EvalError::new(format!("cannot compare {} with {}", l.typename(), r.typename()))));
+        return Err(ctx.unwind(EvalError::new(format!(
+            "cannot compare {} with {}",
+            l.typename(),
+            r.typename()
+        ))));
     }
 
     Ok(if l.is_int() {
@@ -374,7 +419,11 @@ fn objlt(l: Object, r: Object, ctx: &ErrorCtx) -> Result<bool, Box<dyn NixRsErro
     } else if l.is_lambda() {
         false
     } else {
-        return Err(ctx.unwind(EvalError::new(format!("cannot compare {} with {}", l.typename(), r.typename()))));
+        return Err(ctx.unwind(EvalError::new(format!(
+            "cannot compare {} with {}",
+            l.typename(),
+            r.typename()
+        ))));
     })
 }
 
@@ -388,12 +437,8 @@ impl Expression for OpLtExpr {
     }
 
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
-        let lctx = ctx.with(EvalError::new(
-            "in the left arm of the LT (<) operator",
-        ));
-        let rctx = ctx.with(EvalError::new(
-            "in the right arm of the LT (<) operator",
-        ));
+        let lctx = ctx.with(EvalError::new("in the left arm of the LT (<) operator"));
+        let rctx = ctx.with(EvalError::new("in the right arm of the LT (<) operator"));
         let l = self.left.eval(env, &lctx)?;
         let r = self.right.eval(env, &rctx)?;
 
@@ -429,12 +474,8 @@ impl Expression for OpGtExpr {
     }
 
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
-        let lctx = ctx.with(EvalError::new(
-            "in the left arm of the GT (>) operator",
-        ));
-        let rctx = ctx.with(EvalError::new(
-            "in the right arm of the GT (>) operator",
-        ));
+        let lctx = ctx.with(EvalError::new("in the left arm of the GT (>) operator"));
+        let rctx = ctx.with(EvalError::new("in the right arm of the GT (>) operator"));
         let l = self.left.eval(env, &lctx)?;
         let r = self.right.eval(env, &rctx)?;
 
@@ -470,12 +511,8 @@ impl Expression for OpLeqExpr {
     }
 
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
-        let lctx = ctx.with(EvalError::new(
-            "in the left arm of the LEQ (<=) operator",
-        ));
-        let rctx = ctx.with(EvalError::new(
-            "in the right arm of the LEQ (<=) operator",
-        ));
+        let lctx = ctx.with(EvalError::new("in the left arm of the LEQ (<=) operator"));
+        let rctx = ctx.with(EvalError::new("in the right arm of the LEQ (<=) operator"));
         let l = self.left.eval(env, &lctx)?;
         let r = self.right.eval(env, &rctx)?;
 
@@ -511,12 +548,8 @@ impl Expression for OpGeqExpr {
     }
 
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
-        let lctx = ctx.with(EvalError::new(
-            "in the left arm of the GEQ (>=) operator",
-        ));
-        let rctx = ctx.with(EvalError::new(
-            "in the right arm of the GEQ (>=) operator",
-        ));
+        let lctx = ctx.with(EvalError::new("in the left arm of the GEQ (>=) operator"));
+        let rctx = ctx.with(EvalError::new("in the right arm of the GEQ (>=) operator"));
         let l = self.left.eval(env, &lctx)?;
         let r = self.right.eval(env, &rctx)?;
 
@@ -637,6 +670,8 @@ impl Display for InfixExpr {
         write!(f, "({} {} {})", self.left, self.token, self.right)
     }
 }
+
+*/
 
 #[derive(Debug)]
 pub struct IdentifierExpr {
@@ -1545,4 +1580,3 @@ impl Display for InterpolateExpr {
         write!(f, "${{{}}}", self.ident)
     }
 }
-*/

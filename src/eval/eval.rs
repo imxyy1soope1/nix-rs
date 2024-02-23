@@ -40,7 +40,7 @@ impl Eval {
         }
     }
 
-    pub fn with_env(env: Env, expr: Rc<dyn Expression>) -> Eval {
+    pub fn with_env(env: Env, expr: Box<dyn Expression>) -> Eval {
         Eval {
             state: EvalState::with_env(env),
             root: expr,
