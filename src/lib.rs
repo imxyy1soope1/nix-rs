@@ -4,8 +4,11 @@ mod error;
 mod eval;
 mod lexer;
 pub mod object;
-mod parser;
 mod token;
+
+use lalrpop_util::lalrpop_mod;
+
+lalrpop_mod!(pub parser); // synthesized by LALRPOP
 
 use eval::{Environment, Eval, EvalResult};
 use std::{cell::RefCell, rc::Rc};

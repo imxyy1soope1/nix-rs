@@ -37,7 +37,7 @@ impl Expression for OpNotExpr {
     }
 
     fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
-        let ctx = ctx.with(EvalError::new("in the argument of the not operator"));
+        let ctx = ctx.with(EvalError::new("in the argument of the NOT (!) operator"));
         let r = self.right.eval(env, &ctx)?;
         Ok(Object::mk_bool(!r.try_into().map_err(|e| ctx.unwind(e))?))
     }
@@ -46,6 +46,43 @@ impl Expression for OpNotExpr {
 impl Display for OpNotExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "(!{})", self.right)
+    }
+}
+
+#[derive(Debug)]
+pub struct OpNegExpr {
+    right: Box<dyn Expression>,
+}
+
+impl OpNegExpr {
+    pub fn new(right: Box<dyn Expression>) -> OpNegExpr {
+        OpNegExpr { right }
+    }
+}
+
+impl Expression for OpNegExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
+    fn eval(&self, env: &Rc<RefCell<Environment>>, ctx: &ErrorCtx) -> EvalResult {
+        let ctx = ctx.with(EvalError::new("in the argument of the NEG (-) operator"));
+        let r = self.right.eval(env, &ctx)?;
+        if r.is_float() {
+            Ok(Object::mk_float(r.try_into().unwrap()))
+        } else {
+            Ok(Object::mk_int(!r.try_into().map_err(|e| ctx.unwind(e))?))
+        }
+    }
+}
+
+impl Display for OpNegExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "(-{})", self.right)
     }
 }
 
