@@ -907,15 +907,20 @@ impl Display for InterpolateStringExpr {
     }
 }
 
+pub enum Arg {
+    Arg(Rc<dyn Expression>),
+    Formals(Vec<(String, Option<Box<dyn Expression>>)>, bool, Option<String>),
+}
+
 #[derive(Debug)]
 pub struct FunctionLiteralExpr {
-    arg: Rc<dyn Expression>,
+    arg: Arg,
     body: Rc<dyn Expression>,
 }
 
 impl FunctionLiteralExpr {
-    pub fn new(arg: Box<dyn Expression>, body: Box<dyn Expression>) -> FunctionLiteralExpr {
-        FunctionLiteralExpr { arg: arg.into(), body: body.into() }
+    pub fn new(arg: Arg, body: Box<dyn Expression>) -> FunctionLiteralExpr {
+        FunctionLiteralExpr { arg, body: body.into() }
     }
 }
 
