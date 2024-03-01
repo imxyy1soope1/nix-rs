@@ -951,12 +951,12 @@ impl Display for FunctionLiteralExpr {
 #[derive(Debug)]
 pub struct FunctionCallExpr {
     func: Box<dyn Expression>,
-    arg: Box<dyn Expression>,
+    args: Vec<Box<dyn Expression>>,
 }
 
 impl FunctionCallExpr {
-    pub fn new(func: Box<dyn Expression>, arg: Box<dyn Expression>) -> FunctionCallExpr {
-        FunctionCallExpr { func, arg }
+    pub fn new(func: Box<dyn Expression>, args: Vec<Box<dyn Expression>>) -> FunctionCallExpr {
+        FunctionCallExpr { func, args }
     }
 }
 

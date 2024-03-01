@@ -15,11 +15,67 @@ ExprFunction: Box<dyn Expression> = {
 
     "with" <attrs:Expr> ";" <expr:ExprFunction> => Box::new(WithExpr::new(attrs, expr)),
 
+    "let" <binds:Binds> ";" <expr:ExprFunction> => Box::new(LetExpr::new(binds, expr)),
+
+    ExprIf => <>
 };
 
-Int: IntLiteralExpr = r"[0-9]+" => IntLiteralExpr::new(<>);
+If: Box<dyn Expression> = {
+    "if" <cond:Expr> "then" <consq:Expr> "else" <alter:Expr>
+             => Box::new(IfExpr::new(cond, consq, alter)),
+    ExprOp => <>
+};
 
-Float: FloatLiteralExpr = r"[0-9]*.[0-9]+" => FloatLiteralExpr::new(<>);
+ExprOp: Box<dyn Expression> = {
+    "!" ExprOp => Box::new(OpNotExpr::new(<>)),
+    "-" ExprOp => Box::new(OpNegExpr::new(<>)),
+    <l:ExprOp> "==" <r:ExprOp> => Box::new(OpEqExpr::new(l, r)),
+    <l:ExprOp> "!=" <r:ExprOp> => Box::new(OpNeqExpr::new(l, r)),
+    <l:ExprOp> "<" <r:ExprOp> => Box::new(OpLtExpr::new(l, r)),
+    <l:ExprOp> "<=" <r:ExprOp> => Box::new(OpLeqExpr::new(l, r)),
+    <l:ExprOp> ">" <r:ExprOp> => Box::new(OpGtExpr::new(l, r)),
+    <l:ExprOp> ">=" <r:ExprOp> => Box::new(OpGeqExpr::new(l, r)),
+    <l:ExprOp> "&&" <r:ExprOp> => Box::new(OpAndExpr::new(l, r)),
+    <l:ExprOp> "||" <r:ExprOp> => Box::new(OpOrExpr::new(l, r)),
+    <l:ExprOp> "->" <r:ExprOp> => Box::new(OpImplExpr::new(l, r)),
+    <l:ExprOp> "//" <r:ExprOp> => Box::new(OpUpdateExpr::new(l, r)),
+    <l:ExprOp> "?" <r:ExprOp> => Box::new(OpHasExpr::new(l, r)),
+    <l:ExprOp> "+" <r:ExprOp> => Box::new(OpAddExpr::new(l, r)),
+    <l:ExprOp> "-" <r:ExprOp> => Box::new(OpSubExpr::new(l, r)),
+    <l:ExprOp> "*" <r:ExprOp> => Box::new(OpMulExpr::new(l, r)),
+    <l:ExprOp> "/" <r:ExprOp> => Box::new(OpDivExpr::new(l, r)),
+    <l:ExprOp> "++" <r:ExprOp> => Box::new(OpConcatExpr::new(l, r)),
+    ExprApp => <>
+};
+
+ExprApp: Box<dyn Expression> = {
+    <func:ExprApp> <arg:ExprSelect> => {
+        if func.as_any().is::<FunctionCallExpr>() {
+            func.as_any().downcast_mut::<FunctionCallExpr>().unwrap().args.push(arg);
+            func
+        } else {
+            Box::new(FunctionCallExpr::new(func, Vec::new(arg)))
+        }
+    }
+    ExprSelect => <>
+};
+
+ExprSelect: Box<dyn Expression> = {
+    <attrs:ExprSimple> "." <path:AttrPath> ("or" <default:ExprSelect>)? => Box::new(OpSelectExpr::new(attrs, path, default)),
+    ExprSimple => <>
+};
+
+ExprSimple: Box<dyn Expression> = {
+    Ident => Box::new(IdentifierExpr::new(<>)),
+    Int => Box::new(IntLiteralExpr::new(<>)),
+    Float => Box::new(FloatLiteralExpr::new(<>)),
+    "\"" StringParts "\"" => <>,
+
+}
+
+Int: String = r"[0-9]+" => <>.to_string();
+
+Float: String = r"[0-9]*.[0-9]+" => <>.to_string();
 
 Str: StringLiteralExpr = r#""(\\\\|\\"|[^"\\])*""# => StringLiteralExpr::new(<>[1..l.len()-1].to_string());
 
@@ -53,8 +109,6 @@ Op: Box<dyn Expression> = {
     #[precedence(level="2")] #[assoc(side="none")]
 };
 
-If: IfExpr = "if" <cond:Expr> "then" <consq:Expr> "else" <alter:Expr>
-             => IfExpr::new(cond, consq, alter)
 
 
 /*SumLevelOp: Box<Expression> = {
