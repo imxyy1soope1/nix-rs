@@ -70,7 +70,9 @@ ExprSimple: Box<dyn Expression> = {
     Int => Box::new(IntLiteralExpr::new(<>)),
     Float => Box::new(FloatLiteralExpr::new(<>)),
     "\"" StringParts "\"" => <>,
-
+    r"''(\ *\n)?" IndStringParts "''" => Box::new(strip_indent(<>)),
+    Path => Box::new(<>),
+    "<" Path ">" => Box::new(SearchPathExpr::new(<>)),
 }
 
 Int: String = r"[0-9]+" => <>.to_string();
