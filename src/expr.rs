@@ -2,11 +2,13 @@ use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::rc::Rc;
 
-use expr_macro::{Expression, display_fmt};
+use expr_macro::{display_fmt, Expression};
+
+use crate::compile::Compile;
 
 pub type Expr = Box<dyn Expression>;
 
-pub trait Expression: Display + Debug {
+pub trait Expression: Display + Debug + Compile {
     fn as_any(&self) -> &dyn Any;
     fn into_any(self: Box<Self>) -> Box<dyn Any>;
 }
@@ -14,21 +16,21 @@ pub trait Expression: Display + Debug {
 #[derive(Debug, Expression)]
 #[display_fmt("(!{})")]
 pub struct OpNotExpr {
-    right: Expr,
+    pub(super) right: Expr,
 }
 
 #[derive(Debug, Expression)]
 #[display_fmt("(-{})")]
 pub struct OpNegExpr {
-    right: Expr,
+    pub(super) right: Expr,
 }
 
 macro_rules! bin_op {
     ($typename:ident, $s:expr) => {
         #[derive(Debug, Expression)]
         pub struct $typename {
-            left: Expr,
-            right: Expr,
+            pub(super) left: Expr,
+            pub(super) right: Expr,
         }
 
         impl Display for $typename {
@@ -60,14 +62,14 @@ macro_rules! literal {
         #[derive(Debug, Expression)]
         #[display_fmt("{}")]
         pub struct $name {
-            literal: $ty
+            pub(super) literal: $ty,
         }
     };
     ($name:ident, $ty:ty, $fmt:expr) => {
         #[derive(Debug, Expression)]
         #[display_fmt($fmt)]
         pub struct $name {
-            literal: $ty
+            pub(super) literal: $ty,
         }
     };
 }
@@ -137,14 +139,14 @@ impl Display for Arg {
 
 #[derive(Debug, Expression)]
 #[display_fmt("({}: {})")]
-pub struct FunctionLiteralExpr {
+pub struct FuncExpr {
     arg: Arg,
     body: Rc<dyn Expression>,
 }
 
 #[derive(Debug, Expression)]
 #[display_fmt("({} {})")]
-pub struct FunctionCallExpr {
+pub struct CallExpr {
     func: Expr,
     arg: Expr,
 }
@@ -158,12 +160,12 @@ pub struct IfExpr {
 }
 
 #[derive(Debug, Expression)]
-pub struct AttrsLiteralExpr {
+pub struct AttrsExpr {
     bindings: Vec<Expr>,
     rec: bool,
 }
 
-impl Display for AttrsLiteralExpr {
+impl Display for AttrsExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         if self.rec {
             write!(f, "rec ")?;
@@ -177,11 +179,11 @@ impl Display for AttrsLiteralExpr {
 }
 
 #[derive(Debug, Expression)]
-pub struct ListLiteralExpr {
+pub struct ListExpr {
     items: Vec<Expr>,
 }
 
-impl Display for ListLiteralExpr {
+impl Display for ListExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "[ ")?;
         for item in self.items.iter() {
@@ -220,4 +222,3 @@ pub struct AssertExpr {
     assertion: Expr,
     expr: Expr,
 }
-
