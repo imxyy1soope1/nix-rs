@@ -2,7 +2,7 @@ use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::rc::Rc;
 
-use expr_macro::Expression;
+use expr_macro::{Expression, display_fmt};
 
 pub type Expr = Box<dyn Expression>;
 
@@ -12,29 +12,19 @@ pub trait Expression: Display + Debug {
 }
 
 #[derive(Debug, Expression)]
+#[display_fmt("(!{})")]
 pub struct OpNotExpr {
     right: Expr,
 }
 
-impl Display for OpNotExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(!{})", self.right)
-    }
-}
-
 #[derive(Debug, Expression)]
+#[display_fmt("(-{})")]
 pub struct OpNegExpr {
     right: Expr,
 }
 
-impl Display for OpNegExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(-{})", self.right)
-    }
-}
-
-macro_rules! bin_num_op {
-    ($typename:ident, $s:expr, $op:tt) => {
+macro_rules! bin_op {
+    ($typename:ident, $s:expr) => {
         #[derive(Debug, Expression)]
         pub struct $typename {
             left: Expr,
@@ -43,171 +33,51 @@ macro_rules! bin_num_op {
 
         impl Display for $typename {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "({} {} {})", self.left, stringify!($op), self.right)
+                write!(f, "({} {} {})", self.left, $s, self.right)
             }
         }
     };
 }
 
-bin_num_op! {OpAddExpr, "ADD (+)", +}
-bin_num_op! {OpSubExpr, "SUB (-)", -}
-bin_num_op! {OpMulExpr, "MUL (*)", *}
-bin_num_op! {OpDivExpr, "DIV (/)", /}
+bin_op! {OpAddExpr, "+"}
+bin_op! {OpSubExpr, "-"}
+bin_op! {OpMulExpr, "*"}
+bin_op! {OpDivExpr, "/"}
 
-macro_rules! bin_bool_op {
-    ($typename:ident, $s:expr, $func:expr, $op:expr) => {
+bin_op! {OpAndExpr, "&&"}
+bin_op! {OpOrExpr, "||"}
+bin_op! {OpImplExpr, "->"}
+
+bin_op! {OpEqExpr, "=="}
+bin_op! {OpNeqExpr, "!="}
+bin_op! {OpLtExpr, "<"}
+bin_op! {OpGtExpr, ">"}
+bin_op! {OpLeqExpr, "<="}
+bin_op! {OpGeqExpr, ">="}
+
+macro_rules! literal {
+    ($name:ident, $ty:ty) => {
         #[derive(Debug, Expression)]
-        pub struct $typename {
-            left: Expr,
-            right: Expr,
+        #[display_fmt("{}")]
+        pub struct $name {
+            literal: $ty
         }
-
-        impl Display for $typename {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "({} {} {})", self.left, $op, self.right)
-            }
+    };
+    ($name:ident, $ty:ty, $fmt:expr) => {
+        #[derive(Debug, Expression)]
+        #[display_fmt($fmt)]
+        pub struct $name {
+            literal: $ty
         }
     };
 }
 
-bin_bool_op! {OpAndExpr, "AND (&&)", |a, b| a && b, "&&"}
-bin_bool_op! {OpOrExpr, "OR (||)", |a, b| a || b, "||"}
-bin_bool_op! {OpImplExpr, "IMPL (->)", |a: bool, b| !a || b, "->"}
-
-#[derive(Debug, Expression)]
-pub struct OpEqExpr {
-    left: Expr,
-    right: Expr,
-}
-
-impl Display for OpEqExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "({} == {})", self.left, self.right)
-    }
-}
-
-#[derive(Debug, Expression)]
-pub struct OpNeqExpr {
-    left: Expr,
-    right: Expr,
-}
-
-impl Display for OpNeqExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "({} == {})", self.left, self.right)
-    }
-}
-
-#[derive(Debug, Expression)]
-pub struct OpLtExpr {
-    left: Expr,
-    right: Expr,
-}
-
-impl Display for OpLtExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "({} < {})", self.left, self.right)
-    }
-}
-
-#[derive(Debug, Expression)]
-pub struct OpGtExpr {
-    left: Expr,
-    right: Expr,
-}
-
-impl Display for OpGtExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "({} > {})", self.left, self.right)
-    }
-}
-
-#[derive(Debug, Expression)]
-pub struct OpLeqExpr {
-    left: Expr,
-    right: Expr,
-}
-
-impl Display for OpLeqExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "({} <= {})", self.left, self.right)
-    }
-}
-
-#[derive(Debug, Expression)]
-pub struct OpGeqExpr {
-    left: Expr,
-    right: Expr,
-}
-
-impl Display for OpGeqExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "({} >= {})", self.left, self.right)
-    }
-}
-
-#[derive(Debug, Expression)]
-pub struct IdentifierExpr {
-    pub ident: String,
-}
-
-impl Display for IdentifierExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.ident)
-    }
-}
-
-#[derive(Debug, Expression)]
-pub struct IntLiteralExpr {
-    literal: i64,
-}
-
-impl Display for IntLiteralExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.literal)
-    }
-}
-
-#[derive(Debug, Expression)]
-pub struct FloatLiteralExpr {
-    literal: f64,
-}
-
-impl Display for FloatLiteralExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.literal)
-    }
-}
-
-#[derive(Debug)]
-pub struct EllipsisLiteralExpr;
-
-impl Expression for EllipsisLiteralExpr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        self
-    }
-}
-
-impl Display for EllipsisLiteralExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "...")
-    }
-}
-
-#[derive(Debug, Expression)]
-pub struct StringLiteralExpr {
-    pub literal: String,
-}
-
-impl Display for StringLiteralExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, r#""{}""#, self.literal)
-    }
-}
+literal! {IdentExpr, String}
+literal! {IntExpr, i64}
+literal! {FloatExpr, f64}
+literal! {StringExpr, String, r#""{}""#}
+literal! {PathExpr, String}
+literal! {SearchPathExpr, String, "<{}>"}
 
 #[derive(Debug)]
 pub enum Arg {
@@ -266,44 +136,25 @@ impl Display for Arg {
 }
 
 #[derive(Debug, Expression)]
+#[display_fmt("({}: {})")]
 pub struct FunctionLiteralExpr {
     arg: Arg,
     body: Rc<dyn Expression>,
 }
 
-impl Display for FunctionLiteralExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "({}: {})", self.arg, self.body)
-    }
-}
-
 #[derive(Debug, Expression)]
+#[display_fmt("({} {})")]
 pub struct FunctionCallExpr {
     func: Expr,
     arg: Expr,
 }
 
-impl Display for FunctionCallExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "({} {})", self.func, self.arg)
-    }
-}
-
 #[derive(Debug, Expression)]
+#[display_fmt("if {} then {} else {}")]
 pub struct IfExpr {
     cond: Expr,
     consq: Expr,
     alter: Expr,
-}
-
-impl Display for IfExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "if {} then {} else {}",
-            self.cond, self.consq, self.alter
-        )
-    }
 }
 
 #[derive(Debug, Expression)]
@@ -357,48 +208,16 @@ impl Display for LetExpr {
 }
 
 #[derive(Debug, Expression)]
+#[display_fmt("(with {}; {})")]
 pub struct WithExpr {
     attrs: Expr,
     expr: Expr,
 }
 
-impl Display for WithExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "(with {}; {})", self.attrs, self.expr)
-    }
-}
-
 #[derive(Debug, Expression)]
+#[display_fmt("(assert {}; {})")]
 pub struct AssertExpr {
     assertion: Expr,
     expr: Expr,
-}
-
-impl Display for AssertExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "(assert {}; {})", self.assertion, self.expr)
-    }
-}
-
-#[derive(Debug, Expression)]
-pub struct PathLiteralExpr {
-    literal: String,
-}
-
-impl Display for PathLiteralExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.literal)
-    }
-}
-
-#[derive(Debug, Expression)]
-pub struct SearchPathExpr {
-    path: Expr,
-}
-
-impl Display for SearchPathExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "<{}>", self.path)
-    }
 }
 
