@@ -1,6 +1,7 @@
+#![allow(dead_code)]
+
 use std::any::Any;
 use std::fmt::{Debug, Display};
-use std::rc::Rc;
 
 use expr_macro::{display_fmt, Expression};
 
@@ -8,29 +9,67 @@ use crate::compile::Compile;
 
 pub type Expr = Box<dyn Expression>;
 
-pub trait Expression: Display + Debug + Compile {
+pub(crate) trait Expression: Display + Debug + Compile + AsAny {
+}
+
+pub(crate) trait AsAny {
     fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
     fn into_any(self: Box<Self>) -> Box<dyn Any>;
+}
+
+impl<T: 'static + Sized + Expression> AsAny for T {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+}
+
+pub trait Downcast<T> {
+    fn downcast_ref(&self) -> Option<&T>;
+    fn downcast_mut(&mut self) -> Option<&mut T>;
+    fn downcast(self) -> Option<Box<T>>;
+}
+
+impl<T: 'static> Downcast<T> for Box<dyn Expression> {
+    fn downcast_ref(&self) -> Option<&T> {
+        self.as_any().downcast_ref()
+    }
+
+    fn downcast_mut(&mut self) -> Option<&mut T> {
+        self.as_any_mut().downcast_mut()
+    }
+
+    fn downcast(self) -> Option<Box<T>> {
+        self.into_any().downcast().ok()
+    }
 }
 
 #[derive(Debug, Expression)]
 #[display_fmt("(!{})")]
 pub struct OpNotExpr {
-    pub(super) right: Expr,
+    pub(crate) right: Expr,
 }
 
 #[derive(Debug, Expression)]
 #[display_fmt("(-{})")]
 pub struct OpNegExpr {
-    pub(super) right: Expr,
+    pub(crate) right: Expr,
 }
 
 macro_rules! bin_op {
     ($typename:ident, $s:expr) => {
         #[derive(Debug, Expression)]
         pub struct $typename {
-            pub(super) left: Expr,
-            pub(super) right: Expr,
+            pub(crate) left: Expr,
+            pub(crate) right: Expr,
         }
 
         impl Display for $typename {
@@ -62,14 +101,14 @@ macro_rules! literal {
         #[derive(Debug, Expression)]
         #[display_fmt("{}")]
         pub struct $name {
-            pub(super) literal: $ty,
+            pub(crate) literal: $ty,
         }
     };
     ($name:ident, $ty:ty, $fmt:expr) => {
         #[derive(Debug, Expression)]
         #[display_fmt($fmt)]
         pub struct $name {
-            pub(super) literal: $ty,
+            pub(crate) literal: $ty,
         }
     };
 }
@@ -137,33 +176,47 @@ impl Display for Arg {
     }
 }
 
-#[derive(Debug, Expression)]
-#[display_fmt("({}: {})")]
-pub struct FuncExpr {
-    arg: Arg,
-    body: Rc<dyn Expression>,
+macro_rules! expr {
+    ($name:ident, $($attr:ident : $t:ty),*, $fmt:literal) => {
+        #[derive(Debug, Expression)]
+        #[display_fmt($fmt)]
+        pub struct $name {
+            $(
+                pub(crate) $attr: $t,
+            )*
+        }
+    };
+    ($name:ident, $($attr:ident : $t:ty),*) => {
+        #[derive(Debug, Expression)]
+        pub struct $name {
+            $(
+                pub(crate) $attr: $t,
+            )*
+        }
+    };
 }
 
-#[derive(Debug, Expression)]
-#[display_fmt("({} {})")]
-pub struct CallExpr {
-    func: Expr,
-    arg: Expr,
+expr! {FuncExpr, arg: Arg, body: Expr, "({}: {})"}
+expr! {CallExpr, func: Expr, args: Vec<Expr>}
+
+impl Display for CallExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "({} {})",
+            self.func,
+            self.args
+                .iter()
+                .map(|a| a.to_string())
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+    }
 }
 
-#[derive(Debug, Expression)]
-#[display_fmt("if {} then {} else {}")]
-pub struct IfExpr {
-    cond: Expr,
-    consq: Expr,
-    alter: Expr,
-}
+expr! {IfExpr, cond: Expr, consq: Expr, alter: Expr, "(if {} then {} else {})"}
 
-#[derive(Debug, Expression)]
-pub struct AttrsExpr {
-    bindings: Vec<Expr>,
-    rec: bool,
-}
+expr! {AttrsExpr, bindings: Vec<(String, Expr)>, rec: bool}
 
 impl Display for AttrsExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -172,16 +225,13 @@ impl Display for AttrsExpr {
         }
         write!(f, "{{")?;
         for binding in self.bindings.iter() {
-            write!(f, " {};", binding)?;
+            write!(f, "{} = {};", binding.0, binding.1)?;
         }
         write!(f, " }}")
     }
 }
 
-#[derive(Debug, Expression)]
-pub struct ListExpr {
-    items: Vec<Expr>,
-}
+expr! {ListExpr, items: Vec<Expr>}
 
 impl Display for ListExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -193,32 +243,17 @@ impl Display for ListExpr {
     }
 }
 
-#[derive(Debug, Expression)]
-pub struct LetExpr {
-    bindings: Vec<Expr>,
-    expr: Expr,
-}
+expr! {LetExpr, attrs: AttrsExpr, expr: Expr}
 
 impl Display for LetExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "(let ")?;
-        for binding in self.bindings.iter() {
-            write!(f, "{binding}; ")?;
+        for binding in self.attrs.bindings.iter() {
+            write!(f, "{} = {}; ", binding.0, binding.1)?;
         }
         write!(f, "in {})", self.expr)
     }
 }
 
-#[derive(Debug, Expression)]
-#[display_fmt("(with {}; {})")]
-pub struct WithExpr {
-    attrs: Expr,
-    expr: Expr,
-}
-
-#[derive(Debug, Expression)]
-#[display_fmt("(assert {}; {})")]
-pub struct AssertExpr {
-    assertion: Expr,
-    expr: Expr,
-}
+expr! {WithExpr, attrs: Expr, expr: Expr, "(with {}; {})"}
+expr! {AssertExpr, assertion: Expr, expr: Expr, "(assert {}; {})"}

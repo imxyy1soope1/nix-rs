@@ -70,13 +70,6 @@ fn impl_expr(ast: &DeriveInput) -> TokenStream {
         }
 
         impl Expression for #name {
-            fn as_any(&self) -> &dyn Any {
-                self
-            }
-
-            fn into_any(self: Box<Self>) -> Box<dyn Any> {
-                self
-            }
         }
     }.into()
 }
