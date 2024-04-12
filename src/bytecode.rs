@@ -1,6 +1,4 @@
-pub enum OpCode {
-
-}
+pub enum OpCode {}
 
 pub(crate) struct Instruction {
     code: OpCode,

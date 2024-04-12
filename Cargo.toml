@@ -8,7 +8,8 @@ edition = "2021"
 [dependencies]
 rustyline = "13.0.0"
 lalrpop-util = "0.20.0"
-expr_macro = { path = "./src/expr_macro" }
+
+macros = { path = "./src/macros" }
 
 [build-dependencies]
-lalrpop = "0.20.0"
+lalrpop = "0.20.2"
