@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::str::FromStr;
 
-use macros::{debug_fmt};
+use macros::debug_fmt;
 
 #[derive(PartialEq, Eq, Hash)]
 pub struct Ident(String);
@@ -14,6 +14,12 @@ impl FromStr for Ident {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(Ident(s.to_owned()))
+    }
+}
+
+impl From<Ident> for String {
+    fn from(value: Ident) -> Self {
+        value.0
     }
 }
 
@@ -59,6 +65,13 @@ macro_rules! into_expr {
             }
         }
     };
+    (not_boxed $id:ident) => {
+        impl From<$id> for Expr {
+            fn from(value: $id) -> Self {
+                Expr::$id(value)
+            }
+        }
+    };
 }
 
 impl Debug for Expr {
@@ -80,6 +93,43 @@ impl Debug for Expr {
             Call(x) => x.fmt(f),
         }
     }
+}
+
+macro_rules! expr {
+    ($name:ident, $($attr:ident : $t:ty),*, $fmt:literal) => {
+        #[debug_fmt($fmt)]
+        pub struct $name {
+            $(
+                pub $attr: $t,
+            )*
+        }
+        into_expr!($name);
+    };
+    ($name:ident, $($attr:ident : $t:ty),*) => {
+        pub struct $name {
+            $(
+                pub $attr: $t,
+            )*
+        }
+        into_expr!($name);
+    };
+    (not_boxed $name:ident, $($attr:ident : $t:ty),*, $fmt:literal) => {
+        #[debug_fmt($fmt)]
+        pub struct $name {
+            $(
+                pub $attr: $t,
+            )*
+        }
+        into_expr!(not_boxed $name);
+    };
+    (not_boxed $name:ident, $($attr:ident : $t:ty),*) => {
+        pub struct $name {
+            $(
+                pub $attr: $t,
+            )*
+        }
+        into_expr!(not_boxed $name);
+    };
 }
 
 pub struct BinOp<T> {
@@ -169,11 +219,11 @@ pub type BoolBinOp = BinOp<BoolOp>;
 into_expr!(BoolBinOp);
 
 pub enum Arg {
-    Arg(String),
+    Arg(Ident),
     Formals {
-        formals: Vec<(String, Option<Expr>)>,
+        formals: Vec<(Ident, Option<Expr>)>,
         ellipsis: bool,
-        alias: Option<String>,
+        alias: Option<Ident>,
     },
 }
 
@@ -223,36 +273,12 @@ impl Debug for Arg {
     }
 }
 
-pub struct Func {
-    pub arg: Arg,
-    pub body: Expr,
-}
-
-into_expr!(Func);
-
-impl Debug for Func {
-    fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        write!(f, "({:?}: {:?})", self.arg, self.body)
-    }
-}
-
-pub struct Call {
-    pub fun: Expr,
-    pub arg: Expr,
-}
-
-into_expr!(Call);
-
-impl Debug for Call {
-    fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        write!(f, "({:?} {:?})", self.fun, self.arg)
-    }
-}
+expr! {Func, arg: Arg, body: Expr, name: Option<String>, "({arg:?}: {body:?})"}
+expr! {Call, func: Expr, arg: Expr, "({func:?} {arg:?})"}
 
 pub enum Literal {
     Int(i64),
     Float(f64),
-    Bool(bool),
     String(String),
 }
 
@@ -268,33 +294,14 @@ impl Debug for Literal {
         match self {
             Int(x) => Debug::fmt(x, f),
             Float(x) => Debug::fmt(x, f),
-            Bool(x) => Debug::fmt(x, f),
             String(x) => Debug::fmt(x, f),
         }
     }
 }
 
-macro_rules! expr {
-    ($name:ident, $($attr:ident : $t:ty),*, $fmt:literal) => {
-        #[debug_fmt($fmt)]
-        pub struct $name {
-            $(
-                pub(crate) $attr: $t,
-            )*
-        }
-    };
-    ($name:ident, $($attr:ident : $t:ty),*) => {
-        pub struct $name {
-            $(
-                pub(crate) $attr: $t,
-            )*
-        }
-    };
-}
+expr! {If, cond: Expr, consq: Expr, alter: Expr, "(if {cond:?} then {consq:?} else {alter:?})"}
 
-expr! {If, cond: Expr, consq: Expr, alter: Expr, "(if {:?} then {:?} else {:?})"}
-
-expr! {Attrs, bindings: Vec<(String, Expr)>, rec: bool}
+expr! {not_boxed Attrs, stcs: Vec<(Ident, Expr)>, dyns: Vec<(Expr, Expr)>, rec: bool}
 
 impl Display for Attrs {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
@@ -302,14 +309,17 @@ impl Display for Attrs {
             write!(f, "rec ")?;
         }
         write!(f, "{{")?;
-        for binding in self.bindings.iter() {
+        for binding in self.stcs.iter() {
+            write!(f, "{:?} = {:?};", binding.0, binding.1)?;
+        }
+        for binding in self.dyns.iter() {
             write!(f, "{:?} = {:?};", binding.0, binding.1)?;
         }
         write!(f, " }}")
     }
 }
 
-expr! {List, items: Vec<Expr>}
+expr! {not_boxed List, items: Vec<Expr>}
 
 impl Display for List {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
@@ -326,12 +336,15 @@ expr! {Let, attrs: Attrs, expr: Expr}
 impl Debug for Let {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         write!(f, "(let ")?;
-        for binding in self.attrs.bindings.iter() {
+        for binding in self.attrs.stcs.iter() {
+            write!(f, "{:?} = {:?}; ", binding.0, binding.1)?;
+        }
+        for binding in self.attrs.dyns.iter() {
             write!(f, "{:?} = {:?}; ", binding.0, binding.1)?;
         }
         write!(f, "in {:?})", self.expr)
     }
 }
 
-expr! {With, attrs: Expr, expr: Expr, "(with {:?}; {:?})"}
-expr! {Assert, assertion: Expr, expr: Expr, "(assert {:?}; {:?})"}
+expr! {With, attrs: Expr, expr: Expr, "(with {attrs:?}; {expr:?})"}
+expr! {Assert, assertion: Expr, expr: Expr, "(assert {assertion:?}; {expr:?})"}

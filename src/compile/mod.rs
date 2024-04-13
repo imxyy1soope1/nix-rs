@@ -1,5 +1,4 @@
 mod compile;
 mod env;
+pub mod ir;
 mod symtable;
-
-pub(crate) use compile::Compile;

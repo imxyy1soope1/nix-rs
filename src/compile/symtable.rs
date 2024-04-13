@@ -1,35 +1,34 @@
 use std::collections::HashMap;
 
-use crate::closure::Closure;
+pub type Sym = usize;
 
-pub(crate) enum SymType {
-    Int = 0,
-    Float,
-    String,
-    Path,
-    SearchPath,
-    List,
-    Set,
-    Lambda,
-
-    Arg,
-}
-
-pub(crate) struct Symbol {
-    pub(crate) idx: usize,
-    pub(crate) ty: SymType,
-}
-
-pub(crate) struct SymTable {
-    table: HashMap<String, Symbol>,
-    closures: Vec<Closure>,
+pub struct SymTable {
+    syms: HashMap<String, Sym>,
 }
 
 impl SymTable {
-    pub(crate) fn new() -> SymTable {
+    pub fn new() -> SymTable {
         SymTable {
-            table: HashMap::new(),
-            closures: Vec::new(),
+            syms: HashMap::new(),
         }
+    }
+
+    pub fn lookup(&mut self, name: String) -> Sym {
+        if let Some(sym) = self.syms.get(&name) {
+            *sym
+        } else {
+            let sym = self.syms.len();
+            self.syms.insert(name, sym);
+            sym
+        }
+    }
+
+    pub fn into_syms(self) -> Box<[String]> {
+        let len = self.syms.len();
+        let mut syms = vec![String::new(); len];
+        for (cnst, idx) in self.syms {
+            unsafe { *syms.get_unchecked_mut(idx) = cnst }
+        }
+        syms.into_boxed_slice()
     }
 }
