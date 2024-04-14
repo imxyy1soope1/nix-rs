@@ -73,7 +73,11 @@ impl CompileState {
 
     fn insert_dyn(&mut self, sym: impl Into<Frame>, frame: impl Into<Frame>) {
         let idx = self.new_frame(frame);
-        self.env_stack.last_mut().unwrap().dyns.push((sym.into(), idx));
+        self.env_stack
+            .last_mut()
+            .unwrap()
+            .dyns
+            .push((sym.into(), idx));
     }
 
     fn lookup(&self, sym: Sym) -> Option<Idx> {
@@ -103,6 +107,7 @@ impl CompileState {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub struct CompiledProgram {
     pub consts: Box<[Const]>,
     pub frames: Box<[Frame]>,
@@ -119,7 +124,7 @@ impl Compile for Ir {
                 } else {
                     vec![DynLoad(sym)]
                 }
-            },
+            }
             Ir::Const(cnst) => {
                 let idx = state.new_const(cnst.into());
                 vec![Const(idx)]
@@ -147,14 +152,14 @@ impl Compile for ir::Attrs {
         for (sym, item) in stcs {
             let compiled = item.compile(state);
             let idx = state.new_frame(compiled);
-            frame.push(Instruction::StaticAttr{sym, idx});
+            frame.push(Instruction::StcAttr { sym, idx });
         }
         for (sym, item) in self.dyns {
             let compiled_sym = sym.compile(state);
             let sym = state.new_frame(compiled_sym);
             let compiled_item = item.compile(state);
             let idx = state.new_frame(compiled_item);
-            frame.push(Instruction::DynamicAttr{sym, idx});
+            frame.push(Instruction::DynAttr { sym, idx });
         }
         frame
     }
@@ -164,21 +169,21 @@ impl Compile for ir::RecAttrs {
     fn compile(self, state: &mut CompileState) -> Vec<Instruction> {
         state.new_env();
         let mut frame = Vec::with_capacity(self.stcs.len() + self.dyns.len() + 1);
-        frame.push(Instruction::RecAttrs);
+        frame.push(Instruction::Attrs);
         let mut stcs = self.stcs;
         stcs.sort_by_key(|(sym, _)| *sym);
         let range = state.alloc_stcs(&stcs.iter().map(|(sym, _)| *sym).collect::<Vec<_>>());
         for ((sym, item), idx) in std::iter::zip(stcs, range.0..range.1) {
             let compiled = item.compile(state);
             *state.frames.get_mut(idx).unwrap() = compiled.into();
-            frame.push(Instruction::StaticAttr{sym, idx});
+            frame.push(Instruction::StcAttr { sym, idx });
         }
         for (sym, item) in self.dyns {
             let compiled_sym = sym.compile(state);
             let sym = state.new_frame(compiled_sym);
             let compiled_item = item.compile(state);
             let idx = state.new_frame(compiled_item);
-            frame.push(Instruction::DynamicAttr{sym, idx});
+            frame.push(Instruction::DynAttr { sym, idx });
         }
         state.pop_env();
         frame
@@ -192,7 +197,7 @@ impl Compile for ir::List {
         for item in self.items {
             let compiled = item.compile(state);
             let idx = state.new_frame(compiled);
-            frame.push(Instruction::PushElem(idx));
+            frame.push(Instruction::ListElem(idx));
         }
         frame
     }
@@ -224,44 +229,58 @@ impl Compile for ir::BinOp {
 
 impl Compile for ir::If {
     fn compile(self, state: &mut CompileState) -> Vec<Instruction> {
-        let cond = self.cond.compile(state);
+        let mut cond = self.cond.compile(state);
         let consq = self.consq.compile(state);
         let alter = self.alter.compile(state);
-        let (cond, consq, alter) = (state.new_frame(cond), state.new_frame(consq), state.new_frame(alter));
-        vec![Instruction::If{cond, consq, alter}]
+        let (consq, alter) = (state.new_frame(consq), state.new_frame(alter));
+        cond.push(Instruction::If { consq, alter });
+        cond
     }
 }
 
 impl Compile for ir::Let {
     fn compile(self, state: &mut CompileState) -> Vec<Instruction> {
         state.new_env();
+        let mut frame = Vec::with_capacity(self.attrs.dyns.len() + 5);
+        frame.push(Instruction::Attrs);
         let mut stcs = self.attrs.stcs;
         stcs.sort_by_key(|(sym, _)| *sym);
         let range = state.alloc_stcs(&stcs.iter().map(|(sym, _)| *sym).collect::<Vec<_>>());
-        for ((sym, item), idx) in std::iter::zip(stcs, range.0..range.1) {
+        for ((_, item), idx) in std::iter::zip(stcs, range.0..range.1) {
             let compiled = item.compile(state);
             *state.frames.get_mut(idx).unwrap() = compiled.into();
         }
         for (sym, item) in self.attrs.dyns {
             let compiled_sym = sym.compile(state);
+            let sym = state.new_frame(compiled_sym);
             let compiled_item = item.compile(state);
-            state.insert_dyn(compiled_sym, compiled_item);
+            let idx = state.new_frame(compiled_item);
+            frame.push(Instruction::DynAttr { sym, idx });
         }
-        let frame = self.expr.compile(state);
-        let env = state.pop_env();
+        frame.push(Instruction::EnterEnv);
+        frame.append(&mut self.expr.compile(state));
+        frame.push(Instruction::ExitEnv);
+        state.pop_env();
         frame
     }
 }
 
 impl Compile for ir::With {
     fn compile(self, state: &mut CompileState) -> Vec<Instruction> {
-        vec![]
+        let mut frame = self.attrs.compile(state);
+        frame.push(Instruction::EnterEnv);
+        frame.append(&mut self.expr.compile(state));
+        frame.push(Instruction::ExitEnv);
+        frame
     }
 }
 
 impl Compile for ir::Assert {
     fn compile(self, state: &mut CompileState) -> Vec<Instruction> {
-        vec![]
+        let mut frame = self.assertion.compile(state);
+        frame.push(Instruction::Assert);
+        frame.append(&mut self.expr.compile(state));
+        frame
     }
 }
 
