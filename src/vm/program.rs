@@ -97,74 +97,49 @@ pub type Frame = Box<[Instruction]>;
 pub enum Instruction {
     Const(Idx),
     Load(Idx),
-    ArithOp(ArithOp),
-    CmpOp(CmpOp),
-    BoolOp(BoolOp),
-    Branch(Frame, Frame),
+    DynLoad(Idx),
+    Attrs,
+    RecAttrs,
+    StaticAttr{sym: Idx, idx: Idx},
+    DynamicAttr{sym: Idx, idx: Idx},
+    List,
+    PushElem(Idx),
+    Op(Op),
+    If{cond: Idx, consq: Idx, alter: Idx},
     Closure { arg: Arg, frame: Frame },
     Call,
-    PopEnv,
+    EnterEnv,
+    ExitEnv,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
-pub enum ArithOp {
+pub enum Op {
     Add,
     Sub,
     Mul,
     Div,
+    Eq,
+    Neq,
+    Lt,
+    Gt,
+    Leq,
+    Geq,
+    And,
+    Or,
+    Impl,
+    Not,
 }
 
-impl fmt::Display for ArithOp {
+impl fmt::Display for Op {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use ArithOp::*;
+        use Op::*;
         f.write_str(match *self {
             Add => "add",
             Sub => "sub",
             Mul => "mul",
             Div => "div",
-        })
-    }
-}
-
-impl fmt::Debug for ArithOp {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        <ArithOp as fmt::Display>::fmt(self, f)
-    }
-}
-
-#[derive(PartialEq, Eq, Clone, Copy)]
-pub enum CmpOp {
-    Eq,
-    Lt,
-}
-
-impl fmt::Display for CmpOp {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use CmpOp::*;
-        f.write_str(match *self {
             Eq => "eq",
             Lt => "lt",
-        })
-    }
-}
-
-impl fmt::Debug for CmpOp {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        <CmpOp as fmt::Display>::fmt(self, f)
-    }
-}
-
-#[derive(PartialEq, Eq, Clone, Copy)]
-pub enum BoolOp {
-    And,
-    Or,
-    Not,
-}
-
-impl fmt::Display for BoolOp {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use BoolOp::*;
-        f.write_str(match *self {
             And => "and",
             Or => "or",
             Not => "not",
@@ -172,8 +147,8 @@ impl fmt::Display for BoolOp {
     }
 }
 
-impl fmt::Debug for BoolOp {
+impl fmt::Debug for Op {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        <BoolOp as fmt::Display>::fmt(self, f)
+        fmt::Display::fmt(self, f)
     }
 }

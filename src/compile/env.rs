@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-use crate::vm::program::Frame;
+use crate::vm::program::{Frame, Idx};
 
 use super::ir::Ir;
 use super::symtable::Sym;
 
 pub struct Env {
-    pub stcs: HashMap<Sym, Frame>,
-    pub dyns: Vec<(Ir, Frame)>,
+    pub stcs: HashMap<Sym, Idx>,
+    pub dyns: Vec<(Frame, Idx)>,
 }
 
 impl Env {
