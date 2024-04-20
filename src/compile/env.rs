@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use crate::vm::program::{Frame, Idx};
 
-use super::ir::Ir;
 use super::symtable::Sym;
 
 pub struct Env {

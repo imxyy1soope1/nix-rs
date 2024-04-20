@@ -54,6 +54,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed570934406eb16438a4e976b1b4500774099c13b8cb96eec99f620f05090ddf"
 
 [[package]]
+name = "bytecode"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0268cbfb795d305d50e2fd65e2d6de9d5f9aabc9ab20061de5a67447a3c7a333"
+dependencies = [
+ "tiny-ansi",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -314,6 +323,7 @@ dependencies = [
 name = "nix-rs"
 version = "0.1.0"
 dependencies = [
+ "bytecode",
  "lalrpop",
  "lalrpop-util",
  "macros",
@@ -590,6 +600,12 @@ dependencies = [
  "quote",
  "syn 2.0.52",
 ]
+
+[[package]]
+name = "tiny-ansi"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13aaf6c73d43ec6ce35105098915b2e77939b01390d48e5e1ce3ca649e753d8c"
 
 [[package]]
 name = "tiny-keccak"

@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 rustyline = "13.0.0"
 lalrpop-util = "0.20.0"
+bytecode = "0.3.0"
 
 macros = { path = "./src/macros" }
 

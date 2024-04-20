@@ -1,3 +1,5 @@
+#![feature(new_uninit)]
+
 mod ast;
 mod bytecode;
 mod compile;

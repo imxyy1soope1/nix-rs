@@ -17,6 +17,24 @@ pub enum Ir {
     Call(Box<Call>),
 }
 
+impl Ir {
+    fn optimize(self, table: &SymTable) -> Ir {
+        use Ir::*;
+        match self {
+            Attrs(attrs) => attrs.optimize(table),
+            RecAttrs(attrs) => attrs.optimize(table),
+            BinOp(op) => op.optimize(table),
+            If(if_) => if_.optimize(table),
+            Let(let_) => let_.optimize(table),
+            With(with) => with.optimize(table),
+            Assert(assert) => assert.optimize(table),
+            Func(func) => func.optimize(table),
+            Call(call) => call.optimize(table),
+            ir => ir,
+        }
+    }
+}
+
 pub enum Const {
     Int(i64),
     Float(f64),
@@ -26,6 +44,10 @@ pub enum Const {
 pub fn desugar(expr: Expr) -> (Ir, SymTable) {
     let mut table = SymTable::new();
     (expr.desugar(&mut table), table)
+}
+
+pub fn optimize(ir: Ir, table: &SymTable) -> Ir {
+    
 }
 
 macro_rules! into_ir {

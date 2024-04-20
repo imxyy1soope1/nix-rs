@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::ast::Expr;
 use crate::vm::program::*;
 
-use super::env::Env;
+use super::env::Env as _Env;
 use super::ir::{self, Ir};
 use super::symtable::*;
 
@@ -13,10 +13,11 @@ pub fn compile(expr: Expr) -> CompiledProgram {
     let compiled = ir.compile(&mut state);
     state.frames.push(compiled.into());
     let len = state.consts.len();
-    let mut consts = vec![Const::Int(0); len];
+    let mut consts = Box::<[Const]>::new_uninit_slice(len);
     for (cnst, idx) in state.consts {
-        unsafe { *consts.get_unchecked_mut(idx) = cnst }
+        unsafe { *consts.get_unchecked_mut(idx) = std::mem::MaybeUninit::new(cnst) }
     }
+    let consts = unsafe {consts.assume_init()};
     CompiledProgram {
         consts: consts.into(),
         frames: state.frames.into(),
@@ -26,6 +27,27 @@ pub fn compile(expr: Expr) -> CompiledProgram {
 
 trait Compile {
     fn compile(self, state: &mut CompileState) -> Vec<Instruction>;
+}
+
+enum Env {
+    Env(_Env),
+    With
+}
+
+impl Env {
+    fn env(& self) -> & _Env {
+        match self {
+            Env::Env(env) => env,
+            _ => panic!()
+        }
+    }
+
+    fn env_mut(&mut self) -> &mut _Env {
+        match self {
+            Env::Env(env) => env,
+            _ => panic!()
+        }
+    }
 }
 
 struct CompileState {
@@ -46,16 +68,20 @@ impl CompileState {
     }
 
     fn new_env(&mut self) {
-        self.env_stack.push(Env::new())
+        self.env_stack.push(Env::Env(_Env::new()));
     }
 
-    fn pop_env(&mut self) -> Env {
-        self.env_stack.pop().unwrap()
+    fn with(&mut self) {
+        self.env_stack.push(Env::With);
+    }
+
+    fn pop_env(&mut self) {
+        self.env_stack.pop().unwrap();
     }
 
     fn insert_stc(&mut self, sym: Sym, frame: Vec<Instruction>) {
         let idx = self.new_frame(frame);
-        if let Some(_) = self.env_stack.last_mut().unwrap().stcs.insert(sym, idx) {
+        if let Some(_) = self.env_stack.last_mut().unwrap().env_mut().stcs.insert(sym, idx) {
             panic!()
         }
     }
@@ -64,7 +90,7 @@ impl CompileState {
         let len = self.frames.len();
         self.frames.resize_with(len + syms.len(), Default::default);
         for (sym, idx) in std::iter::zip(syms, len..len + syms.len()) {
-            if let Some(_) = self.env_stack.last_mut().unwrap().stcs.insert(*sym, idx) {
+            if let Some(_) = self.env_stack.last_mut().unwrap().env_mut().stcs.insert(*sym, idx) {
                 panic!()
             }
         }
@@ -76,13 +102,14 @@ impl CompileState {
         self.env_stack
             .last_mut()
             .unwrap()
+            .env_mut()
             .dyns
             .push((sym.into(), idx));
     }
 
     fn lookup(&self, sym: Sym) -> Option<Idx> {
         let mut env_stack = self.env_stack.iter();
-        while let Some(Env { stcs, .. }) = env_stack.next_back() {
+        while let Some(Env::Env(_Env { stcs, .. })) = env_stack.next_back() {
             if let Some(idx) = stcs.get(&sym) {
                 return Some(*idx);
             }
@@ -268,9 +295,11 @@ impl Compile for ir::Let {
 impl Compile for ir::With {
     fn compile(self, state: &mut CompileState) -> Vec<Instruction> {
         let mut frame = self.attrs.compile(state);
+        state.with();
         frame.push(Instruction::EnterEnv);
         frame.append(&mut self.expr.compile(state));
         frame.push(Instruction::ExitEnv);
+        state.pop_env();
         frame
     }
 }
