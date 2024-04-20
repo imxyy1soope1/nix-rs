@@ -3,6 +3,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use crate::compile::ir;
+use crate::compile::CompiledProgram;
 
 #[derive(Debug, Clone)]
 pub enum Const {
@@ -156,4 +157,8 @@ impl fmt::Debug for Op {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(self, f)
     }
+}
+
+pub struct Program {
+
 }

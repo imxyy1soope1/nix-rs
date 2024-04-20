@@ -99,29 +99,37 @@ impl ByteCode {
         *self += num;
     }
 
-    pub fn take(&mut self, num: usize) -> Vec<u8> {
-        let result = self.peek(num).to_owned();
-        self.skip(num);
+    pub fn take(&mut self, num: usize) -> &[u8] {
+        if num > self.len() {
+            panic!("index out of bounds: the slice only lengths {}, but tried to take {}", self.len(), num)
+        }
+        let result = &self.inner[self.pos..self.pos+num];
+        self.pos += num;
         result
     }
 
-    pub fn take_into_u8(&mut self) -> u8 {
+    pub fn take_u8(&mut self) -> u8 {
         self.take(1)[0]
     }
 
-    pub fn take_into_u16(&mut self) -> u16 {
+    pub fn take_u16(&mut self) -> u16 {
         let bytes: [u8; 2] = self.take(2).try_into().unwrap();
         u16::from_le_bytes(bytes)
     }
 
-    pub fn take_into_u32(&mut self) -> u32 {
+    pub fn take_u32(&mut self) -> u32 {
         let bytes: [u8; 4] = self.take(4).try_into().unwrap();
         u32::from_le_bytes(bytes)
     }
 
+    pub fn take_u64(&mut self) -> u64 {
+        let bytes: [u8; 8] = self.take(8).try_into().unwrap();
+        u64::from_le_bytes(bytes)
+    }
+
     pub fn take_into_string(&mut self, num: usize) -> String {
         let bytes = self.take(num);
-        String::from_utf8(bytes).unwrap()
+        String::from_utf8(bytes.to_vec()).unwrap()
     }
 }
 

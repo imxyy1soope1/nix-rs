@@ -52,7 +52,6 @@ impl Env {
 
 struct CompileState {
     env_stack: Vec<Env>,
-    envs: HashMap<Idx, Env>,
     consts: HashMap<Const, Idx>,
     frames: Vec<Frame>,
 }
@@ -61,7 +60,6 @@ impl CompileState {
     fn new() -> CompileState {
         CompileState {
             env_stack: Vec::new(),
-            envs: HashMap::new(),
             consts: HashMap::new(),
             frames: Vec::new(),
         }
@@ -162,6 +160,7 @@ impl Compile for Ir {
             Ir::BinOp(op) => op.compile(state),
             Ir::If(if_) => if_.compile(state),
             Ir::Let(let_) => let_.compile(state),
+            Ir::LetRec(let_) => let_.compile(state),
             Ir::With(with) => with.compile(state),
             Ir::Assert(assert_) => assert_.compile(state),
             Ir::Func(func) => func.compile(state),
@@ -174,9 +173,9 @@ impl Compile for ir::Attrs {
     fn compile(self, state: &mut CompileState) -> Vec<Instruction> {
         let mut frame = Vec::with_capacity(self.stcs.len() + self.dyns.len() + 1);
         frame.push(Instruction::Attrs);
-        let mut stcs = self.stcs;
-        stcs.sort_by_key(|(sym, _)| *sym);
-        for (sym, item) in stcs {
+        // let mut stcs = self.stcs;
+        // stcs.sort_by_key(|(sym, _)| *sym);
+        for (sym, item) in self.stcs {
             let compiled = item.compile(state);
             let idx = state.new_frame(compiled);
             frame.push(Instruction::StcAttr { sym, idx });
@@ -197,10 +196,10 @@ impl Compile for ir::RecAttrs {
         state.new_env();
         let mut frame = Vec::with_capacity(self.stcs.len() + self.dyns.len() + 1);
         frame.push(Instruction::Attrs);
-        let mut stcs = self.stcs;
-        stcs.sort_by_key(|(sym, _)| *sym);
-        let range = state.alloc_stcs(&stcs.iter().map(|(sym, _)| *sym).collect::<Vec<_>>());
-        for ((sym, item), idx) in std::iter::zip(stcs, range.0..range.1) {
+        // let mut stcs = self.stcs;
+        // stcs.sort_by_key(|(sym, _)| *sym);
+        let range = state.alloc_stcs(&self.stcs.iter().map(|(sym, _)| *sym).collect::<Vec<_>>());
+        for ((sym, item), idx) in std::iter::zip(self.stcs, range.0..range.1) {
             let compiled = item.compile(state);
             *state.frames.get_mut(idx).unwrap() = compiled.into();
             frame.push(Instruction::StcAttr { sym, idx });
@@ -270,10 +269,35 @@ impl Compile for ir::Let {
         state.new_env();
         let mut frame = Vec::with_capacity(self.attrs.dyns.len() + 5);
         frame.push(Instruction::Attrs);
-        let mut stcs = self.attrs.stcs;
-        stcs.sort_by_key(|(sym, _)| *sym);
-        let range = state.alloc_stcs(&stcs.iter().map(|(sym, _)| *sym).collect::<Vec<_>>());
-        for ((_, item), idx) in std::iter::zip(stcs, range.0..range.1) {
+        for (sym, item) in self.attrs.stcs {
+            let compiled = item.compile(state);
+            let idx = state.new_frame(compiled);
+            frame.push(Instruction::StcAttr { sym, idx });
+        }
+        for (sym, item) in self.attrs.dyns {
+            let compiled_sym = sym.compile(state);
+            let sym = state.new_frame(compiled_sym);
+            let compiled_item = item.compile(state);
+            let idx = state.new_frame(compiled_item);
+            frame.push(Instruction::DynAttr { sym, idx });
+        }
+        frame.push(Instruction::EnterEnv);
+        frame.append(&mut self.expr.compile(state));
+        frame.push(Instruction::ExitEnv);
+        state.pop_env();
+        frame
+    }
+}
+
+impl Compile for ir::LetRec {
+    fn compile(self, state: &mut CompileState) -> Vec<Instruction> {
+        state.new_env();
+        let mut frame = Vec::with_capacity(self.attrs.dyns.len() + 5);
+        frame.push(Instruction::Attrs);
+        // let mut stcs = self.attrs.stcs;
+        // stcs.sort_by_key(|(sym, _)| *sym);
+        let range = state.alloc_stcs(&self.attrs.stcs.iter().map(|(sym, _)| *sym).collect::<Vec<_>>());
+        for ((_, item), idx) in std::iter::zip(self.attrs.stcs, range.0..range.1) {
             let compiled = item.compile(state);
             *state.frames.get_mut(idx).unwrap() = compiled.into();
         }

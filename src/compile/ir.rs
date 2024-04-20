@@ -1,6 +1,9 @@
+use std::collections::HashMap;
+
 use crate::ast::{self, Expr};
 
 use super::symtable::*;
+use super::env::IrEnv;
 
 pub enum Ir {
     Var(Sym),
@@ -11,28 +14,11 @@ pub enum Ir {
     BinOp(Box<BinOp>),
     If(Box<If>),
     Let(Box<Let>),
+    LetRec(Box<LetRec>),
     With(Box<With>),
     Assert(Box<Assert>),
     Func(Box<Func>),
     Call(Box<Call>),
-}
-
-impl Ir {
-    fn optimize(self, table: &SymTable) -> Ir {
-        use Ir::*;
-        match self {
-            Attrs(attrs) => attrs.optimize(table),
-            RecAttrs(attrs) => attrs.optimize(table),
-            BinOp(op) => op.optimize(table),
-            If(if_) => if_.optimize(table),
-            Let(let_) => let_.optimize(table),
-            With(with) => with.optimize(table),
-            Assert(assert) => assert.optimize(table),
-            Func(func) => func.optimize(table),
-            Call(call) => call.optimize(table),
-            ir => ir,
-        }
-    }
 }
 
 pub enum Const {
@@ -42,12 +28,82 @@ pub enum Const {
 }
 
 pub fn desugar(expr: Expr) -> (Ir, SymTable) {
-    let mut table = SymTable::new();
-    (expr.desugar(&mut table), table)
+    let mut state = SymTable::new();
+    (expr.desugar(&mut state), state)
 }
 
-pub fn optimize(ir: Ir, table: &SymTable) -> Ir {
-    
+enum Env {
+    Env(IrEnv),
+    With
+}
+
+impl Env {
+    fn env(& self) -> & IrEnv {
+        match self {
+            Env::Env(env) => env,
+            _ => panic!()
+        }
+    }
+
+    fn env_mut(&mut self) -> &mut IrEnv {
+        match self {
+            Env::Env(env) => env,
+            _ => panic!()
+        }
+    }
+}
+
+struct OptimizeState {
+    env_stack: Vec<Env>,
+}
+
+impl OptimizeState {
+    fn new() -> OptimizeState {
+        OptimizeState {
+            env_stack: Vec::new(),
+        }
+    }
+
+    fn new_env(&mut self) {
+        self.env_stack.push(Env::Env(IrEnv::new()));
+    }
+
+    fn with(&mut self) {
+        self.env_stack.push(Env::With);
+    }
+
+    fn pop_env(&mut self) {
+        self.env_stack.pop().unwrap();
+    }
+
+    fn insert_stc(&mut self, sym: Sym, val: Ir) {
+        if let Some(_) = self.env_stack.last_mut().unwrap().env_mut().stcs.insert(sym, val) {
+            panic!()
+        }
+    }
+
+    fn insert_dyn(&mut self, sym: Ir, val: Ir) {
+        self.env_stack
+            .last_mut()
+            .unwrap()
+            .env_mut()
+            .dyns
+            .push((sym, val));
+    }
+
+    fn lookup(&self, sym: Sym) -> Option<&Ir> {
+        let mut env_stack = self.env_stack.iter();
+        while let Some(Env::Env(IrEnv { stcs, .. })) = env_stack.next_back() {
+            if let Some(idx) = stcs.get(&sym) {
+                return Some(idx);
+            }
+        }
+        None
+    }
+}
+
+pub fn optimize(ir: Ir) -> Ir {
+    ir.optimize(&mut OptimizeState::new())
 }
 
 macro_rules! into_ir {
@@ -86,8 +142,8 @@ macro_rules! ir {
     };
 }
 
-ir! {not_boxed Attrs, stcs: Vec<(Sym, Ir)>, dyns: Vec<(Ir, Ir)>}
-ir! {not_boxed RecAttrs, stcs: Vec<(Sym, Ir)>, dyns: Vec<(Ir, Ir)>}
+ir! {not_boxed Attrs, stcs: HashMap<Sym, Ir>, dyns: Vec<(Ir, Ir)>}
+ir! {not_boxed RecAttrs, stcs: HashMap<Sym, Ir>, dyns: Vec<(Ir, Ir)>}
 ir! {not_boxed List, items: Vec<Ir>}
 
 ir! {BinOp, lhs: Ir, rhs: Ir, kind: BinOpKind}
@@ -157,64 +213,87 @@ pub enum Arg {
 
 ir! {Call, func: Ir, arg: Ir}
 
-ir! {Let, attrs: RecAttrs, expr: Ir}
+ir! {LetRec, attrs: RecAttrs, expr: Ir}
+ir! {Let, attrs: Attrs, expr: Ir}
 ir! {With, attrs: Ir, expr: Ir}
 ir! {Assert, assertion: Ir, expr: Ir}
 
 trait Sugar {
-    fn desugar(self, _: &mut SymTable) -> Ir;
+    fn desugar(self, state: &mut SymTable) -> Ir;
+}
+
+trait Optimize {
+    fn optimize(self, state: &mut OptimizeState) -> Ir;
 }
 
 impl Sugar for Expr {
-    fn desugar(self, table: &mut SymTable) -> Ir {
+    fn desugar(self, state: &mut SymTable) -> Ir {
         match self {
-            Expr::Var(v) => Ir::Var(table.lookup(v.into())),
+            Expr::Var(v) => Ir::Var(state.lookup(v.into())),
             Expr::Literal(ast::Literal::Int(i)) => Ir::Const(Const::Int(i)),
             Expr::Literal(ast::Literal::Float(f)) => Ir::Const(Const::Float(f)),
             Expr::Literal(ast::Literal::String(s)) => Ir::Const(Const::String(s)),
-            Expr::Attrs(attrs) => attrs.desugar(table),
-            Expr::List(list) => list.desugar(table),
-            Expr::ArithBinOp(op) => op.desugar(table),
-            Expr::CmpBinOp(op) => op.desugar(table),
-            Expr::BoolBinOp(op) => op.desugar(table),
+            Expr::Attrs(attrs) => attrs.desugar(state),
+            Expr::List(list) => list.desugar(state),
+            Expr::ArithBinOp(op) => op.desugar(state),
+            Expr::CmpBinOp(op) => op.desugar(state),
+            Expr::BoolBinOp(op) => op.desugar(state),
             Expr::If(if_) => If {
-                cond: if_.cond.desugar(table),
-                consq: if_.consq.desugar(table),
-                alter: if_.alter.desugar(table),
+                cond: if_.cond.desugar(state),
+                consq: if_.consq.desugar(state),
+                alter: if_.alter.desugar(state),
             }
             .into(),
-            Expr::Let(let_) => let_.desugar(table),
+            Expr::Let(let_) => let_.desugar(state),
             Expr::With(with) => With {
-                attrs: with.attrs.desugar(table),
-                expr: with.expr.desugar(table),
+                attrs: with.attrs.desugar(state),
+                expr: with.expr.desugar(state),
             }
             .into(),
             Expr::Assert(assert_) => Assert {
-                assertion: assert_.assertion.desugar(table),
-                expr: assert_.expr.desugar(table),
+                assertion: assert_.assertion.desugar(state),
+                expr: assert_.expr.desugar(state),
             }
             .into(),
-            Expr::Func(func) => func.desugar(table),
+            Expr::Func(func) => func.desugar(state),
             Expr::Call(call) => Call {
-                func: call.func.desugar(table),
-                arg: call.arg.desugar(table),
+                func: call.func.desugar(state),
+                arg: call.arg.desugar(state),
             }
             .into(),
         }
     }
 }
 
+impl Optimize for Ir {
+    fn optimize(self, state: &mut OptimizeState) -> Ir {
+        use Ir::*;
+        match self {
+            Attrs(attrs) => attrs.optimize(state),
+            RecAttrs(attrs) => attrs.optimize(state),
+            BinOp(op) => op.optimize(state),
+            If(if_) => if_.optimize(state),
+            LetRec(let_) => let_.optimize(state),
+            With(with) => with.optimize(state),
+            Assert(assert) => assert.optimize(state),
+            Func(func) => func.optimize(state),
+            Call(call) => call.optimize(state),
+            ir => ir,
+        }
+    }
+}
+
 impl Sugar for ast::Attrs {
-    fn desugar(self, table: &mut SymTable) -> Ir {
+    fn desugar(self, state: &mut SymTable) -> Ir {
         let stcs = self
             .stcs
             .into_iter()
-            .map(|(ident, expr)| (table.lookup(ident.into()), expr.desugar(table)))
+            .map(|(ident, expr)| (state.lookup(ident.into()), expr.desugar(state)))
             .collect();
         let dyns = self
             .dyns
             .into_iter()
-            .map(|(name, expr)| (name.desugar(table), expr.desugar(table)))
+            .map(|(name, expr)| (name.desugar(state), expr.desugar(state)))
             .collect();
         if self.rec {
             RecAttrs { stcs, dyns }.into()
@@ -224,14 +303,32 @@ impl Sugar for ast::Attrs {
     }
 }
 
+impl Optimize for Attrs {
+    fn optimize(self, state: &mut OptimizeState) -> Ir {
+        self.into()
+    }
+}
+
+impl Optimize for RecAttrs {
+    fn optimize(self, state: &mut OptimizeState) -> Ir {
+        self.into()
+    }
+}
+
 impl Sugar for ast::List {
-    fn desugar(self, table: &mut SymTable) -> Ir {
+    fn desugar(self, state: &mut SymTable) -> Ir {
         let items = self
             .items
             .into_iter()
-            .map(|expr| expr.desugar(table))
+            .map(|expr| expr.desugar(state))
             .collect();
         List { items }.into()
+    }
+}
+
+impl Optimize for List {
+    fn optimize(self, state: &mut OptimizeState) -> Ir {
+        self.into()
     }
 }
 
@@ -240,18 +337,24 @@ where
     BinOpKind: From<Op>,
     Op: Copy,
 {
-    fn desugar(self, table: &mut SymTable) -> Ir {
+    fn desugar(self, state: &mut SymTable) -> Ir {
         BinOp {
-            lhs: self.lhs.desugar(table),
-            rhs: self.rhs.desugar(table),
+            lhs: self.lhs.desugar(state),
+            rhs: self.rhs.desugar(state),
             kind: BinOpKind::from(self.kind),
         }
         .into()
     }
 }
 
+impl Optimize for BinOp {
+    fn optimize(self, state: &mut OptimizeState) -> Ir {
+        self.into()
+    }
+}
+
 impl Sugar for ast::Let {
-    fn desugar(self, table: &mut SymTable) -> Ir {
+    fn desugar(self, state: &mut SymTable) -> Ir {
         if !self.attrs.rec {
             panic!()
         }
@@ -259,26 +362,32 @@ impl Sugar for ast::Let {
             .attrs
             .stcs
             .into_iter()
-            .map(|(ident, expr)| (table.lookup(ident.into()), expr.desugar(table)))
+            .map(|(ident, expr)| (state.lookup(ident.into()), expr.desugar(state)))
             .collect();
         let dyns = self
             .attrs
             .dyns
             .into_iter()
-            .map(|(name, expr)| (name.desugar(table), expr.desugar(table)))
+            .map(|(name, expr)| (name.desugar(state), expr.desugar(state)))
             .collect();
-        Let {
-            attrs: RecAttrs { stcs, dyns }.into(),
-            expr: self.expr.desugar(table),
+        LetRec {
+            attrs: RecAttrs { stcs, dyns },
+            expr: self.expr.desugar(state),
         }
         .into()
     }
 }
 
+impl Optimize for LetRec {
+    fn optimize(self, state: &mut OptimizeState) -> Ir {
+        self.into()
+    }
+}
+
 impl Sugar for ast::Func {
-    fn desugar(self, table: &mut SymTable) -> Ir {
+    fn desugar(self, state: &mut SymTable) -> Ir {
         let arg = match self.arg {
-            ast::Arg::Arg(name) => Arg::Arg(table.lookup(name.into())),
+            ast::Arg::Arg(name) => Arg::Arg(state.lookup(name.into())),
             ast::Arg::Formals {
                 formals,
                 ellipsis,
@@ -288,22 +397,61 @@ impl Sugar for ast::Func {
                     .into_iter()
                     .map(|(ident, default)| {
                         (
-                            table.lookup(ident.into()),
-                            default.map(|default| default.desugar(table)),
+                            state.lookup(ident.into()),
+                            default.map(|default| default.desugar(state)),
                         )
                     })
                     .collect();
                 Arg::Formals {
                     formals,
-                    alias: alias.map(|alias| table.lookup(alias.into())),
+                    alias: alias.map(|alias| state.lookup(alias.into())),
                     ellipsis,
                 }
             }
         };
         Func {
             arg,
-            body: self.body.desugar(table),
+            body: self.body.desugar(state),
         }
         .into()
+    }
+}
+
+impl Optimize for Func {
+    fn optimize(self, state: &mut OptimizeState) -> Ir {
+        self.into()
+    }
+}
+
+impl Optimize for Call {
+    fn optimize(self, state: &mut OptimizeState) -> Ir {
+        self.into()
+    }
+}
+
+impl Optimize for If {
+    fn optimize(self, state: &mut OptimizeState) -> Ir {
+        If {
+            cond: self.cond.optimize(state),
+            consq: self.consq.optimize(state),
+            alter: self.alter.optimize(state),
+        }.into()
+    }
+}
+
+impl Optimize for With {
+    fn optimize(self, state: &mut OptimizeState) -> Ir {
+        if let Ir::Attrs(attrs) = self.attrs {
+            let Ir::Attrs(attrs) = attrs.optimize(state) else { unreachable!() };
+            Let { attrs, expr: self.expr.optimize(state) }.into()
+        } else {
+            With { attrs: self.attrs.optimize(state), expr: self.expr.optimize(state) }.into()
+        }
+    }
+}
+
+impl Optimize for Assert {
+    fn optimize(self, state: &mut OptimizeState) -> Ir {
+        self.into()
     }
 }
