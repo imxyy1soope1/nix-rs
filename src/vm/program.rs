@@ -12,7 +12,7 @@ pub enum Const {
     String(String),
 }
 
-impl From<ir::Const> for Const {
+/* impl From<ir::Const> for Const {
     fn from(value: ir::Const) -> Self {
         match value {
             ir::Const::Int(x) => Const::Int(x),
@@ -20,7 +20,7 @@ impl From<ir::Const> for Const {
             ir::Const::String(x) => Const::String(x),
         }
     }
-}
+} */
 
 impl<'a> TryFrom<&'a Const> for &'a i64 {
     type Error = Box<dyn Error>;

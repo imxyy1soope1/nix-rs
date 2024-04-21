@@ -22,7 +22,8 @@
         ])
       ];
       shellHook = ''
-        exec zsh
+        zsh & disown
+        exit
       '';
     };
   };

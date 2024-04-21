@@ -11,7 +11,6 @@ pub fn compile(expr: Expr) -> CompiledProgram {
     let (ir, table) = ir::desugar(expr);
     let mut state = CompileState::new();
     let compiled = ir.compile(&mut state);
-    state.frames.push(compiled.into());
     let len = state.consts.len();
     let mut consts = Box::<[Const]>::new_uninit_slice(len);
     for (cnst, idx) in state.consts {
@@ -19,8 +18,9 @@ pub fn compile(expr: Expr) -> CompiledProgram {
     }
     let consts = unsafe {consts.assume_init()};
     CompiledProgram {
+        top_level: compiled.into(),
         consts: consts.into(),
-        frames: state.frames.into(),
+        thunks: state.thunks.into(),
         syms: table.into_syms(),
     }
 }
@@ -51,53 +51,53 @@ impl Env {
 }
 
 struct CompileState {
-    env_stack: Vec<Env>,
+    envs: Vec<Env>,
     consts: HashMap<Const, Idx>,
-    frames: Vec<Frame>,
+    thunks: Vec<Frame>,
 }
 
 impl CompileState {
     fn new() -> CompileState {
         CompileState {
-            env_stack: Vec::new(),
+            envs: Vec::new(),
             consts: HashMap::new(),
-            frames: Vec::new(),
+            thunks: Vec::new(),
         }
     }
 
     fn new_env(&mut self) {
-        self.env_stack.push(Env::Env(_Env::new()));
+        self.envs.push(Env::Env(_Env::new()));
     }
 
     fn with(&mut self) {
-        self.env_stack.push(Env::With);
+        self.envs.push(Env::With);
     }
 
     fn pop_env(&mut self) {
-        self.env_stack.pop().unwrap();
+        self.envs.pop().unwrap();
     }
 
-    fn insert_stc(&mut self, sym: Sym, frame: Vec<Instruction>) {
-        let idx = self.new_frame(frame);
-        if let Some(_) = self.env_stack.last_mut().unwrap().env_mut().stcs.insert(sym, idx) {
+    fn insert_stc(&mut self, sym: Sym, thunk: Vec<Instruction>) {
+        let idx = self.new_thunk(thunk);
+        if let Some(_) = self.envs.last_mut().unwrap().env_mut().stcs.insert(sym, idx) {
             panic!()
         }
     }
 
     fn alloc_stcs<'a>(&'a mut self, syms: &[Sym]) -> (usize, usize) {
-        let len = self.frames.len();
-        self.frames.resize_with(len + syms.len(), Default::default);
+        let len = self.thunks.len();
+        self.thunks.resize_with(len + syms.len(), Default::default);
         for (sym, idx) in std::iter::zip(syms, len..len + syms.len()) {
-            if let Some(_) = self.env_stack.last_mut().unwrap().env_mut().stcs.insert(*sym, idx) {
+            if let Some(_) = self.envs.last_mut().unwrap().env_mut().stcs.insert(*sym, idx) {
                 panic!()
             }
         }
         (len, syms.len())
     }
 
-    fn insert_dyn(&mut self, sym: impl Into<Frame>, frame: impl Into<Frame>) {
-        let idx = self.new_frame(frame);
-        self.env_stack
+    fn insert_dyn(&mut self, sym: impl Into<Frame>, thunk: impl Into<Frame>) {
+        let idx = self.new_thunk(thunk);
+        self.envs
             .last_mut()
             .unwrap()
             .env_mut()
@@ -106,8 +106,8 @@ impl CompileState {
     }
 
     fn lookup(&self, sym: Sym) -> Option<Idx> {
-        let mut env_stack = self.env_stack.iter();
-        while let Some(Env::Env(_Env { stcs, .. })) = env_stack.next_back() {
+        let mut envs = self.envs.iter();
+        while let Some(Env::Env(_Env { stcs, .. })) = envs.next_back() {
             if let Some(idx) = stcs.get(&sym) {
                 return Some(*idx);
             }
@@ -125,17 +125,18 @@ impl CompileState {
         }
     }
 
-    fn new_frame(&mut self, frame: impl Into<Frame>) -> Idx {
-        let idx = self.frames.len();
-        self.frames.push(frame.into());
+    fn new_thunk(&mut self, thunk: impl Into<Frame>) -> Idx {
+        let idx = self.thunks.len();
+        self.thunks.push(thunk.into());
         idx
     }
 }
 
 #[derive(Debug, PartialEq)]
 pub struct CompiledProgram {
+    pub top_level: Frame,
     pub consts: Box<[Const]>,
-    pub frames: Box<[Frame]>,
+    pub thunks: Box<[Frame]>,
     pub syms: Box<[String]>,
 }
 
@@ -171,70 +172,70 @@ impl Compile for Ir {
 
 impl Compile for ir::Attrs {
     fn compile(self, state: &mut CompileState) -> Vec<Instruction> {
-        let mut frame = Vec::with_capacity(self.stcs.len() + self.dyns.len() + 1);
-        frame.push(Instruction::Attrs);
+        let mut thunk = Vec::with_capacity(self.stcs.len() + self.dyns.len() + 1);
+        thunk.push(Instruction::Attrs);
         // let mut stcs = self.stcs;
         // stcs.sort_by_key(|(sym, _)| *sym);
         for (sym, item) in self.stcs {
             let compiled = item.compile(state);
-            let idx = state.new_frame(compiled);
-            frame.push(Instruction::StcAttr { sym, idx });
+            let idx = state.new_thunk(compiled);
+            thunk.push(Instruction::StcAttr { sym, idx });
         }
         for (sym, item) in self.dyns {
             let compiled_sym = sym.compile(state);
-            let sym = state.new_frame(compiled_sym);
+            let sym = state.new_thunk(compiled_sym);
             let compiled_item = item.compile(state);
-            let idx = state.new_frame(compiled_item);
-            frame.push(Instruction::DynAttr { sym, idx });
+            let idx = state.new_thunk(compiled_item);
+            thunk.push(Instruction::DynAttr { sym, idx });
         }
-        frame
+        thunk
     }
 }
 
 impl Compile for ir::RecAttrs {
     fn compile(self, state: &mut CompileState) -> Vec<Instruction> {
         state.new_env();
-        let mut frame = Vec::with_capacity(self.stcs.len() + self.dyns.len() + 1);
-        frame.push(Instruction::Attrs);
+        let mut thunk = Vec::with_capacity(self.stcs.len() + self.dyns.len() + 1);
+        thunk.push(Instruction::Attrs);
         // let mut stcs = self.stcs;
         // stcs.sort_by_key(|(sym, _)| *sym);
         let range = state.alloc_stcs(&self.stcs.iter().map(|(sym, _)| *sym).collect::<Vec<_>>());
         for ((sym, item), idx) in std::iter::zip(self.stcs, range.0..range.1) {
             let compiled = item.compile(state);
-            *state.frames.get_mut(idx).unwrap() = compiled.into();
-            frame.push(Instruction::StcAttr { sym, idx });
+            *state.thunks.get_mut(idx).unwrap() = compiled.into();
+            thunk.push(Instruction::StcAttr { sym, idx });
         }
         for (sym, item) in self.dyns {
             let compiled_sym = sym.compile(state);
-            let sym = state.new_frame(compiled_sym);
+            let sym = state.new_thunk(compiled_sym);
             let compiled_item = item.compile(state);
-            let idx = state.new_frame(compiled_item);
-            frame.push(Instruction::DynAttr { sym, idx });
+            let idx = state.new_thunk(compiled_item);
+            thunk.push(Instruction::DynAttr { sym, idx });
         }
         state.pop_env();
-        frame
+        thunk
     }
 }
 
 impl Compile for ir::List {
     fn compile(self, state: &mut CompileState) -> Vec<Instruction> {
-        let mut frame = Vec::with_capacity(self.items.len() + 1);
-        frame.push(Instruction::List);
+        let mut thunk = Vec::with_capacity(self.items.len() + 1);
+        thunk.push(Instruction::List);
         for item in self.items {
             let compiled = item.compile(state);
-            let idx = state.new_frame(compiled);
-            frame.push(Instruction::ListElem(idx));
+            let idx = state.new_thunk(compiled);
+            thunk.push(Instruction::ListElem(idx));
         }
-        frame
+        thunk
     }
 }
 
 impl Compile for ir::BinOp {
     fn compile(self, state: &mut CompileState) -> Vec<Instruction> {
-        let mut frame = self.lhs.compile(state);
-        frame.append(&mut self.rhs.compile(state));
+        let mut thunk = self.lhs.compile(state);
+        thunk.append(&mut self.rhs.compile(state));
         use ir::BinOpKind::*;
-        frame.push(Instruction::Op(match self.kind {
+        thunk.push(Instruction::Op(match self.kind {
             Add => Op::Add,
             Sub => Op::Sub,
             Mul => Op::Mul,
@@ -249,7 +250,7 @@ impl Compile for ir::BinOp {
             Or => Op::Or,
             Impl => Op::Impl,
         }));
-        frame
+        thunk
     }
 }
 
@@ -258,7 +259,7 @@ impl Compile for ir::If {
         let mut cond = self.cond.compile(state);
         let consq = self.consq.compile(state);
         let alter = self.alter.compile(state);
-        let (consq, alter) = (state.new_frame(consq), state.new_frame(alter));
+        let (consq, alter) = (state.new_thunk(consq), state.new_thunk(alter));
         cond.push(Instruction::If { consq, alter });
         cond
     }
@@ -267,73 +268,73 @@ impl Compile for ir::If {
 impl Compile for ir::Let {
     fn compile(self, state: &mut CompileState) -> Vec<Instruction> {
         state.new_env();
-        let mut frame = Vec::with_capacity(self.attrs.dyns.len() + 5);
-        frame.push(Instruction::Attrs);
+        let mut thunk = Vec::with_capacity(self.attrs.dyns.len() + 5);
+        thunk.push(Instruction::Attrs);
         for (sym, item) in self.attrs.stcs {
             let compiled = item.compile(state);
-            let idx = state.new_frame(compiled);
-            frame.push(Instruction::StcAttr { sym, idx });
+            let idx = state.new_thunk(compiled);
+            thunk.push(Instruction::StcAttr { sym, idx });
         }
         for (sym, item) in self.attrs.dyns {
             let compiled_sym = sym.compile(state);
-            let sym = state.new_frame(compiled_sym);
+            let sym = state.new_thunk(compiled_sym);
             let compiled_item = item.compile(state);
-            let idx = state.new_frame(compiled_item);
-            frame.push(Instruction::DynAttr { sym, idx });
+            let idx = state.new_thunk(compiled_item);
+            thunk.push(Instruction::DynAttr { sym, idx });
         }
-        frame.push(Instruction::EnterEnv);
-        frame.append(&mut self.expr.compile(state));
-        frame.push(Instruction::ExitEnv);
+        thunk.push(Instruction::EnterEnv);
+        thunk.append(&mut self.expr.compile(state));
+        thunk.push(Instruction::ExitEnv);
         state.pop_env();
-        frame
+        thunk
     }
 }
 
 impl Compile for ir::LetRec {
     fn compile(self, state: &mut CompileState) -> Vec<Instruction> {
         state.new_env();
-        let mut frame = Vec::with_capacity(self.attrs.dyns.len() + 5);
-        frame.push(Instruction::Attrs);
+        let mut thunk = Vec::with_capacity(self.attrs.dyns.len() + 5);
+        thunk.push(Instruction::Attrs);
         // let mut stcs = self.attrs.stcs;
         // stcs.sort_by_key(|(sym, _)| *sym);
         let range = state.alloc_stcs(&self.attrs.stcs.iter().map(|(sym, _)| *sym).collect::<Vec<_>>());
         for ((_, item), idx) in std::iter::zip(self.attrs.stcs, range.0..range.1) {
             let compiled = item.compile(state);
-            *state.frames.get_mut(idx).unwrap() = compiled.into();
+            *state.thunks.get_mut(idx).unwrap() = compiled.into();
         }
         for (sym, item) in self.attrs.dyns {
             let compiled_sym = sym.compile(state);
-            let sym = state.new_frame(compiled_sym);
+            let sym = state.new_thunk(compiled_sym);
             let compiled_item = item.compile(state);
-            let idx = state.new_frame(compiled_item);
-            frame.push(Instruction::DynAttr { sym, idx });
+            let idx = state.new_thunk(compiled_item);
+            thunk.push(Instruction::DynAttr { sym, idx });
         }
-        frame.push(Instruction::EnterEnv);
-        frame.append(&mut self.expr.compile(state));
-        frame.push(Instruction::ExitEnv);
+        thunk.push(Instruction::EnterEnv);
+        thunk.append(&mut self.expr.compile(state));
+        thunk.push(Instruction::ExitEnv);
         state.pop_env();
-        frame
+        thunk
     }
 }
 
 impl Compile for ir::With {
     fn compile(self, state: &mut CompileState) -> Vec<Instruction> {
-        let mut frame = self.attrs.compile(state);
+        let mut thunk = self.attrs.compile(state);
         state.with();
-        frame.push(Instruction::EnterEnv);
-        frame.append(&mut self.expr.compile(state));
-        frame.push(Instruction::ExitEnv);
+        thunk.push(Instruction::EnterEnv);
+        thunk.append(&mut self.expr.compile(state));
+        thunk.push(Instruction::ExitEnv);
         state.pop_env();
-        frame
+        thunk
     }
 }
 
 impl Compile for ir::Assert {
     fn compile(self, state: &mut CompileState) -> Vec<Instruction> {
-        let mut frame = self.assertion.compile(state);
-        frame.push(Instruction::Assert);
-        frame.append(&mut self.expr.compile(state));
-        frame
+        let mut thunk = self.assertion.compile(state);
+        thunk.push(Instruction::Assert);
+        thunk.append(&mut self.expr.compile(state));
+        thunk
     }
 }
 

@@ -4,7 +4,7 @@ use crate::vm::program::*;
 
 macro_rules! boxvec {
     () => (
-        vec![].into_boxed_slice()
+        Box::new([])
     );
     ($($x:expr),+ $(,)?) => (
         vec![$($x,)*].into_boxed_slice()
@@ -18,10 +18,10 @@ fn test_list() {
     });
     let compiled = compile(expr);
     let expected = CompiledProgram {
+        top_level: boxvec![Instruction::List, Instruction::ListElem(0)],
         consts: Box::new([Const::Int(1)]),
-        frames: Box::new([
+        thunks: Box::new([
             boxvec![Instruction::Const(0)],
-            boxvec![Instruction::List, Instruction::ListElem(0)],
         ]),
         syms: Box::new([]),
     };

@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use crate::ast::{self, Expr};
+use rnix::ast::{self, Expr};
+
+// use crate::ast::{self, Expr};
+use crate::vm::program::{Idx, Const};
 
 use super::symtable::*;
 use super::env::IrEnv;
@@ -19,17 +22,6 @@ pub enum Ir {
     Assert(Box<Assert>),
     Func(Box<Func>),
     Call(Box<Call>),
-}
-
-pub enum Const {
-    Int(i64),
-    Float(f64),
-    String(String),
-}
-
-pub fn desugar(expr: Expr) -> (Ir, SymTable) {
-    let mut state = SymTable::new();
-    (expr.desugar(&mut state), state)
 }
 
 enum Env {
@@ -53,37 +45,48 @@ impl Env {
     }
 }
 
-struct OptimizeState {
-    env_stack: Vec<Env>,
+pub struct IrGenState {
+    sym_table: SymTable,
+    envs: Vec<Env>,
+    thunks: Vec<(Ir, Vec<Sym>)>,
+    consts: HashMap<Const, Idx>,
 }
 
-impl OptimizeState {
-    fn new() -> OptimizeState {
-        OptimizeState {
-            env_stack: Vec::new(),
+pub struct GenedIr {
+    top_level: Ir,
+
+}
+
+impl IrGenState {
+    fn new() -> IrGenState {
+        IrGenState {
+            sym_table: SymTable::new(),
+            envs: Vec::new(),
+            thunks: Vec::new(),
+            consts: HashMap::new()
         }
     }
 
     fn new_env(&mut self) {
-        self.env_stack.push(Env::Env(IrEnv::new()));
+        self.envs.push(Env::Env(IrEnv::new()));
     }
 
     fn with(&mut self) {
-        self.env_stack.push(Env::With);
+        self.envs.push(Env::With);
     }
 
     fn pop_env(&mut self) {
-        self.env_stack.pop().unwrap();
+        self.envs.pop().unwrap();
     }
 
     fn insert_stc(&mut self, sym: Sym, val: Ir) {
-        if let Some(_) = self.env_stack.last_mut().unwrap().env_mut().stcs.insert(sym, val) {
+        if let Some(_) = self.envs.last_mut().unwrap().env_mut().stcs.insert(sym, val) {
             panic!()
         }
     }
 
     fn insert_dyn(&mut self, sym: Ir, val: Ir) {
-        self.env_stack
+        self.envs
             .last_mut()
             .unwrap()
             .env_mut()
@@ -92,19 +95,25 @@ impl OptimizeState {
     }
 
     fn lookup(&self, sym: Sym) -> Option<&Ir> {
-        let mut env_stack = self.env_stack.iter();
-        while let Some(Env::Env(IrEnv { stcs, .. })) = env_stack.next_back() {
+        let mut envs = self.envs.iter();
+        while let Some(Env::Env(IrEnv { stcs, .. })) = envs.next_back() {
             if let Some(idx) = stcs.get(&sym) {
                 return Some(idx);
             }
         }
         None
     }
+
+    fn sym_lookup(&mut self, name: String) -> Sym {
+        self.sym_table.lookup(name)
+    }
 }
 
-pub fn optimize(ir: Ir) -> Ir {
-    ir.optimize(&mut OptimizeState::new())
+pub fn desugar(expr: Expr) -> (Ir, IrGenState) {
+    let mut state = IrGenState::new();
+    (expr.desugar(&mut state), state)
 }
+
 
 macro_rules! into_ir {
     ($id:ident) => {
@@ -219,17 +228,13 @@ ir! {With, attrs: Ir, expr: Ir}
 ir! {Assert, assertion: Ir, expr: Ir}
 
 trait Sugar {
-    fn desugar(self, state: &mut SymTable) -> Ir;
-}
-
-trait Optimize {
-    fn optimize(self, state: &mut OptimizeState) -> Ir;
+    fn desugar(self, state: &mut IrGenState) -> Ir;
 }
 
 impl Sugar for Expr {
-    fn desugar(self, state: &mut SymTable) -> Ir {
+    fn desugar(self, state: &mut IrGenState) -> Ir {
         match self {
-            Expr::Var(v) => Ir::Var(state.lookup(v.into())),
+            Expr::Var(v) => Ir::Var(state.sym_lookup(v.into())),
             Expr::Literal(ast::Literal::Int(i)) => Ir::Const(Const::Int(i)),
             Expr::Literal(ast::Literal::Float(f)) => Ir::Const(Const::Float(f)),
             Expr::Literal(ast::Literal::String(s)) => Ir::Const(Const::String(s)),
@@ -265,30 +270,12 @@ impl Sugar for Expr {
     }
 }
 
-impl Optimize for Ir {
-    fn optimize(self, state: &mut OptimizeState) -> Ir {
-        use Ir::*;
-        match self {
-            Attrs(attrs) => attrs.optimize(state),
-            RecAttrs(attrs) => attrs.optimize(state),
-            BinOp(op) => op.optimize(state),
-            If(if_) => if_.optimize(state),
-            LetRec(let_) => let_.optimize(state),
-            With(with) => with.optimize(state),
-            Assert(assert) => assert.optimize(state),
-            Func(func) => func.optimize(state),
-            Call(call) => call.optimize(state),
-            ir => ir,
-        }
-    }
-}
-
 impl Sugar for ast::Attrs {
-    fn desugar(self, state: &mut SymTable) -> Ir {
+    fn desugar(self, state: &mut IrGenState) -> Ir {
         let stcs = self
             .stcs
             .into_iter()
-            .map(|(ident, expr)| (state.lookup(ident.into()), expr.desugar(state)))
+            .map(|(ident, expr)| (state.sym_lookup(ident.into()), expr.desugar(state)))
             .collect();
         let dyns = self
             .dyns
@@ -303,20 +290,8 @@ impl Sugar for ast::Attrs {
     }
 }
 
-impl Optimize for Attrs {
-    fn optimize(self, state: &mut OptimizeState) -> Ir {
-        self.into()
-    }
-}
-
-impl Optimize for RecAttrs {
-    fn optimize(self, state: &mut OptimizeState) -> Ir {
-        self.into()
-    }
-}
-
 impl Sugar for ast::List {
-    fn desugar(self, state: &mut SymTable) -> Ir {
+    fn desugar(self, state: &mut IrGenState) -> Ir {
         let items = self
             .items
             .into_iter()
@@ -326,18 +301,12 @@ impl Sugar for ast::List {
     }
 }
 
-impl Optimize for List {
-    fn optimize(self, state: &mut OptimizeState) -> Ir {
-        self.into()
-    }
-}
-
 impl<Op> Sugar for ast::BinOp<Op>
 where
     BinOpKind: From<Op>,
     Op: Copy,
 {
-    fn desugar(self, state: &mut SymTable) -> Ir {
+    fn desugar(self, state: &mut IrGenState) -> Ir {
         BinOp {
             lhs: self.lhs.desugar(state),
             rhs: self.rhs.desugar(state),
@@ -347,14 +316,9 @@ where
     }
 }
 
-impl Optimize for BinOp {
-    fn optimize(self, state: &mut OptimizeState) -> Ir {
-        self.into()
-    }
-}
 
 impl Sugar for ast::Let {
-    fn desugar(self, state: &mut SymTable) -> Ir {
+    fn desugar(self, state: &mut IrGenState) -> Ir {
         if !self.attrs.rec {
             panic!()
         }
@@ -362,7 +326,7 @@ impl Sugar for ast::Let {
             .attrs
             .stcs
             .into_iter()
-            .map(|(ident, expr)| (state.lookup(ident.into()), expr.desugar(state)))
+            .map(|(ident, expr)| (state.sym_lookup(ident.into()), expr.desugar(state)))
             .collect();
         let dyns = self
             .attrs
@@ -378,16 +342,14 @@ impl Sugar for ast::Let {
     }
 }
 
-impl Optimize for LetRec {
-    fn optimize(self, state: &mut OptimizeState) -> Ir {
-        self.into()
-    }
-}
-
-impl Sugar for ast::Func {
-    fn desugar(self, state: &mut SymTable) -> Ir {
+impl Sugar for ast::Lambda {
+    fn desugar(self, state: &mut IrGenState) -> Ir {
+        let param = match self.param().unwrap() {
+            ast::Param::IdentParam(ident) => ident.ident().unwrap(),
+            ast::Param::Pattern(pattern) => pattern.
+        }
         let arg = match self.arg {
-            ast::Arg::Arg(name) => Arg::Arg(state.lookup(name.into())),
+            ast::Arg::Arg(name) => Arg::Arg(state.sym_lookup(name.into())),
             ast::Arg::Formals {
                 formals,
                 ellipsis,
@@ -397,14 +359,14 @@ impl Sugar for ast::Func {
                     .into_iter()
                     .map(|(ident, default)| {
                         (
-                            state.lookup(ident.into()),
+                            state.sym_lookup(ident.into()),
                             default.map(|default| default.desugar(state)),
                         )
                     })
                     .collect();
                 Arg::Formals {
                     formals,
-                    alias: alias.map(|alias| state.lookup(alias.into())),
+                    alias: alias.map(|alias| state.sym_lookup(alias.into())),
                     ellipsis,
                 }
             }
@@ -417,41 +379,3 @@ impl Sugar for ast::Func {
     }
 }
 
-impl Optimize for Func {
-    fn optimize(self, state: &mut OptimizeState) -> Ir {
-        self.into()
-    }
-}
-
-impl Optimize for Call {
-    fn optimize(self, state: &mut OptimizeState) -> Ir {
-        self.into()
-    }
-}
-
-impl Optimize for If {
-    fn optimize(self, state: &mut OptimizeState) -> Ir {
-        If {
-            cond: self.cond.optimize(state),
-            consq: self.consq.optimize(state),
-            alter: self.alter.optimize(state),
-        }.into()
-    }
-}
-
-impl Optimize for With {
-    fn optimize(self, state: &mut OptimizeState) -> Ir {
-        if let Ir::Attrs(attrs) = self.attrs {
-            let Ir::Attrs(attrs) = attrs.optimize(state) else { unreachable!() };
-            Let { attrs, expr: self.expr.optimize(state) }.into()
-        } else {
-            With { attrs: self.attrs.optimize(state), expr: self.expr.optimize(state) }.into()
-        }
-    }
-}
-
-impl Optimize for Assert {
-    fn optimize(self, state: &mut OptimizeState) -> Ir {
-        self.into()
-    }
-}
