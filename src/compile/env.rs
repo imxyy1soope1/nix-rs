@@ -2,17 +2,20 @@ use std::collections::HashMap;
 
 use crate::vm::program::{Frame, Idx};
 
-use super::symtable::Sym;
 use super::ir::Ir;
+use super::symtable::Sym;
 
 pub struct IrEnv {
-    pub stcs: HashMap<Sym, Ir>,
-    pub dyns: Vec<(Ir, Ir)>,
+    pub stcs: HashMap<Sym, Box<dyn Ir>>,
+    pub dyns: Vec<(Box<dyn Ir>, Box<dyn Ir>)>,
 }
 
 impl IrEnv {
     pub fn new() -> IrEnv {
-        IrEnv { stcs: HashMap::new(), dyns: Vec::new() }
+        IrEnv {
+            stcs: HashMap::new(),
+            dyns: Vec::new(),
+        }
     }
 }
 

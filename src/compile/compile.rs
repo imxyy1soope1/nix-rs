@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use crate::ast::Expr;
+use rnix::ast::Expr;
+
 use crate::vm::program::*;
 
 use super::env::Env as _Env;
@@ -8,7 +9,7 @@ use super::ir::{self, Ir};
 use super::symtable::*;
 
 pub fn compile(expr: Expr) -> CompiledProgram {
-    let (ir, table) = ir::desugar(expr);
+    let (ir, table) = ir::downgrade(expr);
     let mut state = CompileState::new();
     let compiled = ir.compile(&mut state);
     let len = state.consts.len();
@@ -16,7 +17,7 @@ pub fn compile(expr: Expr) -> CompiledProgram {
     for (cnst, idx) in state.consts {
         unsafe { *consts.get_unchecked_mut(idx) = std::mem::MaybeUninit::new(cnst) }
     }
-    let consts = unsafe {consts.assume_init()};
+    let consts = unsafe { consts.assume_init() };
     CompiledProgram {
         top_level: compiled.into(),
         consts: consts.into(),
@@ -31,21 +32,21 @@ trait Compile {
 
 enum Env {
     Env(_Env),
-    With
+    With,
 }
 
 impl Env {
-    fn env(& self) -> & _Env {
+    fn env(&self) -> &_Env {
         match self {
             Env::Env(env) => env,
-            _ => panic!()
+            _ => panic!(),
         }
     }
 
     fn env_mut(&mut self) -> &mut _Env {
         match self {
             Env::Env(env) => env,
-            _ => panic!()
+            _ => panic!(),
         }
     }
 }
@@ -79,7 +80,14 @@ impl CompileState {
 
     fn insert_stc(&mut self, sym: Sym, thunk: Vec<Instruction>) {
         let idx = self.new_thunk(thunk);
-        if let Some(_) = self.envs.last_mut().unwrap().env_mut().stcs.insert(sym, idx) {
+        if let Some(_) = self
+            .envs
+            .last_mut()
+            .unwrap()
+            .env_mut()
+            .stcs
+            .insert(sym, idx)
+        {
             panic!()
         }
     }
@@ -88,7 +96,14 @@ impl CompileState {
         let len = self.thunks.len();
         self.thunks.resize_with(len + syms.len(), Default::default);
         for (sym, idx) in std::iter::zip(syms, len..len + syms.len()) {
-            if let Some(_) = self.envs.last_mut().unwrap().env_mut().stcs.insert(*sym, idx) {
+            if let Some(_) = self
+                .envs
+                .last_mut()
+                .unwrap()
+                .env_mut()
+                .stcs
+                .insert(*sym, idx)
+            {
                 panic!()
             }
         }
@@ -297,7 +312,14 @@ impl Compile for ir::LetRec {
         thunk.push(Instruction::Attrs);
         // let mut stcs = self.attrs.stcs;
         // stcs.sort_by_key(|(sym, _)| *sym);
-        let range = state.alloc_stcs(&self.attrs.stcs.iter().map(|(sym, _)| *sym).collect::<Vec<_>>());
+        let range = state.alloc_stcs(
+            &self
+                .attrs
+                .stcs
+                .iter()
+                .map(|(sym, _)| *sym)
+                .collect::<Vec<_>>(),
+        );
         for ((_, item), idx) in std::iter::zip(self.attrs.stcs, range.0..range.1) {
             let compiled = item.compile(state);
             *state.thunks.get_mut(idx).unwrap() = compiled.into();

@@ -1,24 +1,27 @@
 use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 pub type Sym = usize;
 
 pub struct SymTable {
-    syms: HashMap<String, Sym>,
+    syms: Vec<String>,
+    syms_table: HashMap<*const String, Sym>
 }
 
 impl SymTable {
     pub fn new() -> SymTable {
         SymTable {
-            syms: HashMap::new(),
+            syms: Vec::new(),
+            syms_table: HashMap::new()
         }
     }
 
     pub fn lookup(&mut self, name: String) -> Sym {
-        if let Some(sym) = self.syms.get(&name) {
+        if let Some(sym) = self.syms_table.get(&(&name as *const String)) {
             *sym
         } else {
             let sym = self.syms.len();
-            self.syms.insert(name, sym);
+            self.syms_table.insert(&name as *const String, sym);
             sym
         }
     }

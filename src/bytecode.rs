@@ -80,7 +80,7 @@ impl ByteCode {
                 self.len()
             );
         }
-        &self.inner[self.pos..self.pos+num]
+        &self.inner[self.pos..self.pos + num]
     }
 
     pub fn starts_with(&self, v: &[u8]) -> bool {
@@ -101,9 +101,13 @@ impl ByteCode {
 
     pub fn take(&mut self, num: usize) -> &[u8] {
         if num > self.len() {
-            panic!("index out of bounds: the slice only lengths {}, but tried to take {}", self.len(), num)
+            panic!(
+                "index out of bounds: the slice only lengths {}, but tried to take {}",
+                self.len(),
+                num
+            )
         }
-        let result = &self.inner[self.pos..self.pos+num];
+        let result = &self.inner[self.pos..self.pos + num];
         self.pos += num;
         result
     }
@@ -157,4 +161,3 @@ impl SubAssign<usize> for ByteCode {
         self.pos -= rhs;
     }
 }
-

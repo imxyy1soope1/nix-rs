@@ -20,11 +20,8 @@ fn test_list() {
     let expected = CompiledProgram {
         top_level: boxvec![Instruction::List, Instruction::ListElem(0)],
         consts: Box::new([Const::Int(1)]),
-        thunks: Box::new([
-            boxvec![Instruction::Const(0)],
-        ]),
+        thunks: Box::new([boxvec![Instruction::Const(0)]]),
         syms: Box::new([]),
     };
     assert_eq!(compiled, expected);
 }
-

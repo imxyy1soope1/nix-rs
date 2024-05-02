@@ -2,9 +2,6 @@ use std::error::Error;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use crate::compile::ir;
-use crate::compile::CompiledProgram;
-
 #[derive(Debug, Clone)]
 pub enum Const {
     Int(i64),
@@ -159,6 +156,4 @@ impl fmt::Debug for Op {
     }
 }
 
-pub struct Program {
-
-}
+pub struct Program {}

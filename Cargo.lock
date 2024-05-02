@@ -12,6 +12,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.82"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f538837af36e6f6a9be0faa67f9a314f8119e4e4b5867c6ab40ed60360142519"
+
+[[package]]
 name = "ascii-canvas"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -216,6 +222,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "lalrpop"
 version = "0.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -224,7 +239,7 @@ dependencies = [
  "ascii-canvas",
  "bit-set",
  "ena",
- "itertools",
+ "itertools 0.11.0",
  "lalrpop-util",
  "petgraph",
  "pico-args",
@@ -338,7 +353,9 @@ dependencies = [
 name = "nix-rs"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bytecode",
+ "itertools 0.12.1",
  "lalrpop",
  "lalrpop-util",
  "macros",
