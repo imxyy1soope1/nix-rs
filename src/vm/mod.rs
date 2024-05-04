@@ -1,2 +1,2 @@
-pub mod program;
 mod vm;
+mod data;

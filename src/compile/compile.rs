@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rnix::ast::Expr;
 
-use crate::vm::program::*;
+use crate::bytecode::*;
 
 use super::env::Env as _Env;
 use super::ir::{self, Ir};

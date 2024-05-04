@@ -4,7 +4,7 @@ use anyhow::Error;
 
 pub type ThunkIdx = usize;
 pub type ConstIdx = usize;
-pub type Symbol = usize;
+pub type SymIdx = usize;
 
 #[derive(Debug, Clone)]
 pub enum Const {
@@ -14,7 +14,7 @@ pub enum Const {
 }
 
 impl<'a> TryFrom<&'a Const> for &'a i64 {
-    type Error = Box<dyn Error>;
+    type Error = Error;
 
     fn try_from(value: &'a Const) -> Result<Self, Self::Error> {
         match value {
@@ -25,7 +25,7 @@ impl<'a> TryFrom<&'a Const> for &'a i64 {
 }
 
 impl<'a> TryFrom<&'a Const> for &'a f64 {
-    type Error = Box<dyn Error>;
+    type Error = Error;
 
     fn try_from(value: &'a Const) -> Result<Self, Self::Error> {
         match value {
@@ -36,7 +36,7 @@ impl<'a> TryFrom<&'a Const> for &'a f64 {
 }
 
 impl<'a> TryFrom<&'a Const> for &'a str {
-    type Error = Box<dyn Error>;
+    type Error = Error;
 
     fn try_from(value: &'a Const) -> Result<Self, Self::Error> {
         match value {
@@ -52,7 +52,7 @@ impl PartialEq for Const {
         match self {
             Int(int) => other.try_into().map_or(false, |other| int.eq(other)),
             Float(float) => other.try_into().map_or(false, |other: &f64| float.to_bits().eq(&other.to_bits())),
-            String(string) => other.try_into().map_or(false, |other| string.eq(other))
+            String(string) => other.try_into().map_or(false, |other: &str| string.eq(other))
         }
     }
 }
@@ -99,12 +99,16 @@ pub enum OpCode {
     BinOp { op: BinOp },
     /// perform a unary operation
     UnOp { op: UnOp },
-    /// check whether the attribute set at TOS has an specific attribute
-    // HasAttr { attr: Const }
+    /// force a thunk, register the symbol, then push the symbol onto stack
+    RegSym { sym: ThunkIdx },
+    /// TODO: comment
+    HasAttr,
     /// enter the environment of the attribute set at TOS
     EnterEnv,
     /// exit the envrironment
     ExitEnv,
+    /// return a value
+    Ret,
 }
 
 pub enum BinOp {
@@ -120,3 +124,8 @@ pub enum UnOp {
     Not,
 }
 
+pub struct Program {
+    pub codes: Box<[OpCode]>,
+    pub consts: Box<[Const]>,
+    pub syms: Box<[String]>,
+}

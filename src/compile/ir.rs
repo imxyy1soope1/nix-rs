@@ -1,16 +1,13 @@
 use std::any::Any;
 use std::collections::HashMap;
 
+use anyhow::Result;
 use rnix::ast::{self, Expr};
-use anyhow::Error;
-use itertools::Itertools;
 
-use crate::vm::program::{Const as ProgramConst, Idx};
+use crate::bytecode::{Const as ByteCodeConst, ConstIdx, ThunkIdx};
 
 use super::env::IrEnv;
 use super::symtable::*;
-
-pub type Result = anyhow::Result<Box<dyn Ir>>;
 
 pub trait Ir {}
 
@@ -60,7 +57,7 @@ impl<T: Sized + Ir + 'static> From<T> for Box<dyn Ir> {
     }
 }
 
-impl From<Box<dyn Ir>> for Result {
+impl From<Box<dyn Ir>> for Result<Box<dyn Ir>> {
     fn from(value: Box<dyn Ir>) -> Self {
         Ok(value)
     }
@@ -70,11 +67,11 @@ trait Ok
 where
     Self: Sized
 {
-    fn ok(self) -> Result;
+    fn ok(self) -> Result<Box<dyn Ir>>;
 }
 
 impl<T: Sized + Ir + 'static> Ok for T {
-    fn ok(self) -> Result {
+    fn ok(self) -> Result<Box<dyn Ir>> {
         Ok(self.into())
     }
 }
@@ -110,8 +107,8 @@ pub struct DowngradeState {
     sym_table: SymTable,
     envs: Vec<Env>,
     thunks: Vec<(Box<dyn Ir>, Vec<Sym>)>,
-    consts: Vec<ProgramConst>,
-    consts_table: HashMap<*const ProgramConst, Idx>,
+    consts: Vec<ByteCodeConst>,
+    consts_table: HashMap<*const ByteCodeConst, ConstIdx>,
 }
 
 pub struct Downgraded {
@@ -177,23 +174,23 @@ impl DowngradeState {
         self.sym_table.lookup(name)
     }
 
-    fn new_const(&mut self, cnst: ProgramConst) -> Idx {
-        if let Some(idx) = self.consts_table.get(&(&cnst as *const ProgramConst)) {
+    fn new_const(&mut self, cnst: ByteCodeConst) -> ConstIdx {
+        if let Some(idx) = self.consts_table.get(&(&cnst as *const ByteCodeConst)) {
             *idx
         } else {
             let idx = self.consts.len();
-            self.consts_table.insert(&cnst as *const ProgramConst, idx);
+            self.consts_table.insert(&cnst as *const ByteCodeConst, idx);
             self.consts.push(cnst);
             idx
         }
     }
 
-    fn lookup_const(&self, idx: Idx) -> &ProgramConst {
+    fn lookup_const(&self, idx: ConstIdx) -> &ByteCodeConst {
         self.consts.get(idx).unwrap()
     }
 }
 
-pub fn downgrade(expr: Expr) -> (Box<dyn Ir>, DowngradeState) {
+pub fn downgrade(expr: Expr) -> (Result<Box<dyn Ir>>, DowngradeState) {
     let mut state = DowngradeState::new();
     (expr.downgrade(&mut state), state)
 }
@@ -286,14 +283,14 @@ ir! {Let, attrs: Attrs, expr: Box<dyn Ir>}
 ir! {With, attrs: Box<dyn Ir>, expr: Box<dyn Ir>}
 ir! {Assert, assertion: Box<dyn Ir>, expr: Box<dyn Ir>}
 ir! {ConcatStrings, parts: Vec<Box<dyn Ir>>}
-ir! {Const, idx: Idx}
+ir! {Const, idx: ConstIdx}
 
 trait Downgrade {
-    fn downgrade(self, state: &mut DowngradeState) -> Result;
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>>;
 }
 
 impl Downgrade for ast::Expr {
-    fn downgrade(self, state: &mut DowngradeState) -> Result {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
         match self {
             Expr::Apply(apply) => apply.downgrade(state),
             _ => unreachable!(),
@@ -302,22 +299,22 @@ impl Downgrade for ast::Expr {
 }
 
 impl Downgrade for ast::Str {
-    fn downgrade(self, state: &mut DowngradeState) -> Result {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
         let parts = self
             .normalized_parts()
             .into_iter()
             .map(|part| match part {
                 ast::InterpolPart::Literal(lit) => Const {
-                    idx: state.new_const(ProgramConst::String(lit)),
+                    idx: state.new_const(ByteCodeConst::String(lit)),
                 }
                 .ok(),
                 ast::InterpolPart::Interpolation(interpol) => {
                     interpol.expr().unwrap().downgrade(state)
                 }
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>>>()?;
         if parts.len() == 1 {
-            parts.into_iter().next().unwrap()
+            Ok(parts.into_iter().next().unwrap())
         } else {
             ConcatStrings { parts }.ok()
         }
@@ -325,27 +322,13 @@ impl Downgrade for ast::Str {
 }
 
 impl Downgrade for ast::AttrSet {
-    fn downgrade(self, state: &mut DowngradeState) -> Result {
-        /* let stcs = self
-            .stcs
-            .into_iter()
-            .map(|(ident, expr)| (state.sym_lookup(ident.into()), expr.downgrade(state)))
-            .collect();
-        let dyns = self
-            .dyns
-            .into_iter()
-            .map(|(name, expr)| (name.downgrade(state), expr.downgrade(state)))
-            .collect();
-        if self.rec {
-            RecAttrs { stcs, dyns }.ok()
-        } else {
-            Attrs { stcs, dyns }.ok()
-        } */
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
+        todo!()
     }
 }
 
 impl Downgrade for ast::List {
-    fn downgrade(self, state: &mut DowngradeState) -> Result {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
         let mut items = Vec::with_capacity(self.items().size_hint().0);
         for item in self.items() {
             items.push(item.downgrade(state)?)
@@ -355,10 +338,10 @@ impl Downgrade for ast::List {
 }
 
 impl Downgrade for ast::BinOp {
-    fn downgrade(self, state: &mut DowngradeState) -> Result {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
         BinOp {
-            lhs: self.lhs().unwrap().downgrade(state),
-            rhs: self.rhs().unwrap().downgrade(state),
+            lhs: self.lhs().unwrap().downgrade(state)?,
+            rhs: self.rhs().unwrap().downgrade(state)?,
             kind: BinOpKind::from(self.operator().unwrap()),
         }
         .ok()
@@ -366,45 +349,26 @@ impl Downgrade for ast::BinOp {
 }
 
 impl Downgrade for ast::Select {
-    fn downgrade(self, state: &mut DowngradeState) -> Result {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
         Select {
             expr: self.expr().unwrap().downgrade(state)?,
-            attrpath: downgrade_attrpath(self.attrpath().unwrap(), state),
+            attrpath: downgrade_attrpath(self.attrpath().unwrap(), state)?,
             default: match self.default_expr() { Some(default) => Some(default.downgrade(state)?), None => None }
         }
-        .into()
+        .ok()
     }
 }
 
 impl Downgrade for ast::LetIn {
-    fn downgrade(self, state: &mut DowngradeState) -> Result {
-        let entries = ast::HasEntry::attrpath_values(&self);
-        let entries = entries.map(|e| e.attrpath());
-        /* if !self.attrs.rec {
-            panic!()
-        }
-        let stcs = self
-            .attrs
-            .stcs
-            .into_iter()
-            .map(|(ident, expr)| (state.sym_lookup(ident.into()), expr.downgrade(state)))
-            .collect();
-        let dyns = self
-            .attrs
-            .dyns
-            .into_iter()
-            .map(|(name, expr)| (name.downgrade(state), expr.downgrade(state)))
-            .collect();
-        LetRec {
-            attrs: RecAttrs { stcs, dyns },
-            expr: self.expr.downgrade(state),
-        }
-        .into() */
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
+        // let entries = ast::HasEntry::attrpath_values(&self);
+        // let entries = entries.map(|e| e.attrpath());
+        todo!()
     }
 }
 
 impl Downgrade for ast::Lambda {
-    fn downgrade(self, state: &mut DowngradeState) -> Result {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
         Func {
             arg: downgrade_param(self.param().unwrap(), state)?,
             body: self.body().unwrap().downgrade(state)?,
@@ -414,7 +378,9 @@ impl Downgrade for ast::Lambda {
 }
 
 impl Downgrade for ast::Apply {
-    fn downgrade(self, state: &mut DowngradeState) -> Result {}
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
+        todo!()
+    }
 }
 
 fn downgrade_param(param: ast::Param, state: &mut DowngradeState) -> anyhow::Result<Param> {
@@ -442,7 +408,14 @@ fn downgrade_pattern(pattern: ast::Pattern, state: &mut DowngradeState) -> anyho
         }
         formals
     };
-    let formals = pattern.pat_entries().map(|entry| (downgrade_ident(entry.ident().unwrap(), state), ))
+    let formals = pattern.pat_entries().map(|entry| {
+        let ident = downgrade_ident(entry.ident().unwrap(), state);
+        if entry.default().is_none() {
+            Ok((ident, None))
+        } else {
+            entry.default().unwrap().downgrade(state).map(|ok| (ident, Some(ok)))
+        }
+    }).collect::<Result<Vec<_>>>()?;
     let ellipsis = pattern.ellipsis_token().is_some();
     let alias = pattern
         .pat_bind()
@@ -459,7 +432,8 @@ fn downgrade_ident(ident: ast::Ident, state: &mut DowngradeState) -> Sym {
 }
 
 fn downgrade_has_entry(has_entry: impl ast::HasEntry, state: &mut DowngradeState) -> Attrs {
-    let entires = has_entry.entries();
+    todo!()
+    /* let entires = has_entry.entries();
     let stcs = HashMap::new();
     let dyns = Vec::new();
     for entry in entires {
@@ -467,15 +441,16 @@ fn downgrade_has_entry(has_entry: impl ast::HasEntry, state: &mut DowngradeState
             // ast::Entry::Inherit(inherit) => 
         }
     }
-    Attrs { stcs, dyns }
+    Attrs { stcs, dyns } */
 }
 
 fn downgrade_inherit(
     inherit: ast::Inherit,
     stcs: &mut HashMap<Sym, Box<dyn Ir>>,
     state: &mut DowngradeState,
-) {
-    let from = inherit
+) -> Result<()> {
+    todo!()
+    /* let from = inherit
         .from()
         .map(|from| from.expr().unwrap().downgrade(state));
     for attr in inherit.attrs() {
@@ -484,7 +459,7 @@ fn downgrade_inherit(
                 let ident = downgrade_ident(ident, state);
                 // TODO: Error handling
                 if let Some(from) = from {
-                    stcs.insert(ident, Select { expr: from, attrpath: vec![Attr::Ident(ident)], default: None }.into()).unwrap();
+                    stcs.insert(ident, Select { expr: from?, attrpath: vec![Attr::Ident(ident)], default: None }.into()).unwrap();
                 } else {
                     stcs.insert(ident, Ident { ident }.into()).unwrap();
                 }
@@ -499,15 +474,16 @@ fn downgrade_inherit(
             ast::Attr::Dynamic(dynamic) => {}
         }
     }
+    Ok(()) */
 }
 
-fn downgrade_attrpath(attrpath: ast::Attrpath, state: &mut DowngradeState) -> Vec<Attr> {
+fn downgrade_attrpath(attrpath: ast::Attrpath, state: &mut DowngradeState) -> Result<Vec<Attr>> {
     attrpath
         .attrs()
         .map(|attr| match attr {
-            ast::Attr::Ident(ident) => Attr::Ident(downgrade_ident(ident, state)),
-            ast::Attr::Dynamic(dynamic) => Attr::Dynamic(dynamic.expr().unwrap().downgrade(state)),
-            ast::Attr::Str(string) => Attr::Str(string.downgrade(state)),
+            ast::Attr::Ident(ident) => Ok(Attr::Ident(downgrade_ident(ident, state))),
+            ast::Attr::Dynamic(dynamic) => Ok(Attr::Dynamic(dynamic.expr().unwrap().downgrade(state)?)),
+            ast::Attr::Str(string) => Ok(Attr::Str(string.downgrade(state)?)),
         })
-        .collect::<Vec<_>>()
+        .collect::<Result<Vec<_>>>()
 }
