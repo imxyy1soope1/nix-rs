@@ -1,16 +1,35 @@
-use std::hash::{Hasher, Hash};
+use std::hash::{Hash, Hasher};
 
 use anyhow::Error;
 
 pub type ThunkIdx = usize;
 pub type ConstIdx = usize;
 pub type SymIdx = usize;
+pub type CodeIdx = usize;
 
 #[derive(Debug, Clone)]
 pub enum Const {
     Int(i64),
     Float(f64),
     String(String),
+}
+
+impl From<i64> for Const {
+    fn from(value: i64) -> Self {
+        Const::Int(value)
+    }
+}
+
+impl From<f64> for Const {
+    fn from(value: f64) -> Self {
+        Const::Float(value)
+    }
+}
+
+impl From<String> for Const {
+    fn from(value: String) -> Self {
+        Const::String(value)
+    }
 }
 
 impl<'a> TryFrom<&'a Const> for &'a i64 {
@@ -51,8 +70,12 @@ impl PartialEq for Const {
         use Const::*;
         match self {
             Int(int) => other.try_into().map_or(false, |other| int.eq(other)),
-            Float(float) => other.try_into().map_or(false, |other: &f64| float.to_bits().eq(&other.to_bits())),
-            String(string) => other.try_into().map_or(false, |other: &str| string.eq(other))
+            Float(float) => other
+                .try_into()
+                .map_or(false, |other: &f64| float.to_bits().eq(&other.to_bits())),
+            String(string) => other
+                .try_into()
+                .map_or(false, |other: &str| string.eq(other)),
         }
     }
 }
@@ -70,38 +93,41 @@ impl Hash for Const {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum OpCode {
     /// load a constant onto stack
     Const { idx: ConstIdx },
-    /// load a thunk lazily onto stack
+    /// create a thunk with codes[thunk_idx[idx]+1..thunk_idx[idx+1]]
     Thunk { idx: ThunkIdx },
+    /// load a thunk lazily onto stack
+    LoadThunk { idx: ThunkIdx },
     /// load a thunk onto stack and force its value
-    ThunkValue { idx: ThunkIdx },
+    LoadValue { idx: ThunkIdx },
     /// force TOS to value
     ForceValue,
-    /// call a funcion thunk with `arity` numbers of parameters on the stack
-    CallThunk { thunk: ThunkIdx, arity: usize },
-    /// assert TOS is true
+    /// [ ... func, args @ .. ] call func with `arity` numbers of arg
+    Call { arity: usize },
+    /// assert TOS is true then consume it
     Assert,
-    /// if TOS is true, then load `consq` onto stack, else load `alter` onto stack
-    IfElse { consq: ThunkIdx, alter: ThunkIdx },
+    /// [ ... cond, consq, alter ] if (cond) is true, then force thunk (consq), else (alter)
+    IfElse,
     /// push an empty attribute set onto stack
     AttrSet,
-    /// push an static attribute into the attribute set at TOS
-    PushStaticAttr { name: ConstIdx, value: ThunkIdx },
-    /// push an dynamic attribute into the attribute set at TOS
-    PushDynAttr { name: ThunkIdx, value: ThunkIdx },
+    /// [ ... set, value ] push the static kv pair (name, (value)) into (set)
+    PushStaticAttr { name: ConstIdx },
+    /// [ ... set, name, value ] push the dynamic kv pair ((name), (value)) in to (set)
+    PushDynAttr,
     /// push an empty list onto stack
     List,
-    /// push an element into the list at TOS
-    PushElem { elem: ThunkIdx },
-    /// perform a binary operation
+    /// [ ... list, elem ] push (elem) into (list)
+    PushElem,
+    /// [ ... a, b ] perform a binary operation ((a) `op` (b))
     BinOp { op: BinOp },
-    /// perform a unary operation
+    /// [ ... a ] perform a unary operation (`op` (a))
     UnOp { op: UnOp },
-    /// force a thunk, register the symbol, then push the symbol onto stack
-    RegSym { sym: ThunkIdx },
-    /// TODO: comment
+    /// register a symbol with TOS
+    RegSym,
+    /// [ ... set, attr ] check whether (set) has (attr)
     HasAttr,
     /// enter the environment of the attribute set at TOS
     EnterEnv,
@@ -111,6 +137,7 @@ pub enum OpCode {
     Ret,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum BinOp {
     Add,
     Mul,
@@ -119,6 +146,7 @@ pub enum BinOp {
     Or,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum UnOp {
     Neg,
     Not,
@@ -128,4 +156,7 @@ pub struct Program {
     pub codes: Box<[OpCode]>,
     pub consts: Box<[Const]>,
     pub syms: Box<[String]>,
+    pub thunk_idxs: Box<[CodeIdx]>,
 }
+
+pub type Frame = Box<[OpCode]>;

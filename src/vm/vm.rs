@@ -1,61 +1,83 @@
 use std::collections::HashMap;
+use std::ptr::NonNull;
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 
 use crate::bytecode::*;
 
 use super::data::*;
 
 pub struct VM {
-    codes: Vec<OpCode>,
-    consts: Box<[Const]>,
-    syms: Vec<String>,
+    prog: Program,
     syms_table: HashMap<String, SymIdx>,
-    callstack: Vec<usize>,
+    callstack: Vec<(usize, usize)>,
     stack: Vec<Value>,
 }
 
 impl VM {
     pub fn new(prog: Program) -> VM {
-        let syms = prog.syms.into_vec();
+        let syms = prog.syms.clone().into_vec();
         VM {
-            codes: prog.codes.into_vec(),
-            consts: prog.consts,
-            syms: syms.clone(),
-            syms_table: syms.into_iter().enumerate().map(|(idx, sym)| (sym, idx)).collect::<HashMap<String, SymIdx>>(),
-            callstack: Vec::new(),
+            callstack: vec![(0, prog.codes.len())],
+            prog,
+            syms_table: syms
+                .into_iter()
+                .enumerate()
+                .map(|(idx, sym)| (sym, idx))
+                .collect::<HashMap<String, SymIdx>>(),
             stack: Vec::new(),
         }
     }
 }
 
+macro_rules! try_pop {
+    ($self:ident) => {
+        $self.stack.pop().ok_or(anyhow!("stack empty"))
+    };
+}
+
 impl VM {
-
-
     pub fn run(mut self) -> Result<Value> {
-        let codes = self.codes;
-        let mut iter: Box<dyn Iterator<Item = &OpCode>> = Box::new(codes.iter());
+        // self.iter = Some(Box::new(self.prog.codes.iter().map(NonNull::from)));
+        let thunk_idxs = &self.prog.thunk_idxs;
+        // let mut iter: Box<dyn Iterator<Item = &OpCode>> = Box::new(codes.iter());
 
         loop {
-            let code = iter.next().ok_or(anyhow!("incomplete bytecode"))?;
-            match *code {
-                OpCode::Const { idx } => self.stack.push(Value::Const(idx)),
-                OpCode::Thunk { idx } => self.stack.push(Value::ThunkCode(idx)),
-                OpCode::ThunkValue { idx } => {
-                    let thunk = codes[idx..].iter();
-                    iter = Box::new(thunk.take_while(|code| !matches!(code, OpCode::Ret)).chain(iter));
-                },
+            let (ip, end) = self.callstack.last_mut().unwrap();
+            let code = self.prog.codes[*ip];
+            *ip += 1;
+            if *ip == *end {
+                self.callstack.pop();
+            }
+            match code {
+                OpCode::Const { idx } => self.stack.push(Value::Const { idx }),
+                OpCode::Thunk { idx } => self.stack.push(Value::ThunkCode {
+                    start: thunk_idxs[idx] + 1,
+                    end: thunk_idxs[idx + 1],
+                }),
+                OpCode::LoadThunk { idx } => self.stack.push(Value::ThunkCode {
+                    start: thunk_idxs[idx],
+                    end: thunk_idxs[idx + 1],
+                }),
+                OpCode::LoadValue { idx } => {
+                    self.callstack.push((thunk_idxs[idx], thunk_idxs[idx + 1]));
+                }
                 OpCode::ForceValue => {
-                    
+                    let thunk = try_pop!(self)?;
+                    match thunk {
+                        Value::ThunkCode { start, end } => self.callstack.push((start, end)),
+                        value => self.stack.push(value),
+                    }
                 }
 
-                OpCode::Ret => break self.stack.pop().ok_or(anyhow!("stack empty")),
-                _ => unimplemented!()
+                OpCode::Ret => {
+                    self.callstack.pop();
+                    if self.callstack.is_empty() {
+                        break try_pop!(self);
+                    }
+                }
+                _ => unimplemented!(),
             }
         }
     }
-
-    /* fn try_pop(&mut self) -> Result<Value> {
-        self.stack.pop().ok_or(anyhow!("stack empty"))
-    } */
 }

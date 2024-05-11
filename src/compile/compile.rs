@@ -1,3 +1,4 @@
+/*
 use std::collections::HashMap;
 
 use rnix::ast::Expr;
@@ -371,3 +372,4 @@ impl Compile for ir::Call {
         vec![]
     }
 }
+*/

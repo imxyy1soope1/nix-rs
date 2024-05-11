@@ -1,4 +1,4 @@
-use crate::ast::*;
+/* use crate::ast::*;
 use crate::compile::*;
 use crate::vm::program::*;
 
@@ -24,4 +24,4 @@ fn test_list() {
         syms: Box::new([]),
     };
     assert_eq!(compiled, expected);
-}
+} */

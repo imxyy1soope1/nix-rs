@@ -1,2 +1,2 @@
-mod vm;
 mod data;
+mod vm;

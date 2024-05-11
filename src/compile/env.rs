@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::vm::program::{Frame, Idx};
+use crate::bytecode::{Frame, ThunkIdx};
 
 use super::ir::Ir;
 use super::symtable::Sym;
@@ -20,8 +20,8 @@ impl IrEnv {
 }
 
 pub struct Env {
-    pub stcs: HashMap<Sym, Idx>,
-    pub dyns: Vec<(Frame, Idx)>,
+    pub stcs: HashMap<Sym, ThunkIdx>,
+    pub dyns: Vec<(Frame, ThunkIdx)>,
 }
 
 impl Env {
