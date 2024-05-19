@@ -1,79 +1,106 @@
-use std::any::Any;
 use std::collections::HashMap;
 
 use anyhow::{anyhow, Result};
 use rnix::ast::{self, Expr};
 
-use crate::bytecode::{Const as ByteCodeConst, ConstIdx, ThunkIdx};
+use crate::bytecode::{Const as ByteCodeConst, ConstIdx, SymIdx, ThunkIdx};
 
 use super::env::IrEnv;
 use super::symtable::*;
 
-pub trait Ir {}
+macro_rules! ir {
+    ($(
+        $(#[$($x:tt)*])*
+        $ty:ident
+        =>
+        {$($name:ident : $elemtype:ty),*$(,)?}
+    ),*$(,)?) => {
+        pub enum Ir {
+            $(
+                $ty($ty),
+            )*
+        }
 
-trait AsAny {
-    fn as_any(&self) -> &dyn Any;
-    fn as_any_mut(&mut self) -> &mut dyn Any;
-    fn into_any(self) -> Box<dyn Any>;
+        impl Ir {
+            fn boxed(self) -> Box<Self> {
+                Box::new(self)
+            }
+            fn ok(self) -> Result<Self> {
+                Ok(self)
+            }
+        }
+
+        trait Downcast<T> {
+            fn downcast_ref(&self) -> Option<&T>;
+            fn downcast_mut(&mut self) -> Option<&mut T>;
+        }
+
+        $(
+            $(
+                #[$($x)*]
+            )*
+            pub struct $ty {
+                $(
+                    pub $name : $elemtype,
+                )*
+            }
+
+            impl $ty {
+                pub fn ir(self) -> Ir {
+                    Ir::$ty(self)
+                }
+            }
+
+            impl TryFrom<Ir> for $ty {
+                type Error = anyhow::Error;
+                fn try_from(value: Ir) -> Result<Self> {
+                    match value {
+                        Ir::$ty(value) => Ok(value),
+                        _ => Err(anyhow!("")),
+                    }
+                }
+            }
+
+            impl Downcast<$ty> for Ir {
+                fn downcast_ref(&self) -> Option<&$ty> {
+                    match self {
+                        Ir::$ty(value) => Some(value),
+                        _ => None,
+                    }
+                }
+                fn downcast_mut(&mut self) -> Option<&mut $ty> {
+                    match self {
+                        Ir::$ty(value) => Some(value),
+                        _ => None,
+                    }
+                }
+            }
+        )*
+    }
 }
 
-impl<T: 'static + Sized> AsAny for T {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
+ir! {
+    Attrs => { stcs: HashMap<SymIdx, Ir>, dyns: Vec<(Ir, Ir)> },
+    List  => { items: Vec<Ir> },
+    HasAttr => { lhs: Box<Ir>, rhs: Vec<Attr> },
+    BinOp => { lhs: Box<Ir>, rhs: Box<Ir>, kind: BinOpKind },
+    UnOp  => { rhs: Box<Ir>, kind: UnOpKind },
+    Select => { expr: Box<Ir>, attrpath: Vec<Attr>, default: Option<Box<Ir>> },
+    If => { cond: Box<Ir>, consq: Box<Ir>, alter: Box<Ir> },
+    Func => { args: Vec<Param>, body: Box<Ir> },
+    Call => { func: Box<Ir>, args: Vec<Ir> },
 
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
-    fn into_any(self) -> Box<dyn Any> {
-        Box::new(self)
-    }
-}
-
-pub trait Downcast<T> {
-    fn downcast_ref(&self) -> Option<&T>;
-    fn downcast_mut(&mut self) -> Option<&mut T>;
-    fn downcast(self) -> Option<Box<T>>;
-}
-
-impl<T: 'static> Downcast<T> for Box<dyn Ir> {
-    fn downcast_ref(&self) -> Option<&T> {
-        self.as_any().downcast_ref()
-    }
-
-    fn downcast_mut(&mut self) -> Option<&mut T> {
-        self.as_any_mut().downcast_mut()
-    }
-
-    fn downcast(self) -> Option<Box<T>> {
-        self.into_any().downcast().ok()
-    }
-}
-
-impl<T: Sized + Ir + 'static> From<T> for Box<dyn Ir> {
-    fn from(value: T) -> Self {
-        Box::new(value)
-    }
-}
-
-impl From<Box<dyn Ir>> for Result<Box<dyn Ir>> {
-    fn from(value: Box<dyn Ir>) -> Self {
-        Ok(value)
-    }
-}
-
-trait Ok
-where
-    Self: Sized,
-{
-    fn ok(self) -> Result<Box<dyn Ir>>;
-}
-
-impl<T: Sized + Ir + 'static> Ok for T {
-    fn ok(self) -> Result<Box<dyn Ir>> {
-        Ok(self.into())
-    }
+    Let => { attrs: Attrs, expr: Box<Ir> },
+    With => { attrs: Box<Ir>, expr: Box<Ir> },
+    Assert => { assertion: Box<Ir>, expr: Box<Ir> },
+    ConcatStrings => { parts: Vec<Ir> },
+    #[derive(Clone, Copy)]
+    Const => { idx: ConstIdx },
+    #[derive(Clone, Copy)]
+    Var => { sym: SymIdx },
+    #[derive(Clone, Copy)]
+    Thunk => { idx: ThunkIdx },
+    Path => { expr: Box<Ir> },
 }
 
 enum Env {
@@ -106,13 +133,13 @@ pub struct DowngradeError {
 pub struct DowngradeState {
     sym_table: SymTable,
     envs: Vec<Env>,
-    thunks: Vec<Box<dyn Ir>>,
+    thunks: Vec<Ir>,
     consts: Vec<ByteCodeConst>,
     consts_table: HashMap<ByteCodeConst, ConstIdx>,
 }
 
 pub struct Downgraded {
-    top_level: Box<dyn Ir>,
+    top_level: Ir,
 }
 
 impl DowngradeState {
@@ -138,7 +165,7 @@ impl DowngradeState {
         self.envs.pop().unwrap();
     }
 
-    fn insert_stc(&mut self, sym: Sym, val: Box<dyn Ir>) {
+    fn insert_stc(&mut self, sym: SymIdx, val: Ir) {
         if let Some(_) = self
             .envs
             .last_mut()
@@ -151,7 +178,7 @@ impl DowngradeState {
         }
     }
 
-    fn insert_dyn(&mut self, sym: Box<dyn Ir>, val: Box<dyn Ir>) {
+    fn insert_dyn(&mut self, sym: Ir, val: Ir) {
         self.envs
             .last_mut()
             .unwrap()
@@ -160,17 +187,17 @@ impl DowngradeState {
             .push((sym, val));
     }
 
-    fn lookup(&self, sym: Sym) -> Option<&dyn Ir> {
+    fn lookup(&self, sym: SymIdx) -> Option<&Ir> {
         let mut envs = self.envs.iter();
         while let Some(Env::Env(IrEnv { stcs, .. })) = envs.next_back() {
             if let Some(idx) = stcs.get(&sym) {
-                return Some(idx.as_ref());
+                return Some(idx);
             }
         }
         None
     }
 
-    fn lookup_sym(&mut self, name: String) -> Sym {
+    fn lookup_sym(&mut self, name: String) -> SymIdx {
         self.sym_table.lookup(name)
     }
 
@@ -191,23 +218,23 @@ impl DowngradeState {
         self.consts.get(idx).unwrap()
     }
 
-    fn new_thunk(&mut self, thunk: Box<dyn Ir>) -> Thunk {
+    fn new_thunk(&mut self, thunk: Ir) -> Thunk {
         let idx = self.thunks.len();
         self.thunks.push(thunk);
         Thunk { idx }
     }
 
-    fn lookup_thunk(&self, idx: ThunkIdx) -> &dyn Ir {
-        self.thunks.get(idx).unwrap().as_ref()
+    fn lookup_thunk(&self, idx: ThunkIdx) -> &Ir {
+        self.thunks.get(idx).unwrap()
     }
 }
 
-pub fn downgrade(expr: Expr) -> (Result<Box<dyn Ir>>, DowngradeState) {
+pub fn downgrade(expr: Expr) -> (Result<Ir>, DowngradeState) {
     let mut state = DowngradeState::new();
     (expr.downgrade(&mut state), state)
 }
 
-macro_rules! ir {
+/* macro_rules! ir {
     ($name:ident, $($attr:ident : $t:ty),*) => {
         pub struct $name {
             $(
@@ -225,22 +252,99 @@ macro_rules! ir {
         }
         impl Ir for $name {}
     };
+} */
+
+impl Attrs {
+    fn merge(&mut self, other: &mut Self) {}
+
+    fn _insert(&mut self, mut path: std::vec::IntoIter<Attr>, name: Attr, value: Ir) -> Result<()> {
+        if let Some(attr) = path.next() {
+            match attr {
+                Attr::Ident(ident) => {
+                    if self.stcs.get(&ident).is_some() {
+                        self.stcs
+                            .get_mut(&ident)
+                            .unwrap()
+                            .downcast_mut()
+                            .ok_or(anyhow!("ident corrupt"))
+                            .and_then(|attrs: &mut Attrs| attrs._insert(path, name, value))
+                    } else {
+                        let mut attrs = Attrs {
+                            stcs: HashMap::new(),
+                            dyns: Vec::new(),
+                        };
+                        attrs._insert(path, name, value)?;
+                        self.stcs.insert(ident, attrs.ir()).unwrap();
+                        Ok(())
+                    }
+                }
+                Attr::Str(string) => {
+                    let mut attrs = Attrs {
+                        stcs: HashMap::new(),
+                        dyns: Vec::new(),
+                    };
+                    attrs._insert(path, name, value)?;
+                    self.dyns.push((string.ir(), attrs.ir()));
+                    Ok(())
+                }
+                Attr::Dynamic(dynamic) => {
+                    let mut attrs = Attrs {
+                        stcs: HashMap::new(),
+                        dyns: Vec::new(),
+                    };
+                    attrs._insert(path, name, value)?;
+                    self.dyns.push((dynamic, attrs.ir()));
+                    Ok(())
+                }
+            }
+        } else {
+            match name {
+                Attr::Ident(ident) => {
+                    if self.stcs.get(&ident).is_some() {
+                        // TODO: Error Handling
+                        return Err(anyhow!("ident corrupt"));
+                    }
+                    self.stcs.insert(ident, value);
+                }
+                Attr::Str(string) => {
+                    self.dyns.push((string.ir(), value));
+                }
+                Attr::Dynamic(dynamic) => {
+                    self.dyns.push((dynamic, value));
+                }
+            }
+            Ok(())
+        }
+    }
+
+    pub fn insert(&mut self, path: Vec<Attr>, value: Ir) -> Result<()> {
+        let mut path = path.into_iter();
+        let name = path.next().unwrap();
+        self._insert(path, name, value)
+    }
+
+    fn _has_attr(&self, mut path: std::slice::Iter<Attr>) -> Option<bool> {
+        match path.next() {
+            Some(Attr::Ident(ident)) => self
+                .stcs
+                .get(ident)
+                .and_then(|attrs| attrs.downcast_ref())
+                .map_or(Some(false), |attrs: &Attrs| attrs._has_attr(path)),
+            None => Some(true),
+            _ => None,
+        }
+    }
+
+    pub fn has_attr(&self, path: &[Attr]) -> Option<bool> {
+        self._has_attr(path.iter())
+    }
 }
-
-ir! {Attrs, stcs: HashMap<Sym, Box<dyn Ir>>, dyns: Vec<(Box<dyn Ir>, Box<dyn Ir>)>}
-ir! {List, items: Vec<Box<dyn Ir>>}
-
-ir! {HasAttr, lhs: Attrs, rhs: Attr}
-ir! {BinOp, lhs: Box<dyn Ir>, rhs: Box<dyn Ir>, kind: BinOpKind}
-ir! {UnOp, rhs: Box<dyn Ir>, kind: UnOpKind}
 
 pub enum Attr {
-    Ident(Sym),
-    Dynamic(Box<dyn Ir>),
+    Ident(SymIdx),
+    Dynamic(Ir),
     Str(ConcatStrings),
 }
-ir! {Select, expr: Box<dyn Ir>, attrpath: Vec<Attr>, default: Option<Box<dyn Ir>>}
-ir! {Ident, ident: Sym}
 
 pub enum BinOpKind {
     Add,
@@ -257,8 +361,8 @@ pub enum BinOpKind {
     Or,
     Impl,
 
-    Concat,
-    Update,
+    Con,
+    Upd,
 }
 
 impl From<ast::BinOpKind> for BinOpKind {
@@ -266,8 +370,8 @@ impl From<ast::BinOpKind> for BinOpKind {
         use ast::BinOpKind as astkind;
         use BinOpKind::*;
         match op {
-            astkind::Concat => Concat,
-            astkind::Update => Update,
+            astkind::Concat => Con,
+            astkind::Update => Upd,
             astkind::Add => Add,
             astkind::Sub => Sub,
             astkind::Mul => Mul,
@@ -299,35 +403,21 @@ impl From<ast::UnaryOpKind> for UnOpKind {
     }
 }
 
-ir! {If, cond: Box<dyn Ir>, consq: Box<dyn Ir>, alter: Box<dyn Ir>}
-
-ir! {Func, arg: Param, body: Box<dyn Ir>}
-
 pub enum Param {
-    Ident(Sym),
+    Ident(SymIdx),
     Formals {
-        formals: Vec<(Sym, Option<Box<dyn Ir>>)>,
+        formals: Vec<(SymIdx, Option<Ir>)>,
         ellipsis: bool,
-        alias: Option<Sym>,
+        alias: Option<SymIdx>,
     },
 }
 
-ir! {Call, func: Box<dyn Ir>, arg: Box<dyn Ir>}
-
-ir! {Let, attrs: Attrs, expr: Box<dyn Ir>}
-ir! {With, attrs: Box<dyn Ir>, expr: Box<dyn Ir>}
-ir! {Assert, assertion: Box<dyn Ir>, expr: Box<dyn Ir>}
-ir! {ConcatStrings, parts: Vec<Box<dyn Ir>>}
-ir! {Const, idx: ConstIdx}
-ir! {Path, expr: Box<dyn Ir>}
-ir! {#[derive(Clone, Copy)] Thunk, idx: ThunkIdx}
-
 trait Downgrade {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>>;
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir>;
 }
 
 impl Downgrade for ast::Expr {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         match self {
             Expr::Apply(apply) => apply.downgrade(state),
             Expr::Assert(assert) => assert.downgrade(state),
@@ -354,35 +444,38 @@ impl Downgrade for ast::Expr {
 }
 
 impl Downgrade for ast::Assert {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         Assert {
-            assertion: self.condition().unwrap().downgrade(state)?,
-            expr: self.body().unwrap().downgrade(state)?,
+            assertion: self.condition().unwrap().downgrade(state)?.boxed(),
+            expr: self.body().unwrap().downgrade(state)?.boxed(),
         }
+        .ir()
         .ok()
     }
 }
 
 impl Downgrade for ast::IfElse {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         If {
-            cond: self.condition().unwrap().downgrade(state)?,
-            consq: self.body().unwrap().downgrade(state)?,
-            alter: self.else_body().unwrap().downgrade(state)?,
+            cond: self.condition().unwrap().downgrade(state)?.boxed(),
+            consq: self.body().unwrap().downgrade(state)?.boxed(),
+            alter: self.else_body().unwrap().downgrade(state)?.boxed(),
         }
+        .ir()
         .ok()
     }
 }
 
 impl Downgrade for ast::Path {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         let parts = self
             .parts()
             .into_iter()
             .map(|part| match part {
-                ast::InterpolPart::Literal(lit) => {
-                    state.new_const(ByteCodeConst::String(lit.to_string())).ok()
-                }
+                ast::InterpolPart::Literal(lit) => state
+                    .new_const(ByteCodeConst::String(lit.to_string()))
+                    .ir()
+                    .ok(),
                 ast::InterpolPart::Interpolation(interpol) => {
                     interpol.expr().unwrap().downgrade(state)
                 }
@@ -390,24 +483,27 @@ impl Downgrade for ast::Path {
             .collect::<Result<Vec<_>>>()?;
         if parts.len() == 1 {
             Path {
-                expr: parts.into_iter().next().unwrap(),
+                expr: parts.into_iter().next().unwrap().boxed(),
             }
         } else {
             Path {
-                expr: Box::new(ConcatStrings { parts }),
+                expr: ConcatStrings { parts }.ir().boxed(),
             }
         }
+        .ir()
         .ok()
     }
 }
 
 impl Downgrade for ast::Str {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         let parts = self
             .normalized_parts()
             .into_iter()
             .map(|part| match part {
-                ast::InterpolPart::Literal(lit) => state.new_const(ByteCodeConst::String(lit)).ok(),
+                ast::InterpolPart::Literal(lit) => {
+                    state.new_const(ByteCodeConst::String(lit)).ir().ok()
+                }
                 ast::InterpolPart::Interpolation(interpol) => {
                     interpol.expr().unwrap().downgrade(state)
                 }
@@ -416,94 +512,110 @@ impl Downgrade for ast::Str {
         if parts.len() == 1 {
             Ok(parts.into_iter().next().unwrap())
         } else {
-            ConcatStrings { parts }.ok()
+            ConcatStrings { parts }.ir().ok()
         }
     }
 }
 
 impl Downgrade for ast::Literal {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         // TODO: Error handling
         match self.kind() {
             ast::LiteralKind::Integer(int) => state.new_const(int.value().unwrap().into()),
             ast::LiteralKind::Float(float) => state.new_const(float.value().unwrap().into()),
             ast::LiteralKind::Uri(uri) => state.new_const(uri.to_string().into()),
         }
+        .ir()
         .ok()
     }
 }
 
 impl Downgrade for ast::Ident {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         todo!()
     }
 }
 
 impl Downgrade for ast::AttrSet {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         todo!()
     }
 }
 
 impl Downgrade for ast::List {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         let mut items = Vec::with_capacity(self.items().size_hint().0);
         for item in self.items() {
             items.push(item.downgrade(state)?)
         }
-        List { items }.ok()
+        List { items }.ir().ok()
     }
 }
 
 impl Downgrade for ast::BinOp {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         BinOp {
-            lhs: self.lhs().unwrap().downgrade(state)?,
-            rhs: self.rhs().unwrap().downgrade(state)?,
+            lhs: self.lhs().unwrap().downgrade(state)?.boxed(),
+            rhs: self.rhs().unwrap().downgrade(state)?.boxed(),
             kind: self.operator().unwrap().into(),
         }
+        .ir()
         .ok()
     }
 }
 
 impl Downgrade for ast::HasAttr {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
-        todo!()
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
+        let attrs = self.expr().unwrap().downgrade(state)?;
+        let path = downgrade_attrpath(self.attrpath().unwrap(), state)?;
+        if let Some(attrs) = Downcast::<Attrs>::downcast_ref(&attrs) {
+            if let Some(res) = attrs.has_attr(&path) {
+                return state.new_const(res.into()).ir().ok();
+            }
+        }
+        HasAttr {
+            lhs: attrs.boxed(),
+            rhs: path,
+        }
+        .ir()
+        .ok()
     }
 }
 
 impl Downgrade for ast::UnaryOp {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         UnOp {
-            rhs: self.expr().unwrap().downgrade(state)?,
+            rhs: self.expr().unwrap().downgrade(state)?.boxed(),
             kind: self.operator().unwrap().into(),
         }
+        .ir()
         .ok()
     }
 }
 
 impl Downgrade for ast::Select {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         Select {
-            expr: self.expr().unwrap().downgrade(state)?,
+            expr: self.expr().unwrap().downgrade(state)?.boxed(),
             attrpath: downgrade_attrpath(self.attrpath().unwrap(), state)?,
             default: match self.default_expr() {
-                Some(default) => Some(default.downgrade(state)?),
+                Some(default) => Some(default.downgrade(state)?.boxed()),
                 None => None,
             },
         }
+        .ir()
         .ok()
     }
 }
 
 impl Downgrade for ast::LegacyLet {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         todo!()
     }
 }
 
 impl Downgrade for ast::LetIn {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         // let entries = ast::HasEntry::attrpath_values(&self);
         // let entries = entries.map(|e| e.attrpath());
         todo!()
@@ -511,24 +623,35 @@ impl Downgrade for ast::LetIn {
 }
 
 impl Downgrade for ast::With {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         todo!()
     }
 }
 
 impl Downgrade for ast::Lambda {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
-        Func {
-            arg: downgrade_param(self.param().unwrap(), state)?,
-            body: self.body().unwrap().downgrade(state)?,
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
+        let mut body = self.body().unwrap();
+        let mut args = vec![downgrade_param(self.param().unwrap(), state)?];
+        while let ast::Expr::Lambda(func) = body {
+            body = func.body().unwrap();
+            args.push(downgrade_param(func.param().unwrap(), state)?);
         }
-        .ok()
+        let body = body.downgrade(state)?.boxed();
+        Func { args, body }.ir().ok()
     }
 }
 
 impl Downgrade for ast::Apply {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Box<dyn Ir>> {
-        todo!()
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
+        let mut args = vec![self.argument().unwrap().downgrade(state)?];
+        let mut func = self.lambda().unwrap();
+        while let ast::Expr::Apply(call) = func {
+            func = call.lambda().unwrap();
+            args.push(call.argument().unwrap().downgrade(state)?);
+        }
+        let func = func.downgrade(state)?.boxed();
+        args.reverse();
+        Call { func, args }.ir().ok()
     }
 }
 
@@ -542,19 +665,6 @@ fn downgrade_param(param: ast::Param, state: &mut DowngradeState) -> anyhow::Res
 }
 
 fn downgrade_pattern(pattern: ast::Pattern, state: &mut DowngradeState) -> anyhow::Result<Param> {
-    let formals = {
-        let mut formals = Vec::with_capacity(pattern.pat_entries().size_hint().0);
-        for entry in pattern.pat_entries() {
-            formals.push((
-                downgrade_ident(entry.ident().unwrap(), state),
-                match entry.default() {
-                    Some(default) => Some(default.downgrade(state)?),
-                    None => None,
-                },
-            ));
-        }
-        formals
-    };
     let formals = pattern
         .pat_entries()
         .map(|entry| {
@@ -581,27 +691,35 @@ fn downgrade_pattern(pattern: ast::Pattern, state: &mut DowngradeState) -> anyho
     })
 }
 
-fn downgrade_ident(ident: ast::Ident, state: &mut DowngradeState) -> Sym {
+fn downgrade_ident(ident: ast::Ident, state: &mut DowngradeState) -> SymIdx {
     state.lookup_sym(ident.ident_token().unwrap().text().to_string())
 }
 
-fn downgrade_has_entry(has_entry: impl ast::HasEntry, state: &mut DowngradeState) -> Result<Attrs> {
+fn downgrade_has_entry(
+    has_entry: impl ast::HasEntry,
+    rec: bool,
+    state: &mut DowngradeState,
+) -> Result<Attrs> {
     // TODO:
     let entires = has_entry.entries();
-    let mut stcs = HashMap::new();
-    let mut dyns = Vec::new();
+    let mut attrs = Attrs {
+        stcs: HashMap::new(),
+        dyns: Vec::new(),
+    };
     for entry in entires {
         match entry {
-            ast::Entry::Inherit(inherit) => downgrade_inherit(inherit, &mut stcs, state)?,
-            ast::Entry::AttrpathValue(value) => todo!(),
+            ast::Entry::Inherit(inherit) => downgrade_inherit(inherit, &mut attrs.stcs, state)?,
+            ast::Entry::AttrpathValue(value) => {
+                downgrade_attrpathvalue(value, rec, &mut attrs, state)?
+            }
         }
     }
-    Ok(Attrs { stcs, dyns })
+    Ok(attrs)
 }
 
 fn downgrade_inherit(
     inherit: ast::Inherit,
-    stcs: &mut HashMap<Sym, Box<dyn Ir>>,
+    stcs: &mut HashMap<SymIdx, Ir>,
     state: &mut DowngradeState,
 ) -> Result<()> {
     let from = if let Some(from) = inherit.from() {
@@ -617,13 +735,14 @@ fn downgrade_inherit(
             _ => panic!("dynamic attributes not allowed in inherit"),
         };
         let expr = from.map_or_else(
-            || Box::new(Ident { ident }) as Box<dyn Ir>,
+            || Var { sym: ident }.ir(),
             |from| {
-                Box::new(Select {
-                    expr: Box::new(from),
+                Select {
+                    expr: from.ir().boxed(),
                     attrpath: vec![Attr::Ident(ident)],
                     default: None,
-                })
+                }
+                .ir()
             },
         );
         stcs.insert(ident, expr).unwrap();
@@ -646,7 +765,7 @@ fn downgrade_attr(attr: ast::Attr, state: &mut DowngradeState) -> Result<Attr> {
                     .into_iter()
                     .map(|part| match part {
                         ast::InterpolPart::Literal(lit) => {
-                            state.new_const(ByteCodeConst::String(lit)).ok()
+                            state.new_const(ByteCodeConst::String(lit)).ir().ok()
                         }
                         ast::InterpolPart::Interpolation(interpol) => {
                             interpol.expr().unwrap().downgrade(state)
@@ -669,19 +788,11 @@ fn downgrade_attrpath(attrpath: ast::Attrpath, state: &mut DowngradeState) -> Re
 
 fn downgrade_attrpathvalue(
     value: ast::AttrpathValue,
-    stcs: &mut HashMap<Sym, Box<dyn Ir>>,
-    dyns: &mut Vec<(Box<dyn Ir>, Box<dyn Ir>)>,
+    rec: bool,
+    attrs: &mut Attrs,
     state: &mut DowngradeState,
 ) -> Result<()> {
     let path = downgrade_attrpath(value.attrpath().unwrap(), state)?;
     let value = value.value().unwrap().downgrade(state)?;
-
-    for attr in path {
-        match attr {
-            Attr::Ident(ident) => {
-            }
-        }
-    }
-
-    Ok(())
+    attrs.insert(path, value)
 }

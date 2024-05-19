@@ -1,13 +1,12 @@
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 
-pub type Sym = usize;
+use crate::bytecode::SymIdx;
 
 // FIXME: don't store syms twice to make it more memory efficient?
 
 pub struct SymTable {
     syms: Vec<String>,
-    syms_table: HashMap<String, Sym>,
+    syms_table: HashMap<String, SymIdx>,
 }
 
 impl SymTable {
@@ -18,7 +17,7 @@ impl SymTable {
         }
     }
 
-    pub fn lookup(&mut self, name: String) -> Sym {
+    pub fn lookup(&mut self, name: String) -> SymIdx {
         if let Some(sym) = self.syms_table.get(&name) {
             *sym
         } else {

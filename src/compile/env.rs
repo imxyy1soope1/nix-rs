@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 
-use crate::bytecode::{Frame, ThunkIdx};
+use crate::bytecode::{Frame, SymIdx, ThunkIdx};
 
 use super::ir::Ir;
-use super::symtable::Sym;
 
 pub struct IrEnv {
-    pub stcs: HashMap<Sym, Box<dyn Ir>>,
-    pub dyns: Vec<(Box<dyn Ir>, Box<dyn Ir>)>,
+    pub stcs: HashMap<SymIdx, Ir>,
+    pub dyns: Vec<(Ir, Ir)>,
 }
 
 impl IrEnv {
@@ -20,7 +19,7 @@ impl IrEnv {
 }
 
 pub struct Env {
-    pub stcs: HashMap<Sym, ThunkIdx>,
+    pub stcs: HashMap<SymIdx, ThunkIdx>,
     pub dyns: Vec<(Frame, ThunkIdx)>,
 }
 

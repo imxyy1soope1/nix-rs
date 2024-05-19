@@ -9,9 +9,16 @@ pub type CodeIdx = usize;
 
 #[derive(Debug, Clone)]
 pub enum Const {
+    Bool(bool),
     Int(i64),
     Float(f64),
     String(String),
+}
+
+impl From<bool> for Const {
+    fn from(value: bool) -> Self {
+        Const::Bool(value)
+    }
 }
 
 impl From<i64> for Const {
@@ -32,6 +39,16 @@ impl From<String> for Const {
     }
 }
 
+impl<'a> TryFrom<&'a Const> for &'a bool {
+    type Error = Error;
+
+    fn try_from(value: &'a Const) -> Result<Self, Self::Error> {
+        match value {
+            Const::Bool(b) => Ok(b),
+            _ => panic!(),
+        }
+    }
+}
 impl<'a> TryFrom<&'a Const> for &'a i64 {
     type Error = Error;
 
@@ -69,6 +86,7 @@ impl PartialEq for Const {
     fn eq(&self, other: &Self) -> bool {
         use Const::*;
         match self {
+            Bool(b) => other.try_into().map_or(false, |other| b.eq(other)),
             Int(int) => other.try_into().map_or(false, |other| int.eq(other)),
             Float(float) => other
                 .try_into()
@@ -86,6 +104,7 @@ impl Hash for Const {
     fn hash<H: Hasher>(&self, state: &mut H) {
         use Const::*;
         match *self {
+            Bool(b) => b.hash(state),
             Int(int) => int.hash(state),
             Float(float) => float.to_bits().hash(state),
             String(ref string) => string.hash(state),
@@ -97,6 +116,8 @@ impl Hash for Const {
 pub enum OpCode {
     /// load a constant onto stack
     Const { idx: ConstIdx },
+    /// load a dynamic var onto stack
+    Var { sym: SymIdx },
     /// create a thunk with codes[thunk_idx[idx]+1..thunk_idx[idx+1]]
     Thunk { idx: ThunkIdx },
     /// load a thunk lazily onto stack
@@ -109,12 +130,14 @@ pub enum OpCode {
     Call { arity: usize },
     /// assert TOS is true then consume it
     Assert,
-    /// [ ... cond, consq, alter ] if (cond) is true, then force thunk (consq), else (alter)
-    IfElse,
+    /// jump forward
+    Jmp { step: usize },
+    /// [ ... cond ] if (cond) is true, then jump forward
+    JmpIfTrue { step: usize },
     /// push an empty attribute set onto stack
     AttrSet,
     /// [ ... set, value ] push the static kv pair (name, (value)) into (set)
-    PushStaticAttr { name: ConstIdx },
+    PushStaticAttr { name: SymIdx },
     /// [ ... set, name, value ] push the dynamic kv pair ((name), (value)) in to (set)
     PushDynAttr,
     /// push an empty list onto stack
@@ -125,10 +148,16 @@ pub enum OpCode {
     BinOp { op: BinOp },
     /// [ ... a ] perform a unary operation (`op` (a))
     UnOp { op: UnOp },
+    /// push a symbol onto stack
+    Sym { sym: SymIdx },
     /// register a symbol with TOS
     RegSym,
-    /// [ ... set, attr ] check whether (set) has (attr)
-    HasAttr,
+    /// TODO:
+    HasAttr { arity: usize },
+    /// TODO:
+    SelectAttr { arity: usize },
+    /// TODO:
+    SelectWithDefault { arity: usize },
     /// enter the environment of the attribute set at TOS
     EnterEnv,
     /// exit the envrironment
@@ -144,6 +173,10 @@ pub enum BinOp {
     Div,
     And,
     Or,
+    Eq,
+    Lt,
+    Con,
+    Upd,
 }
 
 #[derive(Debug, Clone, Copy)]
