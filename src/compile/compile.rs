@@ -14,201 +14,195 @@ impl CompileState {
     }
 
     fn push(&mut self, code: OpCode) {
-        self.opcodes.push(code)
+        self.opcodes.push(code);
+    }
+
+    fn idx(&self) -> usize {
+        self.opcodes.len()
+    }
+
+    fn modify(&mut self, idx: usize, code: OpCode) {
+        self.opcodes[idx] = code;
     }
 }
 
 pub trait Compile {
-    fn compile(self, state: &mut CompileState) -> usize;
+    fn compile(self, state: &mut CompileState);
 }
 
-impl Compile for ir::Ir {
-    fn compile(self, state: &mut CompileState) -> usize {
-        todo!()
+pub trait CompileWithLength {
+    fn compile_with_length(self, state: &mut CompileState) -> usize;
+}
+
+impl<T: Compile> CompileWithLength for T {
+    fn compile_with_length(self, state: &mut CompileState) -> usize {
+        let start = state.idx();
+        self.compile(state);
+        let end = state.idx();
+        end - start
     }
 }
 
 impl Compile for ir::Const {
-    fn compile(self, state: &mut CompileState) -> usize {
+    fn compile(self, state: &mut CompileState) {
         state.push(OpCode::Const { idx: self.idx });
-        1
     }
 }
 
 impl Compile for ir::Var {
-    fn compile(self, state: &mut CompileState) -> usize {
+    fn compile(self, state: &mut CompileState) {
         state.push(OpCode::Var { sym: self.sym });
-        1
     }
 }
 
 impl Compile for ir::Thunk {
-    fn compile(self, state: &mut CompileState) -> usize {
+    fn compile(self, state: &mut CompileState) {
         state.push(OpCode::LoadThunk { idx: self.idx });
-        1
     }
 }
 
 impl Compile for ir::Attrs {
-    fn compile(self, state: &mut CompileState) -> usize {
+    fn compile(self, state: &mut CompileState) {
         todo!()
     }
 }
 
 impl Compile for ir::List {
-    fn compile(self, state: &mut CompileState) -> usize {
+    fn compile(self, state: &mut CompileState) {
         todo!()
     }
 }
 
 impl Compile for ir::UnOp {
-    fn compile(self, state: &mut CompileState) -> usize {
-        let rhs = self.rhs.compile(state);
+    fn compile(self, state: &mut CompileState) {
+        self.rhs.compile(state);
         use ir::UnOpKind::*;
         let op = match self.kind {
             Neg => UnOp::Neg,
             Not => UnOp::Not,
         };
         state.push(OpCode::UnOp { op });
-        rhs + 1
     }
 }
 
 impl Compile for ir::BinOp {
-    fn compile(self, state: &mut CompileState) -> usize {
+    fn compile(self, state: &mut CompileState) {
         use ir::BinOpKind::*;
         match self.kind {
             Add => {
-                let lhs = self.lhs.compile(state);
-                let rhs = self.rhs.compile(state);
+                self.lhs.compile(state);
+                self.rhs.compile(state);
                 state.push(OpCode::BinOp { op: BinOp::Add });
-                lhs + rhs + 1
             }
             Mul => {
-                let lhs = self.lhs.compile(state);
-                let rhs = self.rhs.compile(state);
+                self.lhs.compile(state);
+                self.rhs.compile(state);
                 state.push(OpCode::BinOp { op: BinOp::Mul });
-                lhs + rhs + 1
             }
             Div => {
-                let lhs = self.lhs.compile(state);
-                let rhs = self.rhs.compile(state);
+                self.lhs.compile(state);
+                self.rhs.compile(state);
                 state.push(OpCode::BinOp { op: BinOp::Div });
-                lhs + rhs + 1
             }
             And => {
-                let lhs = self.lhs.compile(state);
-                let rhs = self.rhs.compile(state);
+                self.lhs.compile(state);
+                self.rhs.compile(state);
                 state.push(OpCode::BinOp { op: BinOp::And });
-                lhs + rhs + 1
             }
             Or => {
-                let lhs = self.lhs.compile(state);
-                let rhs = self.rhs.compile(state);
+                self.lhs.compile(state);
+                self.rhs.compile(state);
                 state.push(OpCode::BinOp { op: BinOp::Or });
-                lhs + rhs + 1
             }
             Eq => {
-                let lhs = self.lhs.compile(state);
-                let rhs = self.rhs.compile(state);
+                self.lhs.compile(state);
+                self.rhs.compile(state);
                 state.push(OpCode::BinOp { op: BinOp::Eq });
-                lhs + rhs + 1
             }
             Lt => {
-                let lhs = self.lhs.compile(state);
-                let rhs = self.rhs.compile(state);
+                self.lhs.compile(state);
+                self.rhs.compile(state);
                 state.push(OpCode::BinOp { op: BinOp::Lt });
-                lhs + rhs + 1
             }
             Con => {
-                let lhs = self.lhs.compile(state);
-                let rhs = self.rhs.compile(state);
+                self.lhs.compile(state);
+                self.rhs.compile(state);
                 state.push(OpCode::BinOp { op: BinOp::Con });
-                lhs + rhs + 1
             }
             Upd => {
-                let lhs = self.lhs.compile(state);
-                let rhs = self.rhs.compile(state);
+                self.lhs.compile(state);
+                self.rhs.compile(state);
                 state.push(OpCode::BinOp { op: BinOp::Upd });
-                lhs + rhs + 1
             }
 
             Sub => {
-                let lhs = self.lhs.compile(state);
-                let rhs = self.rhs.compile(state);
+                self.lhs.compile(state);
+                self.rhs.compile(state);
                 state.push(OpCode::UnOp { op: UnOp::Neg });
                 state.push(OpCode::BinOp { op: BinOp::Add });
-                lhs + rhs + 2
             }
             Impl => {
-                let lhs = self.lhs.compile(state);
+                self.lhs.compile(state);
                 state.push(OpCode::UnOp { op: UnOp::Not });
-                let rhs = self.rhs.compile(state);
+                self.rhs.compile(state);
                 state.push(OpCode::BinOp { op: BinOp::Or });
-                lhs + rhs + 2
             }
             Neq => {
-                let lhs = self.lhs.compile(state);
-                let rhs = self.rhs.compile(state);
+                self.lhs.compile(state);
+                self.rhs.compile(state);
                 state.push(OpCode::BinOp { op: BinOp::Eq });
                 state.push(OpCode::UnOp { op: UnOp::Not });
-                lhs + rhs + 2
             }
             Gt => {
-                let rhs = self.rhs.compile(state);
-                let lhs = self.lhs.compile(state);
+                self.rhs.compile(state);
+                self.lhs.compile(state);
                 state.push(OpCode::BinOp { op: BinOp::Lt });
-                lhs + rhs + 1
             }
             Leq => {
-                let rhs = self.rhs.compile(state);
-                let lhs = self.lhs.compile(state);
+                self.rhs.compile(state);
+                self.lhs.compile(state);
                 state.push(OpCode::BinOp { op: BinOp::Lt });
                 state.push(OpCode::UnOp { op: UnOp::Not });
-                lhs + rhs + 2
             }
             Geq => {
-                let lhs = self.lhs.compile(state);
-                let rhs = self.rhs.compile(state);
+                self.lhs.compile(state);
+                self.rhs.compile(state);
                 state.push(OpCode::BinOp { op: BinOp::Lt });
                 state.push(OpCode::UnOp { op: UnOp::Not });
-                lhs + rhs + 2
             }
         }
     }
 }
 
 impl Compile for ir::HasAttr {
-    fn compile(self, state: &mut CompileState) -> usize {
-        let mut length = self.lhs.compile(state);
+    fn compile(self, state: &mut CompileState) {
         let arity = self.rhs.len();
         for attr in self.rhs {
             match attr {
                 ir::Attr::Ident(sym) => state.push(OpCode::Sym { sym }),
                 ir::Attr::Dynamic(dynamic) => {
-                    length += dynamic.compile(state) + 1;
+                    dynamic.compile(state);
                     state.push(OpCode::RegSym);
                 }
                 ir::Attr::Str(string) => {
-                    length += string.compile(state) + 1;
+                    string.compile(state);
                     state.push(OpCode::RegSym);
                 }
             }
         }
         state.push(OpCode::HasAttr { arity });
-        length + 1
     }
 }
 
 impl Compile for ir::Select {
-    fn compile(self, state: &mut CompileState) -> usize {
-        let mut length = self.expr.compile(state);
+    fn compile(self, state: &mut CompileState) {
+        self.expr.compile(state);
         let arity = self.attrpath.len();
         for attr in self.attrpath {
             match attr {
                 ir::Attr::Ident(sym) => state.push(OpCode::Sym { sym }),
                 ir::Attr::Dynamic(dynamic) => {
-                    length += dynamic.compile(state) + 1;
+                    dynamic.compile(state);
                     state.push(OpCode::RegSym);
                 }
                 ir::Attr::Str(string) => {
@@ -219,62 +213,81 @@ impl Compile for ir::Select {
         }
         match self.default {
             Some(default) => {
-                length += default.compile(state);
+                default.compile(state);
                 state.push(OpCode::SelectWithDefault { arity });
             }
             None => state.push(OpCode::SelectAttr { arity }),
         }
-        length + 1
     }
 }
 
 impl Compile for ir::ConcatStrings {
-    fn compile(self, state: &mut CompileState) -> usize {
+    fn compile(self, state: &mut CompileState) {
         todo!()
     }
 }
 
 impl Compile for ir::If {
-    fn compile(self, state: &mut CompileState) -> usize {
-        todo!()
+    fn compile(self, state: &mut CompileState) {
+        self.cond.compile(state);
+
+        let idx_jmp_if_false = state.idx();
+        // place holder
+        state.push(OpCode::NoOp);
+
+        let consq_length = self.consq.compile_with_length(state);
+
+        let idx_jmp = state.idx();
+        // place holder
+        state.push(OpCode::NoOp);
+
+        let alter_length = self.alter.compile_with_length(state);
+
+        state.modify(idx_jmp_if_false, OpCode::JmpIfFalse { step: consq_length });
+        state.modify(idx_jmp, OpCode::Jmp { step: alter_length });
     }
 }
 
 impl Compile for ir::Let {
-    fn compile(self, state: &mut CompileState) -> usize {
-        todo!()
+    fn compile(self, state: &mut CompileState) {
+        self.attrs.compile(state);
+        state.push(OpCode::EnterEnv);
+        self.expr.compile(state);
+        state.push(OpCode::ExitEnv);
     }
 }
 
 impl Compile for ir::With {
-    fn compile(self, state: &mut CompileState) -> usize {
-        todo!()
+    fn compile(self, state: &mut CompileState) {
+        self.attrs.compile(state);
+        state.push(OpCode::EnterEnv);
+        self.expr.compile(state);
+        state.push(OpCode::ExitEnv);
     }
 }
 
 impl Compile for ir::Assert {
-    fn compile(self, state: &mut CompileState) -> usize {
-        let assertion = self.assertion.compile(state);
+    fn compile(self, state: &mut CompileState) {
+        self.assertion.compile(state);
         state.push(OpCode::Assert);
-        let expr = self.expr.compile(state);
-        assertion + expr + 1
+        self.expr.compile(state);
     }
 }
 
 impl Compile for ir::Func {
-    fn compile(self, state: &mut CompileState) -> usize {
-        todo!()
-    }
-}
-
-impl Compile for ir::Path {
-    fn compile(self, state: &mut CompileState) -> usize {
+    fn compile(self, state: &mut CompileState) {
         todo!()
     }
 }
 
 impl Compile for ir::Call {
-    fn compile(self, state: &mut CompileState) -> usize {
+    fn compile(self, state: &mut CompileState) {
+        todo!()
+    }
+}
+
+impl Compile for ir::Path {
+    fn compile(self, state: &mut CompileState) {
         todo!()
     }
 }

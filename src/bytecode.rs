@@ -134,6 +134,8 @@ pub enum OpCode {
     Jmp { step: usize },
     /// [ ... cond ] if (cond) is true, then jump forward
     JmpIfTrue { step: usize },
+    /// [ ... cond ] if (cond) is false, then jump forward
+    JmpIfFalse { step: usize },
     /// push an empty attribute set onto stack
     AttrSet,
     /// [ ... set, value ] push the static kv pair (name, (value)) into (set)
@@ -164,6 +166,8 @@ pub enum OpCode {
     ExitEnv,
     /// return a value
     Ret,
+    /// no-op
+    NoOp,
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -1,79 +1,84 @@
-extern crate proc_macro;
+pub use proc_macros::*;
 
-use proc_macro::TokenStream;
-use quote::quote;
-use syn;
-use syn::DeriveInput;
+#[macro_export]
+macro_rules! ir {
+    ($(
+        $(#[$($x:tt)*])*
+        $ty:ident
+        =>
+        {$($name:ident : $elemtype:ty),*$(,)?}
+    ),*$(,)?) => {
+        #[derive(Clone, Debug)]
+        pub enum Ir {
+            $(
+                $ty($ty),
+            )*
+        }
 
-#[proc_macro_attribute]
-pub fn display_fmt(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let fmt: syn::Expr = syn::parse(attr).unwrap();
-    let ast: DeriveInput = syn::parse(item).unwrap();
-
-    let syn::Expr::Lit(lit) = fmt else {
-        unreachable!()
-    };
-    let syn::Lit::Str(fmt) = lit.lit else {
-        unreachable!()
-    };
-
-    let syn::Data::Struct(ref data) = ast.data else {
-        unreachable!()
-    };
-    let syn::Fields::Named(ref fields) = data.fields else {
-        unreachable!()
-    };
-    let mut args = quote!();
-
-    for syn::Field{ident, ..} in fields.named.iter() {
-        args.extend(quote!(self.#ident,));
-    }
-
-    let ref name = ast.ident;
-    quote! {
-        #ast
-
-        impl Display for #name {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, #fmt, #args)
+        impl Ir {
+            fn boxed(self) -> Box<Self> {
+                Box::new(self)
+            }
+            fn ok(self) -> Result<Self> {
+                Ok(self)
             }
         }
-    }.into()
-}
 
-#[proc_macro_attribute]
-pub fn debug_fmt(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let fmt: syn::Expr = syn::parse(attr).unwrap();
-    let ast: DeriveInput = syn::parse(item).unwrap();
-
-    let syn::Expr::Lit(lit) = fmt else {
-        unreachable!()
-    };
-    let syn::Lit::Str(fmt) = lit.lit else {
-        unreachable!()
-    };
-
-    let syn::Data::Struct(ref data) = ast.data else {
-        unreachable!()
-    };
-    let syn::Fields::Named(ref fields) = data.fields else {
-        unreachable!()
-    };
-    let mut args = quote!();
-
-    for syn::Field{ident, ..} in fields.named.iter() {
-        args.extend(quote!(let #ident = &self.#ident;));
-    }
-
-    let ref name = ast.ident;
-    quote! {
-        #ast
-
-        impl Debug for #name {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                #args
-                write!(f, #fmt)
+        impl Compile for Ir {
+            fn compile(self, state: &mut CompileState) {
+                match self {
+                    $(Ir::$ty(ir) => ir.compile(state),)*
+                }
             }
         }
-    }.into()
+
+        trait Downcast<T> {
+            fn downcast_ref(&self) -> Option<&T>;
+            fn downcast_mut(&mut self) -> Option<&mut T>;
+        }
+
+        $(
+            $(
+                #[$($x)*]
+            )*
+            #[derive(Clone, Debug)]
+            pub struct $ty {
+                $(
+                    pub $name : $elemtype,
+                )*
+            }
+
+            impl $ty {
+                pub fn ir(self) -> Ir {
+                    Ir::$ty(self)
+                }
+            }
+
+            impl TryFrom<Ir> for $ty {
+                type Error = anyhow::Error;
+                fn try_from(value: Ir) -> Result<Self> {
+                    match value {
+                        Ir::$ty(value) => Ok(value),
+                        _ => Err(anyhow!("")),
+                    }
+                }
+            }
+
+            impl Downcast<$ty> for Ir {
+                fn downcast_ref(&self) -> Option<&$ty> {
+                    match self {
+                        Ir::$ty(value) => Some(value),
+                        _ => None,
+                    }
+                }
+                fn downcast_mut(&mut self) -> Option<&mut $ty> {
+                    match self {
+                        Ir::$ty(value) => Some(value),
+                        _ => None,
+                    }
+                }
+            }
+        )*
+    }
 }
+

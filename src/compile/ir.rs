@@ -4,80 +4,11 @@ use anyhow::{anyhow, Result};
 use rnix::ast::{self, Expr};
 
 use crate::bytecode::{Const as ByteCodeConst, ConstIdx, SymIdx, ThunkIdx};
+use macros::ir;
 
+use super::compile::*;
 use super::env::IrEnv;
 use super::symtable::*;
-
-macro_rules! ir {
-    ($(
-        $(#[$($x:tt)*])*
-        $ty:ident
-        =>
-        {$($name:ident : $elemtype:ty),*$(,)?}
-    ),*$(,)?) => {
-        pub enum Ir {
-            $(
-                $ty($ty),
-            )*
-        }
-
-        impl Ir {
-            fn boxed(self) -> Box<Self> {
-                Box::new(self)
-            }
-            fn ok(self) -> Result<Self> {
-                Ok(self)
-            }
-        }
-
-        trait Downcast<T> {
-            fn downcast_ref(&self) -> Option<&T>;
-            fn downcast_mut(&mut self) -> Option<&mut T>;
-        }
-
-        $(
-            $(
-                #[$($x)*]
-            )*
-            pub struct $ty {
-                $(
-                    pub $name : $elemtype,
-                )*
-            }
-
-            impl $ty {
-                pub fn ir(self) -> Ir {
-                    Ir::$ty(self)
-                }
-            }
-
-            impl TryFrom<Ir> for $ty {
-                type Error = anyhow::Error;
-                fn try_from(value: Ir) -> Result<Self> {
-                    match value {
-                        Ir::$ty(value) => Ok(value),
-                        _ => Err(anyhow!("")),
-                    }
-                }
-            }
-
-            impl Downcast<$ty> for Ir {
-                fn downcast_ref(&self) -> Option<&$ty> {
-                    match self {
-                        Ir::$ty(value) => Some(value),
-                        _ => None,
-                    }
-                }
-                fn downcast_mut(&mut self) -> Option<&mut $ty> {
-                    match self {
-                        Ir::$ty(value) => Some(value),
-                        _ => None,
-                    }
-                }
-            }
-        )*
-    }
-}
 
 ir! {
     Attrs => { stcs: HashMap<SymIdx, Ir>, dyns: Vec<(Ir, Ir)> },
@@ -94,11 +25,11 @@ ir! {
     With => { attrs: Box<Ir>, expr: Box<Ir> },
     Assert => { assertion: Box<Ir>, expr: Box<Ir> },
     ConcatStrings => { parts: Vec<Ir> },
-    #[derive(Clone, Copy)]
+    #[derive(Copy)]
     Const => { idx: ConstIdx },
-    #[derive(Clone, Copy)]
+    #[derive(Copy)]
     Var => { sym: SymIdx },
-    #[derive(Clone, Copy)]
+    #[derive(Copy)]
     Thunk => { idx: ThunkIdx },
     Path => { expr: Box<Ir> },
 }
@@ -187,11 +118,18 @@ impl DowngradeState {
             .push((sym, val));
     }
 
-    fn lookup(&self, sym: SymIdx) -> Option<&Ir> {
+    fn lookup(&self, sym: SymIdx) -> Option<Ir> {
         let mut envs = self.envs.iter();
-        while let Some(Env::Env(IrEnv { stcs, .. })) = envs.next_back() {
-            if let Some(idx) = stcs.get(&sym) {
-                return Some(idx);
+        while let Some(env) = envs.next_back() {
+            match env {
+                Env::Env(IrEnv { stcs, .. }) => {
+                    if let Some(idx) = stcs.get(&sym) {
+                        return Some(idx.clone());
+                    }
+                }
+                Env::With => {
+                    return Some(Var { sym }.ir());
+                }
             }
         }
         None
@@ -255,8 +193,6 @@ pub fn downgrade(expr: Expr) -> (Result<Ir>, DowngradeState) {
 } */
 
 impl Attrs {
-    fn merge(&mut self, other: &mut Self) {}
-
     fn _insert(&mut self, mut path: std::vec::IntoIter<Attr>, name: Attr, value: Ir) -> Result<()> {
         if let Some(attr) = path.next() {
             match attr {
@@ -340,12 +276,14 @@ impl Attrs {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum Attr {
     Ident(SymIdx),
     Dynamic(Ir),
     Str(ConcatStrings),
 }
 
+#[derive(Clone, Debug)]
 pub enum BinOpKind {
     Add,
     Sub,
@@ -389,6 +327,7 @@ impl From<ast::BinOpKind> for BinOpKind {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum UnOpKind {
     Neg,
     Not,
@@ -403,6 +342,7 @@ impl From<ast::UnaryOpKind> for UnOpKind {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum Param {
     Ident(SymIdx),
     Formals {
@@ -532,13 +472,15 @@ impl Downgrade for ast::Literal {
 
 impl Downgrade for ast::Ident {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
-        todo!()
+        let sym = state.lookup_sym(self.ident_token().unwrap().text().to_string());
+        state.lookup(sym).ok_or(anyhow!(""))
     }
 }
 
 impl Downgrade for ast::AttrSet {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
-        todo!()
+        let rec = self.rec_token().is_some();
+        downgrade_has_entry(self, rec, state).map(|attrs| attrs.ir())
     }
 }
 
@@ -610,7 +552,9 @@ impl Downgrade for ast::Select {
 
 impl Downgrade for ast::LegacyLet {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
-        todo!()
+        let attrs = downgrade_has_entry(self, true, state)?;
+        let body_attr = Attr::Ident(state.lookup_sym("body".to_string()));
+        Select { expr: attrs.ir().boxed(), attrpath: vec![body_attr], default: None }.ir().ok()
     }
 }
 
@@ -618,6 +562,7 @@ impl Downgrade for ast::LetIn {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         // let entries = ast::HasEntry::attrpath_values(&self);
         // let entries = entries.map(|e| e.attrpath());
+        let attrs = downgrade_has_entry(self, true, state)?;
         todo!()
     }
 }
@@ -735,16 +680,16 @@ fn downgrade_inherit(
             _ => panic!("dynamic attributes not allowed in inherit"),
         };
         let expr = from.map_or_else(
-            || Var { sym: ident }.ir(),
+            || state.lookup(ident).ok_or(anyhow!("")),
             |from| {
-                Select {
+                Ok(Select {
                     expr: from.ir().boxed(),
                     attrpath: vec![Attr::Ident(ident)],
                     default: None,
                 }
-                .ir()
+                .ir())
             },
-        );
+        )?;
         stcs.insert(ident, expr).unwrap();
     }
     Ok(())
@@ -792,6 +737,7 @@ fn downgrade_attrpathvalue(
     attrs: &mut Attrs,
     state: &mut DowngradeState,
 ) -> Result<()> {
+    // TODO: rec
     let path = downgrade_attrpath(value.attrpath().unwrap(), state)?;
     let value = value.value().unwrap().downgrade(state)?;
     attrs.insert(path, value)
