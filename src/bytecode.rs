@@ -141,9 +141,11 @@ pub enum OpCode {
     /// [ ... set, value ] push the static kv pair (name, (value)) into (set)
     PushStaticAttr { name: SymIdx },
     /// [ ... set, name, value ] push the dynamic kv pair ((name), (value)) in to (set)
-    PushDynAttr,
+    PushDynamicAttr,
     /// push an empty list onto stack
     List,
+    /// push list with capacity onto stack
+    ListWithCap { cap: usize },
     /// [ ... list, elem ] push (elem) into (list)
     PushElem,
     /// [ ... a, b ] perform a binary operation ((a) `op` (b))

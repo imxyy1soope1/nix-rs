@@ -63,13 +63,47 @@ impl Compile for ir::Thunk {
 
 impl Compile for ir::Attrs {
     fn compile(self, state: &mut CompileState) {
-        todo!()
+        state.push(OpCode::AttrSet);
+        for stc in self.stcs {
+            stc.1.compile(state);
+            state.push(OpCode::PushStaticAttr { name: stc.0 });
+        }
+        for dynamic in self.dyns {
+            dynamic.0.compile(state);
+            dynamic.1.compile(state);
+            state.push(OpCode::PushDynamicAttr)
+        }
+    }
+}
+
+impl Compile for ir::StaticAttrs {
+    fn compile(self, state: &mut CompileState) {
+        state.push(OpCode::AttrSet);
+        for stc in self.stcs {
+            stc.1.compile(state);
+            state.push(OpCode::PushStaticAttr { name: stc.0 });
+        }
+    }
+}
+
+impl Compile for ir::DynamicAttrs {
+    fn compile(self, state: &mut CompileState) {
+        state.push(OpCode::AttrSet);
+        for dynamic in self.dyns {
+            dynamic.0.compile(state);
+            dynamic.1.compile(state);
+            state.push(OpCode::PushDynamicAttr)
+        }
     }
 }
 
 impl Compile for ir::List {
     fn compile(self, state: &mut CompileState) {
-        todo!()
+        state.push(OpCode::ListWithCap { cap: self.items.len() });
+        for item in self.items {
+            item.compile(state);
+            state.push(OpCode::PushElem);
+        }
     }
 }
 
@@ -259,7 +293,7 @@ impl Compile for ir::Let {
 
 impl Compile for ir::With {
     fn compile(self, state: &mut CompileState) {
-        self.attrs.compile(state);
+        self.namespace.compile(state);
         state.push(OpCode::EnterEnv);
         self.expr.compile(state);
         state.push(OpCode::ExitEnv);

@@ -1,3 +1,5 @@
+// TODO: Error Handling
+
 use std::collections::HashMap;
 
 use anyhow::{anyhow, Result};
@@ -12,6 +14,8 @@ use super::symtable::*;
 
 ir! {
     Attrs => { stcs: HashMap<SymIdx, Ir>, dyns: Vec<(Ir, Ir)> },
+    StaticAttrs => { stcs: HashMap<SymIdx, Ir> },
+    DynamicAttrs => { dyns: Vec<(Ir, Ir)> },
     List  => { items: Vec<Ir> },
     HasAttr => { lhs: Box<Ir>, rhs: Vec<Attr> },
     BinOp => { lhs: Box<Ir>, rhs: Box<Ir>, kind: BinOpKind },
@@ -21,8 +25,8 @@ ir! {
     Func => { args: Vec<Param>, body: Box<Ir> },
     Call => { func: Box<Ir>, args: Vec<Ir> },
 
-    Let => { attrs: Attrs, expr: Box<Ir> },
-    With => { attrs: Box<Ir>, expr: Box<Ir> },
+    Let => { attrs: DynamicAttrs, expr: Box<Ir> },
+    With => { namespace: Box<Ir>, expr: Box<Ir> },
     Assert => { assertion: Box<Ir>, expr: Box<Ir> },
     ConcatStrings => { parts: Vec<Ir> },
     #[derive(Copy)]
@@ -81,6 +85,13 @@ impl DowngradeState {
             thunks: Vec::new(),
             consts: Vec::new(),
             consts_table: HashMap::new(),
+        }
+    }
+
+    fn enter_env(&mut self, attrs: StaticAttrs) {
+        self.new_env();
+        for stc in attrs.stcs {
+            self.insert_stc(stc.0, stc.1);
         }
     }
 
@@ -202,7 +213,7 @@ impl Attrs {
                             .get_mut(&ident)
                             .unwrap()
                             .downcast_mut()
-                            .ok_or(anyhow!("ident corrupt"))
+                            .ok_or(anyhow!(r#""{ident}" already exsists in this set"#))
                             .and_then(|attrs: &mut Attrs| attrs._insert(path, name, value))
                     } else {
                         let mut attrs = Attrs {
@@ -237,8 +248,7 @@ impl Attrs {
             match name {
                 Attr::Ident(ident) => {
                     if self.stcs.get(&ident).is_some() {
-                        // TODO: Error Handling
-                        return Err(anyhow!("ident corrupt"));
+                        return Err(anyhow!(r#""{ident}" already exsists in this set"#));
                     }
                     self.stcs.insert(ident, value);
                 }
@@ -273,6 +283,11 @@ impl Attrs {
 
     pub fn has_attr(&self, path: &[Attr]) -> Option<bool> {
         self._has_attr(path.iter())
+    }
+
+    pub fn split(self) -> (StaticAttrs, DynamicAttrs) {
+        let Attrs { stcs, dyns } = self;
+        (StaticAttrs { stcs }, DynamicAttrs { dyns })
     }
 }
 
@@ -354,6 +369,7 @@ pub enum Param {
 
 trait Downgrade {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir>;
+    fn lazy_downgrade(self, state: &mut DowngradeState) -> Result<LazyIr>;
 }
 
 impl Downgrade for ast::Expr {
@@ -473,7 +489,7 @@ impl Downgrade for ast::Literal {
 impl Downgrade for ast::Ident {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         let sym = state.lookup_sym(self.ident_token().unwrap().text().to_string());
-        state.lookup(sym).ok_or(anyhow!(""))
+        state.lookup(sym).ok_or(anyhow!(r#""${sym}" not found in current scope"#))
     }
 }
 
@@ -569,7 +585,18 @@ impl Downgrade for ast::LetIn {
 
 impl Downgrade for ast::With {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
-        todo!()
+        let namespace = self.namespace().unwrap().downgrade(state)?;
+        if let Ir::Attrs(attrs) = namespace {
+            let (stcs, attrs) = attrs.split();
+            state.enter_env(stcs);
+            let expr = self.body().unwrap().downgrade(state)?.boxed();
+            Let { attrs, expr }.ir().ok()
+        } else {
+            state.with();
+            let namespace = namespace.boxed();
+            let expr = self.body().unwrap().downgrade(state)?.boxed();
+            With { namespace, expr }.ir().ok()
+        }
     }
 }
 
@@ -600,7 +627,7 @@ impl Downgrade for ast::Apply {
     }
 }
 
-fn downgrade_param(param: ast::Param, state: &mut DowngradeState) -> anyhow::Result<Param> {
+fn downgrade_param(param: ast::Param, state: &mut DowngradeState) -> Result<Param> {
     match param {
         ast::Param::IdentParam(ident) => {
             Ok(Param::Ident(downgrade_ident(ident.ident().unwrap(), state)))
@@ -609,7 +636,7 @@ fn downgrade_param(param: ast::Param, state: &mut DowngradeState) -> anyhow::Res
     }
 }
 
-fn downgrade_pattern(pattern: ast::Pattern, state: &mut DowngradeState) -> anyhow::Result<Param> {
+fn downgrade_pattern(pattern: ast::Pattern, state: &mut DowngradeState) -> Result<Param> {
     let formals = pattern
         .pat_entries()
         .map(|entry| {
@@ -676,11 +703,10 @@ fn downgrade_inherit(
     for attr in inherit.attrs() {
         let ident = match downgrade_attr(attr, state)? {
             Attr::Ident(ident) => ident,
-            // TODO: Error handling
-            _ => panic!("dynamic attributes not allowed in inherit"),
+            _ => return Err(anyhow!("dynamic attributes not allowed in inherit")),
         };
         let expr = from.map_or_else(
-            || state.lookup(ident).ok_or(anyhow!("")),
+            || state.lookup(ident).ok_or(anyhow!(r#""{ident}" not found in current scope"#)),
             |from| {
                 Ok(Select {
                     expr: from.ir().boxed(),
