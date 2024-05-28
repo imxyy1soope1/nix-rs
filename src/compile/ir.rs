@@ -6,36 +6,193 @@ use anyhow::{anyhow, Result};
 use rnix::ast::{self, Expr};
 
 use crate::bytecode::{Const as ByteCodeConst, ConstIdx, SymIdx, ThunkIdx};
-use macros::ir;
 
 use super::compile::*;
 use super::env::IrEnv;
 use super::symtable::*;
 
-ir! {
-    Attrs => { stcs: HashMap<SymIdx, Ir>, dyns: Vec<(Ir, Ir)> },
-    StaticAttrs => { stcs: HashMap<SymIdx, Ir> },
-    DynamicAttrs => { dyns: Vec<(Ir, Ir)> },
-    List  => { items: Vec<Ir> },
-    HasAttr => { lhs: Box<Ir>, rhs: Vec<Attr> },
-    BinOp => { lhs: Box<Ir>, rhs: Box<Ir>, kind: BinOpKind },
-    UnOp  => { rhs: Box<Ir>, kind: UnOpKind },
-    Select => { expr: Box<Ir>, attrpath: Vec<Attr>, default: Option<Box<Ir>> },
-    If => { cond: Box<Ir>, consq: Box<Ir>, alter: Box<Ir> },
-    Func => { args: Vec<Param>, body: Box<Ir> },
-    Call => { func: Box<Ir>, args: Vec<Ir> },
+#[macro_export]
+macro_rules! ir {
+    (
+        ir {
+            $(
+                $(#[$($x:tt)*])*
+                $ty:ident
+                =>
+                {$($name:ident : $elemtype:ty),*$(,)?}
+            )
+            ,*$(,)?
+        }
+        lazy_ir {
+            $(
+                $(#[$($lazyx:tt)*])*
+                $lazyty:ident
+                =>
+                {$($lazyname:ident : $lazyelemtype:ty),*$(,)?}
+            )
+            ,*$(,)?
+        }
+    ) => {
+        use crate::downcast::Downcast;
 
-    Let => { attrs: DynamicAttrs, expr: Box<Ir> },
-    With => { namespace: Box<Ir>, expr: Box<Ir> },
-    Assert => { assertion: Box<Ir>, expr: Box<Ir> },
-    ConcatStrings => { parts: Vec<Ir> },
-    #[derive(Copy)]
-    Const => { idx: ConstIdx },
-    #[derive(Copy)]
-    Var => { sym: SymIdx },
-    #[derive(Copy)]
-    Thunk => { idx: ThunkIdx },
-    Path => { expr: Box<Ir> },
+        #[derive(Clone, Debug)]
+        pub enum Ir {
+            $(
+                $ty($ty),
+            )*
+        }
+
+        enum LazyIr {
+            WrappedIr(Ir),
+            $(
+                $lazyty($lazyty),
+            )*
+        }
+
+        impl Ir {
+            fn boxed(self) -> Box<Self> {
+                Box::new(self)
+            }
+            fn ok(self) -> Result<Self> {
+                Ok(self)
+            }
+        }
+
+        impl Compile for Ir {
+            fn compile(self, state: &mut CompileState) {
+                match self {
+                    $(Ir::$ty(ir) => ir.compile(state),)*
+                }
+            }
+        }
+
+        $(
+            $(
+                #[$($x)*]
+            )*
+            #[derive(Clone, Debug)]
+            pub struct $ty {
+                $(
+                    pub $name : $elemtype,
+                )*
+            }
+
+            impl $ty {
+                pub fn ir(self) -> Ir {
+                    Ir::$ty(self)
+                }
+            }
+
+            impl TryFrom<Ir> for $ty {
+                type Error = anyhow::Error;
+                fn try_from(value: Ir) -> Result<Self> {
+                    match value {
+                        Ir::$ty(value) => Ok(value),
+                        _ => Err(anyhow!("")),
+                    }
+                }
+            }
+
+            impl Downcast<$ty> for Ir {
+                fn downcast_ref(&self) -> Option<&$ty> {
+                    match self {
+                        Ir::$ty(value) => Some(value),
+                        _ => None,
+                    }
+                }
+                fn downcast_mut(&mut self) -> Option<&mut $ty> {
+                    match self {
+                        Ir::$ty(value) => Some(value),
+                        _ => None,
+                    }
+                }
+                fn downcast(self) -> core::result::Result<$ty, Self> {
+                    match self {
+                        Ir::$ty(value) => Ok(value),
+                        _ => Err(self),
+                    }
+                }
+            }
+        )*
+        $(
+            $(
+                #[$($lazyx)*]
+            )*
+            struct $lazyty {
+                $(
+                    $lazyname : $lazyelemtype,
+                )*
+            }
+
+            impl $lazyty {
+                pub fn lazy_ir(self) -> LazyIr {
+                    LazyIr::$lazyty(self)
+                }
+            }
+
+            impl TryFrom<LazyIr> for $lazyty {
+                type Error = anyhow::Error;
+                fn try_from(value: LazyIr) -> Result<Self> {
+                    match value {
+                        LazyIr::$lazyty(value) => Ok(value),
+                        _ => Err(anyhow!("")),
+                    }
+                }
+            }
+
+            impl Downcast<$lazyty> for LazyIr {
+                fn downcast_ref(&self) -> Option<&$lazyty> {
+                    match self {
+                        LazyIr::$lazyty(value) => Some(value),
+                        _ => None,
+                    }
+                }
+                fn downcast_mut(&mut self) -> Option<&mut $lazyty> {
+                    match self {
+                        LazyIr::$lazyty(value) => Some(value),
+                        _ => None,
+                    }
+                }
+                fn downcast(self) -> core::result::Result<$lazyty, Self> {
+                    match self {
+                        LazyIr::$lazyty(value) => Ok(value),
+                        _ => Err(self),
+                    }
+                }
+            }
+        )*
+    }
+}
+
+ir! {
+    ir {
+        Attrs => { stcs: HashMap<SymIdx, Ir>, dyns: Vec<(Ir, Ir)> },
+        StaticAttrs => { stcs: HashMap<SymIdx, Ir> },
+        DynamicAttrs => { dyns: Vec<(Ir, Ir)> },
+        List  => { items: Vec<Ir> },
+        HasAttr => { lhs: Box<Ir>, rhs: Vec<Attr> },
+        BinOp => { lhs: Box<Ir>, rhs: Box<Ir>, kind: BinOpKind },
+        UnOp  => { rhs: Box<Ir>, kind: UnOpKind },
+        Select => { expr: Box<Ir>, attrpath: Vec<Attr>, default: Option<Box<Ir>> },
+        If => { cond: Box<Ir>, consq: Box<Ir>, alter: Box<Ir> },
+        Func => { args: Vec<Param>, body: Box<Ir> },
+        Call => { func: Box<Ir>, args: Vec<Ir> },
+
+        Let => { attrs: DynamicAttrs, expr: Box<Ir> },
+        With => { namespace: Box<Ir>, expr: Box<Ir> },
+        Assert => { assertion: Box<Ir>, expr: Box<Ir> },
+        ConcatStrings => { parts: Vec<Ir> },
+        #[derive(Copy)]
+        Const => { idx: ConstIdx },
+        #[derive(Copy)]
+        Var => { sym: SymIdx },
+        #[derive(Copy)]
+        Thunk => { idx: ThunkIdx },
+        Path => { expr: Box<Ir> },
+    }
+    lazy_ir {
+        LazyList => {  },
+    }
 }
 
 enum Env {
@@ -369,7 +526,11 @@ pub enum Param {
 
 trait Downgrade {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir>;
-    fn lazy_downgrade(self, state: &mut DowngradeState) -> Result<LazyIr>;
+    fn lazy_downgrade(self, state: &mut DowngradeState) -> Result<LazyIr>
+    where Self: Sized
+    {
+        Ok(LazyIr::WrappedIr(self.downgrade(state)?))
+    }
 }
 
 impl Downgrade for ast::Expr {
@@ -396,6 +557,16 @@ impl Downgrade for ast::Expr {
             Expr::With(with) => with.downgrade(state),
             Expr::HasAttr(has) => has.downgrade(state),
         }
+    }
+}
+
+impl Downgrade for LazyIr {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
+        todo!()
+    }
+    fn lazy_downgrade(self, state: &mut DowngradeState) -> Result<LazyIr>
+    where Self: Sized {
+        Ok(self)
     }
 }
 
