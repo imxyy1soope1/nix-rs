@@ -11,6 +11,17 @@ use super::compile::*;
 use super::env::IrEnv;
 use super::symtable::*;
 
+pub fn downgrade(expr: Expr) -> Result<Downgraded> {
+    let mut state = DowngradeState::new();
+    let ir = expr.downgrade(&mut state)?;
+    Ok(Downgraded {
+        top_level: ir,
+        consts: state.consts.into_boxed_slice(),
+        thunks: state.thunks.into_boxed_slice(),
+        syms: state.sym_table.syms(),
+    })
+}
+
 #[macro_export]
 macro_rules! ir {
     (
@@ -44,6 +55,7 @@ macro_rules! ir {
 
         enum LazyIr {
             WrappedIr(Ir),
+            Expr(Expr),
             $(
                 $lazyty($lazyty),
             )*
@@ -191,7 +203,8 @@ ir! {
         Path => { expr: Box<Ir> },
     }
     lazy_ir {
-        LazyList => {  },
+        LazyList => { },
+        LazyAttrs => { },
     }
 }
 
@@ -231,7 +244,10 @@ pub struct DowngradeState {
 }
 
 pub struct Downgraded {
-    top_level: Ir,
+    pub top_level: Ir,
+    pub consts: Box<[ByteCodeConst]>,
+    pub thunks: Box<[Ir]>,
+    pub syms: Box<[String]>
 }
 
 impl DowngradeState {
@@ -333,11 +349,6 @@ impl DowngradeState {
     fn lookup_thunk(&self, idx: ThunkIdx) -> &Ir {
         self.thunks.get(idx).unwrap()
     }
-}
-
-pub fn downgrade(expr: Expr) -> (Result<Ir>, DowngradeState) {
-    let mut state = DowngradeState::new();
-    (expr.downgrade(&mut state), state)
 }
 
 /* macro_rules! ir {
@@ -533,7 +544,7 @@ trait Downgrade {
     }
 }
 
-impl Downgrade for ast::Expr {
+impl Downgrade for Expr {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         match self {
             Expr::Apply(apply) => apply.downgrade(state),
@@ -562,7 +573,13 @@ impl Downgrade for ast::Expr {
 
 impl Downgrade for LazyIr {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
-        todo!()
+        match self {
+            LazyIr::LazyList(list) => list.downgrade(state),
+            LazyIr::LazyAttrs(attrs) => attrs.downgrade(state),
+            LazyIr::Expr(expr) => expr.downgrade(state),
+
+            LazyIr::WrappedIr(ir) => Ok(ir),
+        }
     }
     fn lazy_downgrade(self, state: &mut DowngradeState) -> Result<LazyIr>
     where Self: Sized {
@@ -648,7 +665,7 @@ impl Downgrade for ast::Literal {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         // TODO: Error handling
         match self.kind() {
-            ast::LiteralKind::Integer(int) => state.new_const(int.value().unwrap().into()),
+            ast::LiteralKind::Integer(int) => state.new_const(int.value()?.into()),
             ast::LiteralKind::Float(float) => state.new_const(float.value().unwrap().into()),
             ast::LiteralKind::Uri(uri) => state.new_const(uri.to_string().into()),
         }
@@ -669,6 +686,18 @@ impl Downgrade for ast::AttrSet {
         let rec = self.rec_token().is_some();
         downgrade_has_entry(self, rec, state).map(|attrs| attrs.ir())
     }
+
+    fn lazy_downgrade(self, state: &mut DowngradeState) -> Result<LazyIr>
+        where Self: Sized
+    {
+        todo!()
+    }
+}
+
+impl Downgrade for LazyAttrs {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
+        todo!()
+    }
 }
 
 impl Downgrade for ast::List {
@@ -678,6 +707,12 @@ impl Downgrade for ast::List {
             items.push(item.downgrade(state)?)
         }
         List { items }.ir().ok()
+    }
+}
+
+impl Downgrade for LazyList {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
+        todo!()
     }
 }
 

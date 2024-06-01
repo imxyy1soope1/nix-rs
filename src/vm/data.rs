@@ -1,15 +1,17 @@
-use crate::bytecode::{CodeIdx, ConstIdx, ThunkIdx};
+use std::cell::RefCell;
+use std::sync::Arc;
 
-pub enum Value {
-    /// code[start..end]
-    ThunkCode {
-        start: CodeIdx,
-        end: CodeIdx,
-    },
-    ThunkValue {
-        idx: ThunkIdx,
-    },
-    Const {
-        idx: ConstIdx,
-    },
+use crate::bytecode::{ConstIdx, OpCodes};
+use crate::value::Value;
+
+pub enum StackElem {
+    Thunk(Arc<Thunk>),
+    Const(ConstIdx)
+}
+
+pub struct Thunk(RefCell<_Thunk>);
+
+enum _Thunk {
+    Code(OpCodes),
+    Value(Value)
 }

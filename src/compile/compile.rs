@@ -6,11 +6,25 @@ pub struct CompileState {
     opcodes: Vec<OpCode>,
 }
 
+pub fn compile(downgraded: ir::Downgraded) -> Program {
+    Program {
+        top_level: CompileState::new().compile(downgraded.top_level),
+        thunks: downgraded.thunks.into_vec().into_iter().map(|thunk| CompileState::new().compile(thunk)).collect(),
+        consts: downgraded.consts,
+        syms: downgraded.syms,
+    }
+}
+
 impl CompileState {
     fn new() -> Self {
         Self {
             opcodes: Vec::new(),
         }
+    }
+
+    fn compile(mut self, ir: ir::Ir) -> OpCodes {
+        ir.compile(&mut self);
+        self.opcodes()
     }
 
     fn push(&mut self, code: OpCode) {
@@ -23,6 +37,10 @@ impl CompileState {
 
     fn modify(&mut self, idx: usize, code: OpCode) {
         self.opcodes[idx] = code;
+    }
+
+    fn opcodes(self) -> OpCodes {
+        self.opcodes.into_boxed_slice()
     }
 }
 

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use anyhow::{anyhow, Result};
 
 use crate::bytecode::*;
+use crate::value::Value;
 
 use super::data::*;
 
@@ -10,7 +11,7 @@ pub struct VM {
     prog: Program,
     syms_table: HashMap<String, SymIdx>,
     callstack: Vec<(usize, usize)>,
-    stack: Vec<Value>,
+    stack: Vec<StackElem>,
 }
 
 impl VM {
@@ -49,7 +50,7 @@ impl VM {
                 self.callstack.pop();
             }
             match code {
-                OpCode::Const { idx } => self.stack.push(Value::Const { idx }),
+                OpCode::Const { idx } => self.stack.push(StackElem::Const(idx)),
                 OpCode::Thunk { idx } => self.stack.push(Value::ThunkCode {
                     start: thunk_idxs[idx] + 1,
                     end: thunk_idxs[idx + 1],

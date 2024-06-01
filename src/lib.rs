@@ -5,3 +5,4 @@ mod bytecode;
 mod compile;
 mod vm;
 mod downcast;
+mod value;

@@ -27,4 +27,8 @@ impl SymTable {
             sym
         }
     }
+
+    pub fn syms(self) -> Box<[String]> {
+        self.syms.into_boxed_slice()
+    }
 }

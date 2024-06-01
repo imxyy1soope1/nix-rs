@@ -5,7 +5,7 @@ use anyhow::Error;
 pub type ThunkIdx = usize;
 pub type ConstIdx = usize;
 pub type SymIdx = usize;
-pub type CodeIdx = usize;
+pub type OpCodes = Box<[OpCode]>;
 
 #[derive(Debug, Clone)]
 pub enum Const {
@@ -192,10 +192,10 @@ pub enum UnOp {
 }
 
 pub struct Program {
-    pub codes: Box<[OpCode]>,
+    pub top_level: OpCodes,
+    pub thunks: Box<[OpCodes]>,
     pub consts: Box<[Const]>,
     pub syms: Box<[String]>,
-    pub thunk_idxs: Box<[CodeIdx]>,
 }
 
 pub type Frame = Box<[OpCode]>;
