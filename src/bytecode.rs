@@ -6,6 +6,8 @@ pub type ThunkIdx = usize;
 pub type ConstIdx = usize;
 pub type SymIdx = usize;
 pub type OpCodes = Box<[OpCode]>;
+pub type Consts = Box<[Const]>;
+pub type Symbols = Box<[String]>;
 
 #[derive(Debug, Clone)]
 pub enum Const {
@@ -194,8 +196,8 @@ pub enum UnOp {
 pub struct Program {
     pub top_level: OpCodes,
     pub thunks: Box<[OpCodes]>,
-    pub consts: Box<[Const]>,
-    pub syms: Box<[String]>,
+    pub consts: Consts,
+    pub symbols: Symbols,
 }
 
 pub type Frame = Box<[OpCode]>;
