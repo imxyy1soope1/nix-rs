@@ -6,10 +6,8 @@ use super::vm::VM;
 
 fn test_expr(expr: &str) {
     let prog = compile(expr).unwrap();
-    let vm = VM::new();
+    let vm = VM::new(prog.consts, prog.symbols, prog.thunks);
 }
 
 #[test]
-fn test_literal() {
-
-}
+fn test_literal() {}

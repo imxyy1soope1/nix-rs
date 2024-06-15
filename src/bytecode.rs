@@ -8,6 +8,16 @@ pub type SymIdx = usize;
 pub type OpCodes = Box<[OpCode]>;
 pub type Consts = Box<[Const]>;
 pub type Symbols = Box<[String]>;
+pub type Args = Box<[Arg]>;
+
+#[derive(Debug, Clone, Hash)]
+pub enum Arg {}
+
+#[derive(Debug, Clone, Hash)]
+pub struct Func {
+    args: Args,
+    opcodes: OpCodes,
+}
 
 #[derive(Debug, Clone)]
 pub enum Const {
@@ -15,6 +25,7 @@ pub enum Const {
     Int(i64),
     Float(f64),
     String(String),
+    Func(Func),
 }
 
 impl From<bool> for Const {
@@ -96,6 +107,7 @@ impl PartialEq for Const {
             String(string) => other
                 .try_into()
                 .map_or(false, |other: &str| string.eq(other)),
+            Func(_) => false,
         }
     }
 }
@@ -110,11 +122,12 @@ impl Hash for Const {
             Int(int) => int.hash(state),
             Float(float) => float.to_bits().hash(state),
             String(ref string) => string.hash(state),
+            Func(ref func) => func.hash(state),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash)]
 pub enum OpCode {
     /// load a constant onto stack
     Const { idx: ConstIdx },
@@ -174,7 +187,7 @@ pub enum OpCode {
     NoOp,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash)]
 pub enum BinOp {
     Add,
     Mul,
@@ -187,7 +200,7 @@ pub enum BinOp {
     Upd,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash)]
 pub enum UnOp {
     Neg,
     Not,

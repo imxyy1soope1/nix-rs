@@ -9,9 +9,14 @@ pub struct CompileState {
 pub fn compile(downgraded: ir::Downgraded) -> Program {
     Program {
         top_level: CompileState::new().compile(downgraded.top_level),
-        thunks: downgraded.thunks.into_vec().into_iter().map(|thunk| CompileState::new().compile(thunk)).collect(),
+        thunks: downgraded
+            .thunks
+            .into_vec()
+            .into_iter()
+            .map(|thunk| CompileState::new().compile(thunk))
+            .collect(),
         consts: downgraded.consts,
-        syms: downgraded.syms,
+        symbols: downgraded.symbols,
     }
 }
 
@@ -117,7 +122,9 @@ impl Compile for ir::DynamicAttrs {
 
 impl Compile for ir::List {
     fn compile(self, state: &mut CompileState) {
-        state.push(OpCode::ListWithCap { cap: self.items.len() });
+        state.push(OpCode::ListWithCap {
+            cap: self.items.len(),
+        });
         for item in self.items {
             item.compile(state);
             state.push(OpCode::PushElem);

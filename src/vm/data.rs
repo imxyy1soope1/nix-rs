@@ -2,16 +2,17 @@ use std::cell::RefCell;
 use std::sync::Arc;
 
 use crate::bytecode::{ConstIdx, OpCodes};
-use crate::value::Value;
 
-pub enum StackElem {
-    Thunk(Arc<Thunk>),
-    Const(ConstIdx)
+use super::value::*;
+
+pub enum StackElem<'vm> {
+    Thunk(Thunk<'vm>),
+    Const(Const<'vm>),
 }
 
-pub struct Thunk(RefCell<_Thunk>);
+pub struct Thunk<'vm>(RefCell<_Thunk<'vm>>);
 
-enum _Thunk {
+enum _Thunk<'vm> {
     Code(OpCodes),
-    Value(Value)
+    Value(Value<'vm>),
 }

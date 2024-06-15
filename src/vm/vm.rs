@@ -2,27 +2,21 @@ use anyhow::{anyhow, Result};
 
 use crate::bytecode::*;
 
-use super::value::*;
 use super::data::*;
+use super::value::*;
 
 pub struct VM {
     consts: Consts,
-    symbols: Symbols
+    symbols: Symbols,
 }
 
 impl VM {
-    pub fn new(consts: Consts, symbols: Symbols) -> VM {
-        VM {
-            consts, symbols
-        }
+    pub fn new(consts: Consts, symbols: Symbols, thunks: Box<[OpCodes]>) -> VM {
+        VM { consts, symbols }
     }
 }
 
 impl VM {
-    pub fn lookup_symbol(&self, index: usize) -> Option<&str> {
-        self.symbols.get(index).map(|s| s.as_str())
-    }
-
     /* pub fn run(mut self) -> Result<Value> {
         // self.iter = Some(Box::new(self.prog.codes.iter().map(NonNull::from)));
         let thunk_idxs = &self.prog.thunk_idxs;

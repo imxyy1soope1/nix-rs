@@ -18,7 +18,7 @@ pub fn downgrade(expr: Expr) -> Result<Downgraded> {
         top_level: ir,
         consts: state.consts.into_boxed_slice(),
         thunks: state.thunks.into_boxed_slice(),
-        syms: state.sym_table.syms(),
+        symbols: state.sym_table.syms(),
     })
 }
 
@@ -247,7 +247,7 @@ pub struct Downgraded {
     pub top_level: Ir,
     pub consts: Box<[ByteCodeConst]>,
     pub thunks: Box<[Ir]>,
-    pub syms: Box<[String]>
+    pub symbols: Box<[String]>,
 }
 
 impl DowngradeState {
@@ -538,7 +538,8 @@ pub enum Param {
 trait Downgrade {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir>;
     fn lazy_downgrade(self, state: &mut DowngradeState) -> Result<LazyIr>
-    where Self: Sized
+    where
+        Self: Sized,
     {
         Ok(LazyIr::WrappedIr(self.downgrade(state)?))
     }
@@ -582,7 +583,9 @@ impl Downgrade for LazyIr {
         }
     }
     fn lazy_downgrade(self, state: &mut DowngradeState) -> Result<LazyIr>
-    where Self: Sized {
+    where
+        Self: Sized,
+    {
         Ok(self)
     }
 }
@@ -677,7 +680,9 @@ impl Downgrade for ast::Literal {
 impl Downgrade for ast::Ident {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         let sym = state.lookup_sym(self.ident_token().unwrap().text().to_string());
-        state.lookup(sym).ok_or(anyhow!(r#""${sym}" not found in current scope"#))
+        state
+            .lookup(sym)
+            .ok_or(anyhow!(r#""${sym}" not found in current scope"#))
     }
 }
 
@@ -688,7 +693,8 @@ impl Downgrade for ast::AttrSet {
     }
 
     fn lazy_downgrade(self, state: &mut DowngradeState) -> Result<LazyIr>
-        where Self: Sized
+    where
+        Self: Sized,
     {
         todo!()
     }
@@ -776,7 +782,13 @@ impl Downgrade for ast::LegacyLet {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         let attrs = downgrade_has_entry(self, true, state)?;
         let body_attr = Attr::Ident(state.lookup_sym("body".to_string()));
-        Select { expr: attrs.ir().boxed(), attrpath: vec![body_attr], default: None }.ir().ok()
+        Select {
+            expr: attrs.ir().boxed(),
+            attrpath: vec![body_attr],
+            default: None,
+        }
+        .ir()
+        .ok()
     }
 }
 
@@ -912,7 +924,11 @@ fn downgrade_inherit(
             _ => return Err(anyhow!("dynamic attributes not allowed in inherit")),
         };
         let expr = from.map_or_else(
-            || state.lookup(ident).ok_or(anyhow!(r#""{ident}" not found in current scope"#)),
+            || {
+                state
+                    .lookup(ident)
+                    .ok_or(anyhow!(r#""{ident}" not found in current scope"#))
+            },
             |from| {
                 Ok(Select {
                     expr: from.ir().boxed(),
