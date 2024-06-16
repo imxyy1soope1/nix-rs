@@ -17,7 +17,7 @@ pub fn downgrade(expr: Expr) -> Result<Downgraded> {
     Ok(Downgraded {
         top_level: ir,
         consts: state.consts.into_boxed_slice(),
-        thunks: state.thunks.into_boxed_slice(),
+        thunks: state.thunks.into_iter().map(|(deps, thunk)| (deps.into_boxed_slice(), thunk)).collect(),
         symbols: state.sym_table.syms(),
     })
 }
@@ -238,7 +238,7 @@ pub struct DowngradeError {
 pub struct DowngradeState {
     sym_table: SymTable,
     envs: Vec<Env>,
-    thunks: Vec<Ir>,
+    thunks: Vec<(Vec<ThunkIdx>, Ir)>,
     consts: Vec<ByteCodeConst>,
     consts_table: HashMap<ByteCodeConst, ConstIdx>,
 }
@@ -246,7 +246,7 @@ pub struct DowngradeState {
 pub struct Downgraded {
     pub top_level: Ir,
     pub consts: Box<[ByteCodeConst]>,
-    pub thunks: Box<[Ir]>,
+    pub thunks: Box<[(Box<[ThunkIdx]>, Ir)]>,
     pub symbols: Box<[String]>,
 }
 
@@ -342,12 +342,16 @@ impl DowngradeState {
 
     fn new_thunk(&mut self, thunk: Ir) -> Thunk {
         let idx = self.thunks.len();
-        self.thunks.push(thunk);
+        self.thunks.push((Vec::new(), thunk));
         Thunk { idx }
     }
 
-    fn lookup_thunk(&self, idx: ThunkIdx) -> &Ir {
+    fn lookup_thunk(&self, idx: ThunkIdx) -> &(Vec<ThunkIdx>, Ir) {
         self.thunks.get(idx).unwrap()
+    }
+
+    fn thunk_add_dep(&mut self, idx: ThunkIdx, dep: ThunkIdx) {
+        self.thunks.get_mut(idx).unwrap().0.push(dep)
     }
 }
 

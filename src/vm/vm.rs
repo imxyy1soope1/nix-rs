@@ -8,11 +8,13 @@ use super::value::*;
 pub struct VM {
     consts: Consts,
     symbols: Symbols,
+    thunks: Thunks,
+    top_level: OpCodes,
 }
 
 impl VM {
-    pub fn new(consts: Consts, symbols: Symbols, thunks: Box<[OpCodes]>) -> VM {
-        VM { consts, symbols }
+    pub fn new(prog: Program) -> VM {
+        todo!()
     }
 }
 

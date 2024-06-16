@@ -13,7 +13,7 @@ pub fn compile(downgraded: ir::Downgraded) -> Program {
             .thunks
             .into_vec()
             .into_iter()
-            .map(|thunk| CompileState::new().compile(thunk))
+            .map(|(deps, thunk)| Thunk { deps, opcodes: CompileState::new().compile(thunk) })
             .collect(),
         consts: downgraded.consts,
         symbols: downgraded.symbols,

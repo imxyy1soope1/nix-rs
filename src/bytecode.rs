@@ -1,22 +1,31 @@
 use std::hash::{Hash, Hasher};
 
+use crate::slice::Slice;
+
 use anyhow::Error;
 
 pub type ThunkIdx = usize;
 pub type ConstIdx = usize;
 pub type SymIdx = usize;
-pub type OpCodes = Box<[OpCode]>;
-pub type Consts = Box<[Const]>;
-pub type Symbols = Box<[String]>;
-pub type Args = Box<[Arg]>;
+pub type OpCodes = Slice<OpCode>;
+pub type Consts = Slice<Const>;
+pub type Symbols = Slice<String>;
+pub type Thunks = Slice<Thunk>;
+pub type Args = Slice<Arg>;
+
+#[derive(Debug)]
+pub struct Thunk {
+    pub deps: Slice<ThunkIdx>,
+    pub opcodes: OpCodes
+}
 
 #[derive(Debug, Clone, Hash)]
 pub enum Arg {}
 
 #[derive(Debug, Clone, Hash)]
 pub struct Func {
-    args: Args,
-    opcodes: OpCodes,
+    pub args: Args,
+    pub opcodes: OpCodes,
 }
 
 #[derive(Debug, Clone)]
@@ -208,9 +217,8 @@ pub enum UnOp {
 
 pub struct Program {
     pub top_level: OpCodes,
-    pub thunks: Box<[OpCodes]>,
+    pub thunks: Thunks,
     pub consts: Consts,
     pub symbols: Symbols,
 }
 
-pub type Frame = Box<[OpCode]>;
