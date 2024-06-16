@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::bytecode::SymIdx;
+use crate::slice::Slice;
 
 // FIXME: don't store syms twice to make it more memory efficient?
 
@@ -28,7 +29,7 @@ impl SymTable {
         }
     }
 
-    pub fn syms(self) -> Box<[String]> {
-        self.syms.into_boxed_slice()
+    pub fn syms(self) -> Slice<String> {
+        self.syms.into()
     }
 }

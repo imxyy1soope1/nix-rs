@@ -11,7 +11,6 @@ pub fn compile(downgraded: ir::Downgraded) -> Program {
         top_level: CompileState::new().compile(downgraded.top_level),
         thunks: downgraded
             .thunks
-            .into_vec()
             .into_iter()
             .map(|(deps, thunk)| Thunk { deps, opcodes: CompileState::new().compile(thunk) })
             .collect(),
@@ -45,7 +44,7 @@ impl CompileState {
     }
 
     fn opcodes(self) -> OpCodes {
-        self.opcodes.into_boxed_slice()
+        self.opcodes.into()
     }
 }
 

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::bytecode::{Frame, SymIdx, ThunkIdx};
+use crate::bytecode::SymIdx;
 
 use super::ir::Ir;
 
@@ -12,20 +12,6 @@ pub struct IrEnv {
 impl IrEnv {
     pub fn new() -> IrEnv {
         IrEnv {
-            stcs: HashMap::new(),
-            dyns: Vec::new(),
-        }
-    }
-}
-
-pub struct Env {
-    pub stcs: HashMap<SymIdx, ThunkIdx>,
-    pub dyns: Vec<(Frame, ThunkIdx)>,
-}
-
-impl Env {
-    pub fn new() -> Env {
-        Env {
             stcs: HashMap::new(),
             dyns: Vec::new(),
         }

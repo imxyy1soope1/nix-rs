@@ -14,7 +14,12 @@ pub struct VM {
 
 impl VM {
     pub fn new(prog: Program) -> VM {
-        todo!()
+        VM {
+            consts: prog.consts,
+            symbols: prog.symbols,
+            thunks: prog.thunks,
+            top_level: prog.top_level
+        }
     }
 }
 

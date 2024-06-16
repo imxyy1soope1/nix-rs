@@ -5,7 +5,8 @@ use std::collections::HashMap;
 use anyhow::{anyhow, Result};
 use rnix::ast::{self, Expr};
 
-use crate::bytecode::{Const as ByteCodeConst, ConstIdx, SymIdx, ThunkIdx};
+use crate::bytecode::{Const as ByteCodeConst, ConstIdx, SymIdx, ThunkIdx, Symbols, Consts};
+use crate::slice::Slice;
 
 use super::compile::*;
 use super::env::IrEnv;
@@ -16,8 +17,8 @@ pub fn downgrade(expr: Expr) -> Result<Downgraded> {
     let ir = expr.downgrade(&mut state)?;
     Ok(Downgraded {
         top_level: ir,
-        consts: state.consts.into_boxed_slice(),
-        thunks: state.thunks.into_iter().map(|(deps, thunk)| (deps.into_boxed_slice(), thunk)).collect(),
+        consts: state.consts.into(),
+        thunks: state.thunks.into_iter().map(|(deps, thunk)| (deps.into(), thunk)).collect(),
         symbols: state.sym_table.syms(),
     })
 }
@@ -245,9 +246,9 @@ pub struct DowngradeState {
 
 pub struct Downgraded {
     pub top_level: Ir,
-    pub consts: Box<[ByteCodeConst]>,
-    pub thunks: Box<[(Box<[ThunkIdx]>, Ir)]>,
-    pub symbols: Box<[String]>,
+    pub consts: Consts,
+    pub thunks: Slice<(Slice<ThunkIdx>, Ir)>,
+    pub symbols: Symbols,
 }
 
 impl DowngradeState {
