@@ -1,70 +1,50 @@
+use std::mem::{transmute, MaybeUninit};
+use std::collections::HashMap;
+use std::sync::{Arc, Weak, RwLock};
+use std::cell::RefCell;
+
 use anyhow::{anyhow, Result};
 
 use crate::bytecode::*;
+use crate::slice::*;
 
 use super::data::*;
 use super::value::*;
 
-pub struct VM {
-    consts: Consts,
-    symbols: Symbols,
-    thunks: Thunks,
-    top_level: OpCodes,
+pub fn run() -> Result<OwnedValue> {
+    todo!()
 }
 
-impl VM {
-    pub fn new(prog: Program) -> VM {
-        VM {
-            consts: prog.consts,
-            symbols: prog.symbols,
-            thunks: prog.thunks,
-            top_level: prog.top_level
-        }
+pub struct VmData {
+    consts: Consts,
+    symbols: Symbols,
+}
+
+pub struct VM<'data> {
+    thunks: VmThunks<'data>,
+    symbols_map: HashMap<String, SymIdx>,
+    dynamic_symbols: Vec<String>
+}
+
+impl VmData {
+    pub fn new(consts: Consts, symbols: Symbols) -> Self {
+        VmData { consts, symbols }
     }
 }
 
-impl VM {
-    /* pub fn run(mut self) -> Result<Value> {
-        // self.iter = Some(Box::new(self.prog.codes.iter().map(NonNull::from)));
-        let thunk_idxs = &self.prog.thunk_idxs;
-        // let mut iter: Box<dyn Iterator<Item = &OpCode>> = Box::new(codes.iter());
-
-        loop {
-            let (ip, end) = self.callstack.last_mut().unwrap();
-            let code = self.prog.codes[*ip];
-            *ip += 1;
-            if *ip == *end {
-                self.callstack.pop();
+impl<'data> VM<'data> {
+    pub fn new(data: &'data VmData, thunks: Thunks) -> Self {
+        let mut temp: Slice<Arc<RefCell<MaybeUninit<VmThunk<'data>>>>> = (0..thunks.len()).map(|_| Arc::new(RefCell::new(MaybeUninit::uninit()))).collect();
+        thunks.into_iter().enumerate().for_each(|(idx, Thunk { deps, opcodes })| {
+            unsafe {
+                let deps = deps.into_iter().map(|idx| transmute(temp.get(idx).unwrap().clone())).collect();
+                temp.get_mut(idx).unwrap().borrow_mut().write(VmThunk::new(data, deps, opcodes));
             }
-            match code {
-                OpCode::Const { idx } => self.stack.push(StackElem::Const(idx)),
-                OpCode::Thunk { idx } => self.stack.push(Value::ThunkCode {
-                    start: thunk_idxs[idx] + 1,
-                    end: thunk_idxs[idx + 1],
-                }),
-                OpCode::LoadThunk { idx } => self.stack.push(Value::ThunkCode {
-                    start: thunk_idxs[idx],
-                    end: thunk_idxs[idx + 1],
-                }),
-                OpCode::LoadValue { idx } => {
-                    self.callstack.push((thunk_idxs[idx], thunk_idxs[idx + 1]));
-                }
-                OpCode::ForceValue => {
-                    let thunk = try_pop!(self)?;
-                    match thunk {
-                        Value::ThunkCode { start, end } => self.callstack.push((start, end)),
-                        value => self.stack.push(value),
-                    }
-                }
-
-                OpCode::Ret => {
-                    self.callstack.pop();
-                    if self.callstack.is_empty() {
-                        break try_pop!(self);
-                    }
-                }
-                _ => unimplemented!(),
-            }
+        });
+        VM {
+            thunks: unsafe { transmute(temp) },
+            symbols_map: data.symbols.iter().cloned().enumerate().map(|(idx, sym)| (sym, idx)).collect(),
+            dynamic_symbols: Vec::new()
         }
-    } */
+    }
 }

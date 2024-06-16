@@ -13,7 +13,7 @@ pub type Symbols = Slice<String>;
 pub type Thunks = Slice<Thunk>;
 pub type Args = Slice<Arg>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Thunk {
     pub deps: Slice<ThunkIdx>,
     pub opcodes: OpCodes

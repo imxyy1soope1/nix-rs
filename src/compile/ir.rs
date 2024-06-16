@@ -687,7 +687,7 @@ impl Downgrade for ast::Ident {
         let sym = state.lookup_sym(self.ident_token().unwrap().text().to_string());
         state
             .lookup(sym)
-            .ok_or(anyhow!(r#""${sym}" not found in current scope"#))
+            .ok_or(anyhow!(r#""{}" not found in current scope"#, self.ident_token().unwrap().text().to_string()))
     }
 }
 

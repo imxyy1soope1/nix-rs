@@ -47,9 +47,17 @@ pub struct AttrSet<'vm> {
     data: HashTrieMapSync<Symbol<'vm>, Value<'vm>>,
 }
 
+pub struct OwnedAttrSet {
+    data: HashTrieMapSync<String, OwnedValue>
+}
+
 #[derive(Constructor)]
 pub struct List<'vm> {
     data: Vector<Value<'vm>>,
+}
+
+pub struct OwnedList {
+    data: Vector<OwnedValue>
 }
 
 /* #[derive(Constructor)]
@@ -61,4 +69,15 @@ pub enum Value<'vm> {
     Const(Const<'vm>),
     AttrSet(AttrSet<'vm>),
     List(List<'vm>),
+}
+
+#[derive(IsVariant, Unwrap)]
+pub enum OwnedValue {
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+    String(String),
+    Func(Func),
+    AttrSet(OwnedAttrSet),
+    List(OwnedList)
 }

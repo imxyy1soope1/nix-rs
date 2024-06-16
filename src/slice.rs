@@ -1,6 +1,6 @@
 use std::hash::{Hash, Hasher};
 use std::mem::{transmute, replace, MaybeUninit};
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 #[derive(Debug)]
 #[repr(transparent)]
@@ -33,7 +33,13 @@ impl<T: ?Sized + Clone, S: Into<Box<[T]>>> From<S> for Slice<T> {
 impl<T: ?Sized + Clone> Deref for Slice<T> {
     type Target = [T];
     fn deref(&self) -> &Self::Target {
-        self.0.deref()
+        &self.0
+    }
+}
+
+impl<T: ?Sized + Clone> DerefMut for Slice<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
