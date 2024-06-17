@@ -1,3 +1,5 @@
+use std::pin::Pin;
+use std::ptr::NonNull;
 use std::sync::{Weak, Arc, RwLock};
 use std::cell::RefCell;
 
@@ -5,23 +7,36 @@ use crate::bytecode::{OpCodes, ThunkIdx};
 use crate::slice::Slice;
 
 use super::value::*;
-use super::vm::VmData;
+use super::vm::{VM, VmData};
 
 pub enum StackElem<'vm> {
     Thunk(VmThunk<'vm>),
     Const(Const<'vm>),
 }
 
-pub type VmThunks<'vm> = Slice<Weak<RefCell<VmThunk<'vm>>>>;
-pub struct VmThunk<'vm>(RwLock<_Thunk<'vm>>);
+pub struct VmRef<'data>(NonNull<VM<'data>>);
+
+pub struct VmThunks<'vm>(Pin<Slice<RefCell<RwLock<VmThunk<'vm>>>>>);
+
+type Deps = Slice<ThunkIdx>;
+
+enum VmThunk<'data> {
+    Code(OpCodes),
+    Suspended,
+    Value(Value<'data>),
+}
 
 impl<'data> VmThunk<'data> {
-    pub fn new(vm: &'data VmData, deps: Slice<Arc<VmThunk<'data>>>, opcodes: OpCodes) -> VmThunk<'data> {
-        VmThunk(RwLock::new(_Thunk::Code { deps, opcodes }))
+    pub fn new(vm: &'data VmData, opcodes: OpCodes) -> VmThunk<'data> {
+        VmThunk::Code(opcodes)
+    }
+
+    pub fn force<'a>(&'a mut self, vm: &VM) -> &'a Value<'data> {
+        let thunk =  *self;
+        *self = VmThunk::Suspended;
+        match self {
+            VmThunk::Code(code) => vm
+        }
     }
 }
 
-enum _Thunk<'vm> {
-    Code { deps: Slice<Arc<VmThunk<'vm>>>, opcodes: OpCodes },
-    Value(Value<'vm>),
-}

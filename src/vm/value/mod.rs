@@ -1,10 +1,10 @@
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 use derive_more::{Constructor, IsVariant, Unwrap};
+use rpds::{HashTrieMapSync, Vector};
 
 use crate::bytecode::Func;
-
-use rpds::{HashTrieMapSync, Vector};
+use super::vm::{VM, VmData};
 
 #[derive(IsVariant, Unwrap)]
 pub enum Const<'vm> {
@@ -28,19 +28,7 @@ impl<'vm> Display for Const<'vm> {
     }
 }
 
-pub struct Symbol<'vm>(&'vm str);
-
-impl<'vm> Debug for Symbol<'vm> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        Display::fmt(self, f)
-    }
-}
-
-impl<'vm> Display for Symbol<'vm> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "Symbol@{}", self.0)
-    }
-}
+pub struct Symbol<'vm>(&'vm VM<'vm>, usize);
 
 #[derive(Constructor)]
 pub struct AttrSet<'vm> {
@@ -60,9 +48,9 @@ pub struct OwnedList {
     data: Vector<OwnedValue>
 }
 
-/* #[derive(Constructor)]
+#[derive(Constructor)]
 pub struct Thunk<'vm> {
-} */
+}
 
 #[derive(IsVariant, Unwrap)]
 pub enum Value<'vm> {

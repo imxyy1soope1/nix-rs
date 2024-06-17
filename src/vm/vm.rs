@@ -21,6 +21,7 @@ pub struct VmData {
 }
 
 pub struct VM<'data> {
+    data: &'data VmData,
     thunks: VmThunks<'data>,
     symbols_map: HashMap<String, SymIdx>,
     dynamic_symbols: Vec<String>
@@ -34,7 +35,8 @@ impl VmData {
 
 impl<'data> VM<'data> {
     pub fn new(data: &'data VmData, thunks: Thunks) -> Self {
-        let mut temp: Slice<Arc<RefCell<MaybeUninit<VmThunk<'data>>>>> = (0..thunks.len()).map(|_| Arc::new(RefCell::new(MaybeUninit::uninit()))).collect();
+        todo!();
+        /* let mut temp: Slice<Arc<RefCell<MaybeUninit<VmThunk<'data>>>>> = (0..thunks.len()).map(|_| Arc::new(RefCell::new(MaybeUninit::uninit()))).collect();
         thunks.into_iter().enumerate().for_each(|(idx, Thunk { deps, opcodes })| {
             unsafe {
                 let deps = deps.into_iter().map(|idx| transmute(temp.get(idx).unwrap().clone())).collect();
@@ -45,6 +47,8 @@ impl<'data> VM<'data> {
             thunks: unsafe { transmute(temp) },
             symbols_map: data.symbols.iter().cloned().enumerate().map(|(idx, sym)| (sym, idx)).collect(),
             dynamic_symbols: Vec::new()
-        }
+        } */
     }
+
+    pub fn eval(&self, )
 }
