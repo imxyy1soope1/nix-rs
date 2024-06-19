@@ -1,4 +1,4 @@
-use std::mem::{transmute, MaybeUninit};
+use std::mem::MaybeUninit;
 use std::collections::HashMap;
 use std::sync::{Arc, Weak, RwLock};
 use std::cell::RefCell;
@@ -11,44 +11,37 @@ use crate::slice::*;
 use super::data::*;
 use super::value::*;
 
-pub fn run() -> Result<OwnedValue> {
-    todo!()
+pub fn run(prog: Program) -> Result<OwnedValue> {
+    let vm = VM::new(prog.consts, prog.symbols, prog.thunks);
+    Ok(vm.eval(prog.top_level)?.to_owned_value(&vm))
 }
 
-pub struct VmData {
+#[doc(hidden)]
+struct VmRef(*const VM);
+
+pub struct VM {
     consts: Consts,
     symbols: Symbols,
-}
-
-pub struct VM<'data> {
-    data: &'data VmData,
-    thunks: VmThunks<'data>,
+    thunks: VmThunks,
     symbols_map: HashMap<String, SymIdx>,
     dynamic_symbols: Vec<String>
 }
 
-impl VmData {
-    pub fn new(consts: Consts, symbols: Symbols) -> Self {
-        VmData { consts, symbols }
-    }
-}
 
-impl<'data> VM<'data> {
-    pub fn new(data: &'data VmData, thunks: Thunks) -> Self {
-        todo!();
-        /* let mut temp: Slice<Arc<RefCell<MaybeUninit<VmThunk<'data>>>>> = (0..thunks.len()).map(|_| Arc::new(RefCell::new(MaybeUninit::uninit()))).collect();
-        thunks.into_iter().enumerate().for_each(|(idx, Thunk { deps, opcodes })| {
-            unsafe {
-                let deps = deps.into_iter().map(|idx| transmute(temp.get(idx).unwrap().clone())).collect();
-                temp.get_mut(idx).unwrap().borrow_mut().write(VmThunk::new(data, deps, opcodes));
-            }
-        });
+impl VM {
+    fn new(consts: Consts, symbols: Symbols, thunks: Thunks) -> Self {
+        let symbols_map = symbols.clone().into_iter().enumerate().map(|(idx, sym)| (sym, idx)).collect();
+        let thunks = VmThunks;
         VM {
-            thunks: unsafe { transmute(temp) },
-            symbols_map: data.symbols.iter().cloned().enumerate().map(|(idx, sym)| (sym, idx)).collect(),
+            consts,
+            symbols,
+            thunks,
+            symbols_map,
             dynamic_symbols: Vec::new()
-        } */
+        }
     }
 
-    pub fn eval(&self, )
+    pub fn eval(&self, opcodes: OpCodes) -> Result<Value> {
+        todo!()
+    }
 }

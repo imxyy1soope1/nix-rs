@@ -1,41 +1,59 @@
+use std::mem::MaybeUninit;
 use std::pin::Pin;
-use std::ptr::NonNull;
 use std::sync::{Weak, Arc, RwLock};
 use std::cell::RefCell;
 
-use crate::bytecode::{OpCodes, ThunkIdx};
+use derive_more::{IsVariant, Unwrap};
+
+use crate::bytecode::{OpCodes, ThunkIdx, Thunks, Thunk};
 use crate::slice::Slice;
 
 use super::value::*;
-use super::vm::{VM, VmData};
+use super::vm::VM;
 
 pub enum StackElem<'vm> {
-    Thunk(VmThunk<'vm>),
+    Thunk(VmThunk),
     Const(Const<'vm>),
+    Value(Value)
 }
 
-pub struct VmRef<'data>(NonNull<VM<'data>>);
+pub struct VmThunks(Slice<Weak<RefCell<RwLock<VmThunk>>>>);
 
-pub struct VmThunks<'vm>(Pin<Slice<RefCell<RwLock<VmThunk<'vm>>>>>);
+impl VmThunks {
+    pub fn new(thunks: Thunks) -> VmThunks {
+        let mut temp: Slice<Arc<RefCell<MaybeUninit<RwLock<_>>>>> = (0..thunks.len()).map(|_| Arc::new(None).collect();
+        thunks.into_iter().enumerate().for_each(|(idx, Thunk { deps, opcodes })| {
+            temp.get(idx).unwrap().borrow_mut().write(RwLock::new(VmThunk::new(opcodes)))
+        })
+        unsafe {
+            VmThunks(std::mem::transmute(temp.iter().map(|thunk| Arc::downgrade(thunk)).collect()))
+        }
+    }
+}
 
-type Deps = Slice<ThunkIdx>;
-
-enum VmThunk<'data> {
-    Code(OpCodes),
+#[derive(IsVariant, Unwrap)]
+pub enum VmThunk {
+    Code{ deps: Slice<Arc<VmThunk>>, opcodes: OpCodes },
     Suspended,
-    Value(Value<'data>),
+    Value(Value),
 }
 
-impl<'data> VmThunk<'data> {
-    pub fn new(vm: &'data VmData, opcodes: OpCodes) -> VmThunk<'data> {
-        VmThunk::Code(opcodes)
+impl VmThunk {
+    pub fn new(deps: Slice<Arc<VmThunk>>, opcodes: OpCodes) -> VmThunk {
+        VmThunk::Code { deps, opcodes }
     }
 
-    pub fn force<'a>(&'a mut self, vm: &VM) -> &'a Value<'data> {
-        let thunk =  *self;
-        *self = VmThunk::Suspended;
-        match self {
-            VmThunk::Code(code) => vm
+    pub fn force<'a>(&'a mut self, vm: &VM) -> &'a Value {
+        if let VmThunk::Value(value) = self {
+            return value
+        }
+        let code = std::mem::replace(self, VmThunk::Suspended).unwrap_code();
+        let value = vm.eval(code).unwrap();
+        let _ = std::mem::replace(self, VmThunk::Value(value));
+        if let VmThunk::Value(value) = self {
+            value
+        } else {
+            unreachable!()
         }
     }
 }
