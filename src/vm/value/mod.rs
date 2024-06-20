@@ -33,7 +33,7 @@ impl<'vm> Display for Const<'vm> {
     }
 }
 
-#[derive(Constructor)]
+#[derive(Constructor, Clone)]
 pub struct AttrSet {
     data: HashTrieMapSync<SymIdx, Value>,
 }
@@ -48,7 +48,7 @@ pub struct OwnedAttrSet {
     data: HashTrieMapSync<String, OwnedValue>
 }
 
-#[derive(Constructor)]
+#[derive(Constructor, Clone)]
 pub struct List {
     data: Vector<Value>,
 }
@@ -67,11 +67,12 @@ pub struct OwnedList {
 pub struct Thunk {
 }
 
+#[derive(Clone)]
 pub struct Catchable {
 
 }
 
-#[derive(IsVariant, Unwrap)]
+#[derive(IsVariant, Unwrap, Clone)]
 pub enum Value {
     // Const(Const<'vm>),
     AttrSet(AttrSet),

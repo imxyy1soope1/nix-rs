@@ -1,12 +1,9 @@
-use std::mem::MaybeUninit;
-use std::pin::Pin;
-use std::sync::{Weak, Arc, RwLock};
-use std::cell::RefCell;
+use std::sync::RwLock;
 
-use derive_more::{IsVariant, Unwrap};
+use derive_more::IsVariant;
+use anyhow::{Result, anyhow};
 
 use crate::bytecode::{OpCodes, ThunkIdx, Thunks, Thunk};
-use crate::slice::Slice;
 
 use super::value::*;
 use super::vm::VM;
@@ -17,41 +14,33 @@ pub enum StackElem<'vm> {
     Value(Value)
 }
 
-pub struct VmThunks(Slice<Weak<RefCell<RwLock<VmThunk>>>>);
+pub struct VmThunk(RwLock<_VmThunk>);
 
-impl VmThunks {
-    pub fn new(thunks: Thunks) -> VmThunks {
-        let mut temp: Slice<Arc<RefCell<MaybeUninit<RwLock<_>>>>> = (0..thunks.len()).map(|_| Arc::new(None).collect();
-        thunks.into_iter().enumerate().for_each(|(idx, Thunk { deps, opcodes })| {
-            temp.get(idx).unwrap().borrow_mut().write(RwLock::new(VmThunk::new(opcodes)))
-        })
-        unsafe {
-            VmThunks(std::mem::transmute(temp.iter().map(|thunk| Arc::downgrade(thunk)).collect()))
-        }
-    }
-}
-
-#[derive(IsVariant, Unwrap)]
-pub enum VmThunk {
-    Code{ deps: Slice<Arc<VmThunk>>, opcodes: OpCodes },
-    Suspended,
+#[derive(IsVariant)]
+enum _VmThunk {
+    Code(OpCodes),
+    SuspendedFrom(*const VmThunk),
     Value(Value),
 }
 
 impl VmThunk {
-    pub fn new(deps: Slice<Arc<VmThunk>>, opcodes: OpCodes) -> VmThunk {
-        VmThunk::Code { deps, opcodes }
+    pub fn new(opcodes: OpCodes) -> VmThunk {
+        VmThunk(RwLock::new(_VmThunk::Code(opcodes)))
     }
 
-    pub fn force<'a>(&'a mut self, vm: &VM) -> &'a Value {
-        if let VmThunk::Value(value) = self {
-            return value
+    pub fn force(&mut self, vm: &VM) -> Result<Value> {
+        if let _VmThunk::Value(ref value) = &*self.0.read().unwrap() {
+            return Ok(value.clone())
         }
-        let code = std::mem::replace(self, VmThunk::Suspended).unwrap_code();
-        let value = vm.eval(code).unwrap();
-        let _ = std::mem::replace(self, VmThunk::Value(value));
-        if let VmThunk::Value(value) = self {
-            value
+        let guard = &mut *self.0.write().unwrap();
+        #[allow(unused)]
+        let _VmThunk::Code(opcodes) = std::mem::replace(&mut *self.0.write().unwrap(), _VmThunk::SuspendedFrom(self as *const VmThunk)) else {
+            return Err(anyhow!("infinite recursion occured"))
+        };
+        let value = vm.eval(opcodes).unwrap();
+        let _ = std::mem::replace(guard, _VmThunk::Value(value));
+        if let _VmThunk::Value(value) = guard {
+            Ok(value.clone())
         } else {
             unreachable!()
         }

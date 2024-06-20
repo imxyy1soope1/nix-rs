@@ -15,7 +15,6 @@ pub type Args = Slice<Arg>;
 
 #[derive(Debug, Clone)]
 pub struct Thunk {
-    pub deps: Slice<ThunkIdx>,
     pub opcodes: OpCodes
 }
 
