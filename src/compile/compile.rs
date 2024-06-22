@@ -12,7 +12,7 @@ pub fn compile(downgraded: ir::Downgraded) -> Program {
         thunks: downgraded
             .thunks
             .into_iter()
-            .map(|(deps, thunk)| Thunk { deps, opcodes: CompileState::new().compile(thunk) })
+            .map(|(deps, thunk)| Thunk { opcodes: CompileState::new().compile(thunk) })
             .collect(),
         consts: downgraded.consts,
         symbols: downgraded.symbols,

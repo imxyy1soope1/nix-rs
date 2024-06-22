@@ -1,17 +1,18 @@
-use std::mem::{size_of, MaybeUninit};
+use std::mem::{transmute, size_of, MaybeUninit};
+use std::ops::Deref;
 
 use anyhow::{anyhow, Result};
 
-use super::data::StackElem;
+use super::value::Value;
 
-pub const STACK_SIZE: usize = 8 * 1024 / size_of::<StackElem>();
+pub const STACK_SIZE: usize = 8 * 1024 / size_of::<Value>();
 
-pub struct Stack<'vm, const CAP: usize> {
-    items: Box<[MaybeUninit<StackElem<'vm>>; CAP]>,
+pub struct Stack<const CAP: usize> {
+    items: Box<[MaybeUninit<Value>; CAP]>,
     top: usize,
 }
 
-impl<'vm, const CAP: usize> Stack<'vm, CAP> {
+impl<const CAP: usize> Stack<CAP> {
     pub fn new() -> Self {
         Stack {
             items: (0..CAP)
@@ -23,7 +24,7 @@ impl<'vm, const CAP: usize> Stack<'vm, CAP> {
         }
     }
 
-    pub fn push(&mut self, item: StackElem<'vm>) -> Result<()> {
+    pub fn push(&mut self, item: Value) -> Result<()> {
         self.items
             .get_mut(self.top)
             .map_or(Err(anyhow!("stack overflow")), |ok| Ok(ok))?
@@ -32,7 +33,7 @@ impl<'vm, const CAP: usize> Stack<'vm, CAP> {
         Ok(())
     }
 
-    pub fn pop(&mut self) -> Result<StackElem<'vm>> {
+    pub fn pop(&mut self) -> Result<Value> {
         self.top -= 1;
         let item = self
             .items
@@ -42,7 +43,16 @@ impl<'vm, const CAP: usize> Stack<'vm, CAP> {
     }
 }
 
-impl<'vm, const CAP: usize> Drop for Stack<'vm, CAP> {
+impl<const CAP: usize> Deref for Stack<CAP> {
+    type Target = [Value];
+    fn deref(&self) -> &Self::Target {
+        unsafe {
+            transmute(&self.items[0..self.top])
+        }
+    }
+}
+
+impl<const CAP: usize> Drop for Stack<CAP> {
     fn drop(&mut self) {
         self.items.as_mut_slice()[0..self.top]
             .iter_mut()

@@ -1,16 +1,16 @@
-use rnix::Root;
-
 use crate::compile::compile;
+use crate::bytecode::Const;
 
-use super::vm::{VmData, VM};
+use super::vm::run;
+use super::value::OwnedValue;
 
-fn test_expr(expr: &str) {
+fn test_expr(expr: &str, expected: OwnedValue) {
     let prog = compile(expr).unwrap();
-    let data = VmData::new(prog.consts, prog.symbols);
-    let vm = VM::new(&data, prog.thunks);
+    assert_eq!(run(prog).unwrap(), expected);
 }
 
 #[test]
 fn test_literal() {
-    test_expr("1");
+    test_expr("1", OwnedValue::Const(Const::Int(1)));
+    test_expr("1.", OwnedValue::Const(Const::Float(1.)));
 }

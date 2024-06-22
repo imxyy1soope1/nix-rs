@@ -27,6 +27,12 @@ pub struct Func {
     pub opcodes: OpCodes,
 }
 
+impl PartialEq for Func {
+    fn eq(&self, _: &Self) -> bool {
+        false
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Const {
     Bool(bool),

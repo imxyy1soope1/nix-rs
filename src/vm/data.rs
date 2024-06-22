@@ -3,16 +3,10 @@ use std::sync::RwLock;
 use derive_more::{IsVariant, Unwrap};
 use anyhow::{Result, anyhow};
 
-use crate::bytecode::OpCodes;
+use crate::bytecode::{Const, OpCodes};
 
-use super::value::*;
+use super::value::Value;
 use super::vm::VM;
-
-pub enum StackElem<'vm> {
-    Thunk(VmThunk),
-    Const(Const<'vm>),
-    Value(Value)
-}
 
 pub struct VmThunk(RwLock<_VmThunk>);
 
