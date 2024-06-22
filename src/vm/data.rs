@@ -5,7 +5,7 @@ use anyhow::{Result, anyhow};
 
 use crate::bytecode::{Const, OpCodes};
 
-use super::value::Value;
+use super::value::VmValue;
 use super::vm::VM;
 
 pub struct VmThunk(RwLock<_VmThunk>);
@@ -14,7 +14,7 @@ pub struct VmThunk(RwLock<_VmThunk>);
 enum _VmThunk {
     Code(OpCodes),
     SuspendedFrom(*const VmThunk),
-    Value(Value),
+    Value(VmValue),
 }
 
 impl VmThunk {
@@ -22,7 +22,7 @@ impl VmThunk {
         VmThunk(RwLock::new(_VmThunk::Code(opcodes)))
     }
 
-    pub fn force(&mut self, vm: &VM) -> Result<Value> {
+    pub fn force(&mut self, vm: &VM) -> Result<VmValue> {
         match &*self.0.read().unwrap() {
             _VmThunk::Value(value) => return Ok(value.clone()),
             _VmThunk::SuspendedFrom(from) => return Err(anyhow!("already suspended from {from:p} (infinite recursion encountered)")),

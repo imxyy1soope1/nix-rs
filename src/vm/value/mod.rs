@@ -1,108 +1,90 @@
-use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
-
 use derive_more::{Constructor, IsVariant, Unwrap};
 use rpds::{HashTrieMapSync, Vector};
 
-use crate::bytecode::{Func, SymIdx, Const};
+use crate::value::*;
 use super::vm::VM;
 
-pub trait ToOwnedValue {
-    fn to_owned_value(self, vm: &VM) -> OwnedValue;
+pub trait ToValue {
+    fn to_value(self, vm: &VM) -> Value;
 }
 
-/*
-#[derive(IsVariant, Unwrap)]
-pub enum Const<'vm> {
-    Int(i64),
-    Float(f64),
-    Bool(bool),
-    String(&'vm str),
-    Func(&'vm Func),
-}
-
-impl<'vm> Display for Const<'vm> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "Const::")?;
-        match self {
-            Const::Int(int) => write!(f, "Int@{}", int),
-            Const::Float(float) => write!(f, "Float@{}", float),
-            Const::Bool(bool) => write!(f, "Bool@{}", bool),
-            Const::String(string) => write!(f, r#"String@"{}""#, *string),
-            Const::Func(func) => write!(f, "Func@{:?}", *func as *const Func),
-        }
-    }
-} */
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+pub struct Symbol(usize);
 
 #[derive(Constructor, Clone)]
 pub struct AttrSet {
-    data: HashTrieMapSync<SymIdx, Value>,
+    data: HashTrieMapSync<Symbol, VmValue>,
 }
 
-impl ToOwnedValue for AttrSet {
-    fn to_owned_value(self, vm: &VM) -> OwnedValue {
+impl ToValue for AttrSet {
+    fn to_value(self, vm: &VM) -> Value {
         todo!()
     }
 }
 
 #[derive(Debug, PartialEq)]
 pub struct OwnedAttrSet {
-    data: HashTrieMapSync<String, OwnedValue>
+    data: HashTrieMapSync<String, Value>
 }
 
 #[derive(Constructor, Clone)]
 pub struct List {
-    data: Vector<Value>,
+    data: Vector<VmValue>,
 }
 
-impl ToOwnedValue for List {
-    fn to_owned_value(self, vm: &VM) -> OwnedValue {
+impl ToValue for List {
+    fn to_value(self, vm: &VM) -> Value {
         todo!()
     }
 }
 
 #[derive(Debug, PartialEq)]
 pub struct OwnedList {
-    data: Vector<OwnedValue>
+    data: Vector<Value>
 }
 
 #[derive(Constructor)]
 pub struct Thunk {
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Catchable {
-
-}
-
 #[derive(IsVariant, Unwrap, Clone)]
-pub enum Value {
+pub enum VmValue {
     // Const(Const<'vm>),
     Const(usize),
     AttrSet(AttrSet),
     List(List),
-    Catchable(Catchable),
+    Catchable(crate::value::Catchable),
 }
 
-impl ToOwnedValue for Value {
-    fn to_owned_value(self, vm: &VM) -> OwnedValue {
-        match self {
-            Value::AttrSet(attrs) => attrs.to_owned_value(vm),
-            Value::List(list) => list.to_owned_value(vm),
-            Value::Catchable(catchable) => OwnedValue::Catchable(catchable),
-            Value::Const(cnst) => OwnedValue::Const(vm.get_const(cnst)),
-        }
+impl VmValue {
+    pub fn not(self) -> VmValue {
+        todo!()
+    }
+
+    pub fn neg(self) -> VmValue {
+        todo!()
+    }
+
+    pub fn add(self, other: Self) -> VmValue {
+        todo!()
+    }
+
+    pub fn mul(self, other: Self) -> VmValue {
+        todo!()
+    }
+
+    pub fn div(self, other: Self) -> VmValue {
+        todo!()
     }
 }
 
-#[derive(IsVariant, Unwrap, Debug, PartialEq)]
-pub enum OwnedValue {
-    // Int(i64),
-    // Float(f64),
-    // Bool(bool),
-    // String(String),
-    // Func(Func),
-    Const(Const),
-    AttrSet(OwnedAttrSet),
-    List(OwnedList),
-    Catchable(Catchable)
+impl ToValue for VmValue {
+    fn to_value(self, vm: &VM) -> Value {
+        match self {
+            VmValue::AttrSet(attrs) => attrs.to_value(vm),
+            VmValue::List(list) => list.to_value(vm),
+            VmValue::Catchable(catchable) => Value::Catchable(catchable),
+            VmValue::Const(cnst) => Value::Const(vm.get_const(cnst)),
+        }
+    }
 }

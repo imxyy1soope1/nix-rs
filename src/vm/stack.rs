@@ -3,12 +3,12 @@ use std::ops::Deref;
 
 use anyhow::{anyhow, Result};
 
-use super::value::Value;
+use super::value::VmValue;
 
-pub const STACK_SIZE: usize = 8 * 1024 / size_of::<Value>();
+pub const STACK_SIZE: usize = 8 * 1024 / size_of::<VmValue>();
 
 pub struct Stack<const CAP: usize> {
-    items: Box<[MaybeUninit<Value>; CAP]>,
+    items: Box<[MaybeUninit<VmValue>; CAP]>,
     top: usize,
 }
 
@@ -24,7 +24,7 @@ impl<const CAP: usize> Stack<CAP> {
         }
     }
 
-    pub fn push(&mut self, item: Value) -> Result<()> {
+    pub fn push(&mut self, item: VmValue) -> Result<()> {
         self.items
             .get_mut(self.top)
             .map_or(Err(anyhow!("stack overflow")), |ok| Ok(ok))?
@@ -33,7 +33,7 @@ impl<const CAP: usize> Stack<CAP> {
         Ok(())
     }
 
-    pub fn pop(&mut self) -> Result<Value> {
+    pub fn pop(&mut self) -> Result<VmValue> {
         self.top -= 1;
         let item = self
             .items
@@ -44,7 +44,7 @@ impl<const CAP: usize> Stack<CAP> {
 }
 
 impl<const CAP: usize> Deref for Stack<CAP> {
-    type Target = [Value];
+    type Target = [VmValue];
     fn deref(&self) -> &Self::Target {
         unsafe {
             transmute(&self.items[0..self.top])

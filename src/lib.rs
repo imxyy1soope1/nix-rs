@@ -5,3 +5,4 @@ mod compile;
 mod downcast;
 mod vm;
 mod slice;
+mod value;
