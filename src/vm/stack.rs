@@ -46,7 +46,7 @@ impl<const CAP: usize> Stack<CAP> {
         if self.top == 0 {
             Err(anyhow!(""))
         } else {
-            unsafe { Ok(transmute(self.get(self.top).unwrap())) }
+            unsafe { Ok(transmute(self.items.get(self.top - 1).unwrap())) }
         }
     }
 
@@ -54,7 +54,7 @@ impl<const CAP: usize> Stack<CAP> {
         if self.top == 0 {
             Err(anyhow!(""))
         } else {
-            unsafe { Ok(transmute(self.items.get_mut(self.top).unwrap())) }
+            unsafe { Ok(transmute(self.items.get_mut(self.top - 1).unwrap())) }
         }
     }
 }
