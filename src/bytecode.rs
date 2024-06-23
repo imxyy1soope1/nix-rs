@@ -1,6 +1,7 @@
 use std::hash::{Hash, Hasher};
 
 use crate::slice::Slice;
+use crate::value::Func;
 
 use anyhow::Error;
 
@@ -20,18 +21,6 @@ pub struct Thunk {
 
 #[derive(Debug, Clone, Hash)]
 pub enum Arg {}
-
-#[derive(Debug, Clone, Hash)]
-pub struct Func {
-    pub args: Args,
-    pub opcodes: OpCodes,
-}
-
-impl PartialEq for Func {
-    fn eq(&self, _: &Self) -> bool {
-        false
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum Const {

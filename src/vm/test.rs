@@ -12,4 +12,6 @@ fn test_expr(expr: &str, expected: Value) {
 fn test_arith() {
     test_expr("1", Value::Const(Const::Int(1)));
     test_expr("1.", Value::Const(Const::Float(1.)));
+    test_expr("-1", Value::Const(Const::Int(-1)));
+    test_expr("-1.", Value::Const(Const::Float(-1.)));
 }

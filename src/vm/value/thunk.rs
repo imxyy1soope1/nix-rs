@@ -3,10 +3,10 @@ use std::sync::RwLock;
 use derive_more::{IsVariant, Unwrap};
 use anyhow::{Result, anyhow};
 
-use crate::bytecode::{Const, OpCodes};
+use crate::bytecode::OpCodes;
 
-use super::value::VmValue;
-use super::vm::VM;
+use super::VmValue;
+use super::super::vm::VM;
 
 pub struct VmThunk(RwLock<_VmThunk>);
 
@@ -36,6 +36,13 @@ impl VmThunk {
             Ok(value.clone())
         } else {
             unreachable!()
+        }
+    }
+
+    pub fn value(&self) -> Option<VmValue> {
+        match &*self.0.read().unwrap() {
+            _VmThunk::Value(value) => Some(value.clone()),
+            _ => None
         }
     }
 }

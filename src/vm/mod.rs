@@ -1,4 +1,3 @@
-mod data;
 mod stack;
 mod value;
 mod vm;

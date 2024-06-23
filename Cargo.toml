@@ -15,5 +15,6 @@ rpds = "1.1"
 derive_more = "0.99"
 crossbeam-channel = "0.5"
 num_cpus = "1.0"
+ecow = "0.2"
 
 macros = { path = "./src/macros" }

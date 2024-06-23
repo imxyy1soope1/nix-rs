@@ -3,15 +3,28 @@ use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 use derive_more::{Constructor, IsVariant, Unwrap};
 use rpds::{HashTrieMapSync, Vector};
+use ecow::EcoString;
 
-use crate::bytecode::{Func, SymIdx, Const as ByteCodeConst};
+use crate::bytecode::{Args, OpCodes, Const as ByteCodeConst};
+
+#[derive(Debug, Clone, Hash)]
+pub struct Func {
+    pub args: Args,
+    pub opcodes: OpCodes,
+}
+
+impl PartialEq for Func {
+    fn eq(&self, _: &Self) -> bool {
+        false
+    }
+}
 
 #[derive(IsVariant, Unwrap, Clone, Debug, PartialEq)]
 pub enum Const {
     Int(i64),
     Float(f64),
     Bool(bool),
-    String(Arc<String>),
+    String(EcoString),
     Func(Arc<Func>),
 }
 
@@ -35,7 +48,7 @@ impl From<ByteCodeConst> for Const {
             Int(int) => Const::Int(int),
             Float(float) => Const::Float(float),
             Bool(bool) => Const::Bool(bool),
-            String(string) => Const::String(Arc::new(string)),
+            String(string) => Const::String(EcoString::from(string)),
             Func(func) => Const::Func(Arc::new(func))
         }
     }
@@ -43,7 +56,7 @@ impl From<ByteCodeConst> for Const {
 
 #[derive(Constructor, Clone, Debug, PartialEq)]
 pub struct AttrSet {
-    data: HashTrieMapSync<SymIdx, Value>,
+    data: HashTrieMapSync<String, Value>,
 }
 
 #[derive(Constructor, Clone, Debug, PartialEq)]

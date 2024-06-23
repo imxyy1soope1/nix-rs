@@ -1,8 +1,18 @@
-use derive_more::{Constructor, IsVariant, Unwrap};
-use rpds::{HashTrieMapSync, Vector};
+use std::sync::Arc;
+
+use derive_more::{IsVariant, Unwrap};
 
 use crate::value::*;
+
 use super::vm::VM;
+
+mod thunk;
+mod attrset;
+mod list;
+
+pub use thunk::VmThunk;
+pub use attrset::AttrSet;
+pub use list::List;
 
 pub trait ToValue {
     fn to_value(self, vm: &VM) -> Value;
@@ -11,46 +21,13 @@ pub trait ToValue {
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct Symbol(usize);
 
-#[derive(Constructor, Clone)]
-pub struct AttrSet {
-    data: HashTrieMapSync<Symbol, VmValue>,
-}
-
-impl ToValue for AttrSet {
-    fn to_value(self, vm: &VM) -> Value {
-        todo!()
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub struct OwnedAttrSet {
-    data: HashTrieMapSync<String, Value>
-}
-
-#[derive(Constructor, Clone)]
-pub struct List {
-    data: Vector<VmValue>,
-}
-
-impl ToValue for List {
-    fn to_value(self, vm: &VM) -> Value {
-        todo!()
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub struct OwnedList {
-    data: Vector<Value>
-}
-
-#[derive(Constructor)]
-pub struct Thunk {
-}
-
 #[derive(IsVariant, Unwrap, Clone)]
 pub enum VmValue {
-    // Const(Const<'vm>),
-    Const(usize),
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+    String(Arc<String>),
+    Func(Arc<Func>),
     AttrSet(AttrSet),
     List(List),
     Catchable(crate::value::Catchable),
@@ -58,11 +35,18 @@ pub enum VmValue {
 
 impl VmValue {
     pub fn not(self) -> VmValue {
-        todo!()
+        match self {
+            VmValue::Bool(bool) => VmValue::Bool(!bool),
+            _ => unimplemented!()
+        }
     }
 
     pub fn neg(self) -> VmValue {
-        todo!()
+        match self {
+            VmValue::Int(int) => VmValue::Int(-int),
+            VmValue::Float(float) => VmValue::Float(-float),
+            _ => unimplemented!()
+        }
     }
 
     pub fn add(self, other: Self) -> VmValue {
@@ -84,7 +68,7 @@ impl ToValue for VmValue {
             VmValue::AttrSet(attrs) => attrs.to_value(vm),
             VmValue::List(list) => list.to_value(vm),
             VmValue::Catchable(catchable) => Value::Catchable(catchable),
-            VmValue::Const(cnst) => Value::Const(vm.get_const(cnst)),
+            
         }
     }
 }

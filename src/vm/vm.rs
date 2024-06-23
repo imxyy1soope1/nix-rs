@@ -9,7 +9,6 @@ use crate::slice::*;
 use crate::value::{Value, Const as ValueConst};
 
 use super::stack::{Stack, STACK_SIZE};
-use super::data::*;
 use super::value::*;
 
 pub fn run(prog: Program) -> Result<Value> {
@@ -46,8 +45,8 @@ impl VM {
         }
     }
 
-    pub fn get_const(&self, idx: usize) -> ValueConst {
-        self.consts.get(idx).unwrap().clone()
+    pub fn get_const(&self, idx: usize) -> Result<ValueConst> {
+        self.consts.get(idx).cloned().ok_or(anyhow!(""))
     }
 
     pub fn eval(&self, opcodes: OpCodes) -> Result<VmValue> {
@@ -66,7 +65,7 @@ impl VM {
     #[inline]
     fn single_op<const CAP: usize>(&self, opcode: OpCode, stack: &mut Stack<CAP>) -> Result<usize> {
         match opcode {
-            OpCode::Const { idx } => stack.push(VmValue::Const(idx))?,
+            OpCode::Const { idx } => stack.push(VmValue::Const(self.get_const(idx)?))?,
             OpCode::Jmp { step } => return Ok(step),
             OpCode::UnOp { op } => {
                 let value = stack.pop()?;
