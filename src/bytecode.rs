@@ -101,16 +101,12 @@ impl<'a> TryFrom<&'a Const> for &'a str {
 impl PartialEq for Const {
     fn eq(&self, other: &Self) -> bool {
         use Const::*;
-        match self {
-            Bool(b) => other.try_into().map_or(false, |other| b.eq(other)),
-            Int(int) => other.try_into().map_or(false, |other| int.eq(other)),
-            Float(float) => other
-                .try_into()
-                .map_or(false, |other: &f64| float.to_bits().eq(&other.to_bits())),
-            String(string) => other
-                .try_into()
-                .map_or(false, |other: &str| string.eq(other)),
-            Func(_) => false,
+        match (self, other) {
+            (Bool(a), Bool(b)) => a == b,
+            (Int(a), Int(b)) => a == b,
+            (Float(a), Float(b)) => a == b,
+            (String(a), String(b)) => a == b,
+            _ => false,
         }
     }
 }

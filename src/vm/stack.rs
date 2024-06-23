@@ -41,6 +41,22 @@ impl<const CAP: usize> Stack<CAP> {
             .map_or(Err(anyhow!("stack empty")), |ok| Ok(ok))?;
         unsafe { Ok(std::mem::replace(item, MaybeUninit::uninit()).assume_init()) }
     }
+
+    pub fn tos(&self) -> Result<&VmValue> {
+        if self.top == 0 {
+            Err(anyhow!(""))
+        } else {
+            unsafe { Ok(transmute(self.get(self.top).unwrap())) }
+        }
+    }
+
+    pub fn tos_mut(&mut self) -> Result<&mut VmValue> {
+        if self.top == 0 {
+            Err(anyhow!(""))
+        } else {
+            unsafe { Ok(transmute(self.items.get_mut(self.top).unwrap())) }
+        }
+    }
 }
 
 impl<const CAP: usize> Deref for Stack<CAP> {

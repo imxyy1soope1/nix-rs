@@ -253,13 +253,23 @@ pub struct Downgraded {
 
 impl DowngradeState {
     fn new() -> DowngradeState {
-        DowngradeState {
+        let mut state = DowngradeState {
             sym_table: SymTable::new(),
             envs: Vec::new(),
             thunks: Vec::new(),
             consts: Vec::new(),
             consts_table: HashMap::new(),
-        }
+        };
+        // TODO: REFACTOR THIS MESS
+        state.new_env();
+        let t = state.new_const(ByteCodeConst::Bool(true));
+        let t_sym = state.lookup_sym("true".into());
+        state.insert_stc(t_sym, Ir::Const(t));
+        let f = state.new_const(ByteCodeConst::Bool(false));
+        let f_sym = state.lookup_sym("false".into());
+        state.insert_stc(f_sym, Ir::Const(f));
+        state.new_env();
+        state
     }
 
     fn enter_env(&mut self, attrs: StaticAttrs) {

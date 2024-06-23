@@ -56,7 +56,7 @@ impl From<ByteCodeConst> for Const {
 
 #[derive(Constructor, Clone, Debug, PartialEq)]
 pub struct AttrSet {
-    data: HashTrieMapSync<String, Value>,
+    data: HashTrieMapSync<Arc<String>, Value>,
 }
 
 #[derive(Constructor, Clone, Debug, PartialEq)]
