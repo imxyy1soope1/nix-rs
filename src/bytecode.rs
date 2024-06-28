@@ -158,8 +158,6 @@ pub enum OpCode {
     PushDynamicAttr,
     /// push an empty list onto stack
     List,
-    /// push list with capacity onto stack
-    ListWithCap { cap: usize },
     /// [ ... list, elem ] push (elem) into (list)
     PushElem,
     /// [ ... a, b ] perform a binary operation ((a) `op` (b))

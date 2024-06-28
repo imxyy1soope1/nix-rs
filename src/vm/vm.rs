@@ -21,16 +21,16 @@ pub struct VM {
     consts: Slice<ValueConst>,
     thunks: Slice<Arc<VmThunk>>,
     symbols: Slice<Arc<String>>,
-    symbols_map: HashMap<String, SymIdx>,
-    dynamic_symbols: Vec<String>,
+    symbols_map: HashMap<Arc<String>, SymIdx>,
+    dynamic_symbols: Vec<Arc<String>>,
     // pool: ThreadPool
 }
 
 
 impl VM {
     fn new(consts: Consts, symbols: Symbols, thunks: Thunks) -> Self {
+        let symbols = symbols.into_iter().map(|sym| sym.into()).collect::<Slice<Arc<String>>>();
         let symbols_map = symbols.clone().into_iter().enumerate().map(|(idx, sym)| (sym, idx)).collect();
-        let symbols = symbols.into_iter().map(|sym| sym.into()).collect();
         let thunks = thunks.into_iter().map(|ByteCodeThunk { opcodes }| Arc::new(VmThunk::new(opcodes))).collect();
         /* let pool = ThreadPoolBuilder::new().num_threads(num_cpus::get()).spawn_handler(|thread| {
             tokio::task::spawn_blocking(|| thread.run());
@@ -52,7 +52,19 @@ impl VM {
     }
 
     pub fn get_sym(&self, idx: usize) -> Result<Arc<String>> {
-        self.symbols.get(idx).cloned().ok_or(anyhow!(""))
+        if idx < self.symbols.len() {
+            self.symbols.get(idx).cloned().ok_or_else(|| unreachable!())
+        } else {
+            self.dynamic_symbols.get(idx).cloned().ok_or(anyhow!("internal error"))
+        }
+    }
+
+    pub fn reg_sym(&mut self, sym: String) -> usize {
+        let sym = Arc::new(sym);
+        let idx = self.symbols_map.len();
+        self.symbols_map.insert(sym.clone(), idx);
+        self.dynamic_symbols.push(sym);
+        idx
     }
 
     pub fn eval(&self, opcodes: OpCodes) -> Result<VmValue> {
@@ -103,20 +115,31 @@ impl VM {
                     And => lhs.and(rhs),
                     Or => lhs.or(rhs),
                     Eq => lhs.eq(rhs),
-                    _ => unimplemented!()
+                    _ => todo!()
                 })?;
             }
             OpCode::List => {
-                stack.push(VmValue::List(List::new(Vector::new())))?;
-            }
-            OpCode::ListWithCap { cap } => {
-                stack.push(VmValue::List(List::new(Vector::new())))?;
+                stack.push(VmValue::List(List::new(Vector::new_sync())))?;
             }
             OpCode::PushElem => {
                 let elem = stack.pop()?;
                 stack.tos_mut()?.push(elem);
             }
-            _ => unimplemented!()
+            OpCode::AttrSet => {
+                stack.push(VmValue::AttrSet(AttrSet::new(HashTrieMap::new_sync())))?;
+            }
+            OpCode::PushStaticAttr { name } => {
+                let val = stack.pop()?;
+                stack.tos_mut()?.push_attr(Symbol::new(name), val);
+            }
+            OpCode::PushDynamicAttr => {
+                let val = stack.pop()?;
+                let mut sym = stack.pop()?;
+                sym.coerce_to_string();
+                let sym = self.reg_sym(sym.unwrap_const().unwrap_string().into());
+                stack.tos_mut()?.push_attr(Symbol::new(sym), val);
+            }
+            _ => todo!()
         }
         Ok(0)
     }

@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 use derive_more::{Constructor, IsVariant, Unwrap};
-use rpds::{HashTrieMapSync, Vector};
+use rpds::{HashTrieMapSync, VectorSync};
 use ecow::EcoString;
 
 use crate::bytecode::{Args, OpCodes, Const as ByteCodeConst};
@@ -61,7 +61,7 @@ pub struct AttrSet {
 
 #[derive(Constructor, Clone, Debug, PartialEq)]
 pub struct List {
-    data: Vector<Value>,
+    data: VectorSync<Value>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

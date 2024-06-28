@@ -1,4 +1,4 @@
-use rpds::Vector;
+use rpds::VectorSync;
 use derive_more::Constructor;
 
 use crate::value::{Value, self};
@@ -8,7 +8,7 @@ use super::{ToValue, VmValue};
 
 #[derive(Constructor, Clone, PartialEq)]
 pub struct List {
-    data: Vector<VmValue>,
+    data: VectorSync<VmValue>,
 }
 
 impl List {

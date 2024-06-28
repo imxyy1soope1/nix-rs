@@ -1,4 +1,7 @@
-use rpds::vector;
+use std::sync::Arc;
+
+use rpds::{vector_sync, ht_map_sync};
+use ecow::EcoString;
 
 use crate::compile::compile;
 use crate::value::*;
@@ -23,13 +26,24 @@ macro_rules! boolean {
     ($e:expr) => (Value::Const(Const::Bool($e)))
 }
 
+macro_rules! string {
+    ($e:expr) => (Value::Const(Const::String(EcoString::from($e))))
+}
+
+macro_rules! symbol {
+    ($e:expr) => (Arc::new($e.into()))
+}
+
 macro_rules! list {
-    () => (
-        Value::List(List::new(vector![]))
-    );
     ($($x:tt)*) => (
-        Value::List(List::new(vector![$($x)*]))
+        Value::List(List::new(vector_sync![$($x)*]))
     );
+}
+
+macro_rules! attrs {
+    ($($x:tt)*) => (
+        Value::AttrSet(AttrSet::new(ht_map_sync!{$($x)*}))
+    )
 }
 
 #[test]
@@ -57,6 +71,12 @@ fn test_arith() {
 }
 
 #[test]
+fn test_string() {
+    test_expr(r#""test""#, string!("test"));
+    test_expr(r#""hello" + " world""#, string!("hello world"));
+}
+
+#[test]
 fn test_bool() {
     test_expr("true", boolean!(true));
     test_expr("false", boolean!(false));
@@ -69,4 +89,11 @@ fn test_bool() {
 #[test]
 fn test_list() {
     test_expr("[ 1 2 3 true ]", list![int!(1), int!(2), int!(3), boolean!(true)]);
+}
+
+#[test]
+fn test_attrs() {
+    test_expr("{ a = 1; }", attrs! {
+        symbol!("a") => int!(1)
+    })
 }

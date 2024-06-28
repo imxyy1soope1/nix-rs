@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use derive_more::{IsVariant, Unwrap};
+use derive_more::{IsVariant, Unwrap, Constructor};
 
 use crate::value::*;
 
@@ -18,7 +16,7 @@ pub trait ToValue {
     fn to_value(self, vm: &VM) -> Value;
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Constructor)]
 pub struct Symbol(usize);
 
 #[derive(IsVariant, Unwrap, Clone, PartialEq)]
@@ -29,77 +27,83 @@ pub enum VmValue {
     Catchable(crate::value::Catchable),
 }
 
+use VmValue::Const as VmConst;
 impl VmValue {
     pub fn not(self) -> VmValue {
         use Const::*;
         match self {
-            VmValue::Const(Bool(bool)) => VmValue::Const(Bool(!bool)),
-            _ => unimplemented!()
+            VmConst(Bool(bool)) => VmConst(Bool(!bool)),
+            _ => todo!()
         }
     }
 
     pub fn and(self, other: VmValue) -> VmValue {
         use Const::*;
         match (self, other) {
-            (VmValue::Const(Bool(a)), VmValue::Const(Bool(b))) => VmValue::Const(Bool(a && b)),
-            _ => unimplemented!()
+            (VmConst(Bool(a)), VmConst(Bool(b))) => VmConst(Bool(a && b)),
+            _ => todo!()
         }
     }
 
     pub fn or(self, other: VmValue) -> VmValue {
         use Const::*;
         match (self, other) {
-            (VmValue::Const(Bool(a)), VmValue::Const(Bool(b))) => VmValue::Const(Bool(a || b)),
-            _ => unimplemented!()
+            (VmConst(Bool(a)), VmConst(Bool(b))) => VmConst(Bool(a || b)),
+            _ => todo!()
         }
     }
 
     pub fn eq(self, other: VmValue) -> VmValue {
         use Const::Bool;
-        VmValue::Const(Bool(self == other))
+        VmConst(Bool(self == other))
     }
 
     pub fn neg(self) -> VmValue {
         use Const::*;
         match self {
-            VmValue::Const(Int(int)) => VmValue::Const(Int(-int)),
-            VmValue::Const(Float(float)) => VmValue::Const(Float(-float)),
-            _ => unimplemented!()
+            VmConst(Int(int)) => VmConst(Int(-int)),
+            VmConst(Float(float)) => VmConst(Float(-float)),
+            _ => todo!()
         }
     }
 
     pub fn add(self, other: VmValue) -> VmValue {
         use Const::*;
         match (self, other) {
-            (VmValue::Const(Int(a)), VmValue::Const(Int(b))) => VmValue::Const(Int(a + b)),
-            (VmValue::Const(Int(a)), VmValue::Const(Float(b))) => VmValue::Const(Float(a as f64 + b)),
-            (VmValue::Const(Float(a)), VmValue::Const(Int(b))) => VmValue::Const(Float(a + b as f64)),
-            (VmValue::Const(Float(a)), VmValue::Const(Float(b))) => VmValue::Const(Float(a + b)),
-            _ => unimplemented!()
+            (VmConst(Int(a)), VmConst(Int(b))) => VmConst(Int(a + b)),
+            (VmConst(Int(a)), VmConst(Float(b))) => VmConst(Float(a as f64 + b)),
+            (VmConst(Float(a)), VmConst(Int(b))) => VmConst(Float(a + b as f64)),
+            (VmConst(Float(a)), VmConst(Float(b))) => VmConst(Float(a + b)),
+            (VmConst(String(a)), VmConst(String(b))) => {
+                let mut string = a.clone();
+                string.push_str(b.as_str());
+                VmConst(String(string))
+            },
+            _ => todo!()
         }
     }
 
     pub fn mul(self, other: VmValue) -> VmValue {
         use Const::*;
         match (self, other) {
-            (VmValue::Const(Int(a)), VmValue::Const(Int(b))) => VmValue::Const(Int(a * b)),
-            (VmValue::Const(Int(a)), VmValue::Const(Float(b))) => VmValue::Const(Float(a as f64 * b)),
-            (VmValue::Const(Float(a)), VmValue::Const(Int(b))) => VmValue::Const(Float(a * b as f64)),
-            (VmValue::Const(Float(a)), VmValue::Const(Float(b))) => VmValue::Const(Float(a * b)),
-            _ => unimplemented!()
+            (VmConst(Int(a)), VmConst(Int(b))) => VmConst(Int(a * b)),
+            (VmConst(Int(a)), VmConst(Float(b))) => VmConst(Float(a as f64 * b)),
+            (VmConst(Float(a)), VmConst(Int(b))) => VmConst(Float(a * b as f64)),
+            (VmConst(Float(a)), VmConst(Float(b))) => VmConst(Float(a * b)),
+            _ => todo!()
         }
     }
 
     pub fn div(self, other: VmValue) -> VmValue {
         use Const::*;
         match (self, other) {
-            (_, VmValue::Const(Int(0))) => unimplemented!(),
-            (_, VmValue::Const(Float(0.))) => unimplemented!(),
-            (VmValue::Const(Int(a)), VmValue::Const(Int(b))) => VmValue::Const(Int(a / b)),
-            (VmValue::Const(Int(a)), VmValue::Const(Float(b))) => VmValue::Const(Float(a as f64 / b)),
-            (VmValue::Const(Float(a)), VmValue::Const(Int(b))) => VmValue::Const(Float(a / b as f64)),
-            (VmValue::Const(Float(a)), VmValue::Const(Float(b))) => VmValue::Const(Float(a / b)),
-            _ => unimplemented!()
+            (_, VmConst(Int(0))) => todo!(),
+            (_, VmConst(Float(0.))) => todo!(),
+            (VmConst(Int(a)), VmConst(Int(b))) => VmConst(Int(a / b)),
+            (VmConst(Int(a)), VmConst(Float(b))) => VmConst(Float(a as f64 / b)),
+            (VmConst(Float(a)), VmConst(Int(b))) => VmConst(Float(a / b as f64)),
+            (VmConst(Float(a)), VmConst(Float(b))) => VmConst(Float(a / b)),
+            _ => todo!()
         }
     }
 
@@ -107,7 +111,23 @@ impl VmValue {
         if let VmValue::List(list) = self {
             list.push(elem);
         } else {
-            unreachable!();
+            todo!()
+        }
+    }
+
+    pub fn push_attr(&mut self, sym: Symbol, val: VmValue) {
+        if let VmValue::AttrSet(attrs) = self {
+            attrs.push_attr(sym, val)
+        } else {
+            todo!()
+        }
+    }
+
+    pub fn coerce_to_string(&mut self) {
+        if let VmConst(Const::String(_)) = self {
+            ()
+        } else {
+            todo!()
         }
     }
 }

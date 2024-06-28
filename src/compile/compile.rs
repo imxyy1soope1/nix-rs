@@ -121,9 +121,7 @@ impl Compile for ir::DynamicAttrs {
 
 impl Compile for ir::List {
     fn compile(self, state: &mut CompileState) {
-        state.push(OpCode::ListWithCap {
-            cap: self.items.len(),
-        });
+        state.push(OpCode::List);
         for item in self.items {
             item.compile(state);
             state.push(OpCode::PushElem);
