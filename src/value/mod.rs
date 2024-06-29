@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::sync::Arc;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
@@ -6,6 +7,28 @@ use rpds::{HashTrieMapSync, VectorSync};
 use ecow::EcoString;
 
 use crate::bytecode::{Args, OpCodes, Const as ByteCodeConst};
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct Symbol(Arc<str>);
+
+impl From<Arc<str>> for Symbol {
+    fn from(value: Arc<str>) -> Self {
+        Symbol(value)
+    }
+}
+
+impl From<String> for Symbol {
+    fn from(value: String) -> Self {
+        Symbol(Arc::from(value.into_boxed_str()))
+    }
+}
+
+impl Deref for Symbol {
+    type Target = Arc<str>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 #[derive(Debug, Clone, Hash)]
 pub struct Func {
@@ -56,7 +79,7 @@ impl From<ByteCodeConst> for Const {
 
 #[derive(Constructor, Clone, Debug, PartialEq)]
 pub struct AttrSet {
-    data: HashTrieMapSync<Arc<String>, Value>,
+    data: HashTrieMapSync<Symbol, Value>,
 }
 
 #[derive(Constructor, Clone, Debug, PartialEq)]

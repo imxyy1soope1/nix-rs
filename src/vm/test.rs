@@ -31,7 +31,7 @@ macro_rules! string {
 }
 
 macro_rules! symbol {
-    ($e:expr) => (Arc::new($e.into()))
+    ($e:expr) => (Symbol::from($e.to_string()))
 }
 
 macro_rules! list {
@@ -95,5 +95,10 @@ fn test_list() {
 fn test_attrs() {
     test_expr("{ a = 1; }", attrs! {
         symbol!("a") => int!(1)
-    })
+    });
+    test_expr("{ a = 1; }.a", int!(1));
+    test_expr("{ a = 1; }.b or 1", int!(1));
+    test_expr("{ a = { a = 1; }; }.a", attrs! {
+        symbol!("a") => int!(1)
+    });
 }

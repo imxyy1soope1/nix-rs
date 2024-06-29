@@ -171,7 +171,7 @@ pub enum OpCode {
     /// TODO:
     HasAttr { arity: usize },
     /// TODO:
-    SelectAttr { arity: usize },
+    Select { arity: usize },
     /// TODO:
     SelectWithDefault { arity: usize },
     /// enter the environment of the attribute set at TOS

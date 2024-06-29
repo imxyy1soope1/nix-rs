@@ -272,7 +272,7 @@ impl Compile for ir::Select {
                 default.compile(state);
                 state.push(OpCode::SelectWithDefault { arity });
             }
-            None => state.push(OpCode::SelectAttr { arity }),
+            None => state.push(OpCode::Select { arity }),
         }
     }
 }

@@ -25,6 +25,7 @@ pub enum VmValue {
     AttrSet(AttrSet),
     List(List),
     Catchable(crate::value::Catchable),
+    Symbol(Symbol)
 }
 
 use VmValue::Const as VmConst;
@@ -123,6 +124,20 @@ impl VmValue {
         }
     }
 
+    pub fn select(&mut self, sym: Symbol) {
+        if let VmValue::AttrSet(attrs) = self {
+            let val = attrs.select(sym);
+            *self = val;
+        }
+    }
+
+    pub fn select_with_default(&mut self, sym: Symbol, default: VmValue) {
+        if let VmValue::AttrSet(attrs) = self {
+            let val = attrs.select_with_default(sym, default);
+            *self = val;
+        }
+    }
+
     pub fn coerce_to_string(&mut self) {
         if let VmConst(Const::String(_)) = self {
             ()
@@ -139,6 +154,7 @@ impl ToValue for VmValue {
             VmValue::List(list) => list.to_value(vm),
             VmValue::Catchable(catchable) => Value::Catchable(catchable),
             VmValue::Const(cnst) => Value::Const(cnst),
+            VmValue::Symbol(_) => unreachable!(),
         }
     }
 }
