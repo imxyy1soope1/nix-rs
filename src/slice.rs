@@ -1,5 +1,5 @@
 use std::hash::{Hash, Hasher};
-use std::mem::{transmute, replace, MaybeUninit};
+use std::mem::{replace, transmute, MaybeUninit};
 use std::ops::{Deref, DerefMut};
 
 #[derive(Debug)]

@@ -1,7 +1,5 @@
-use std::sync::Arc;
-
-use rpds::{vector_sync, ht_map_sync};
 use ecow::EcoString;
+use rpds::{ht_map_sync, vector_sync};
 
 use crate::compile::compile;
 use crate::value::*;
@@ -11,27 +9,38 @@ use super::vm::run;
 #[inline]
 fn test_expr(expr: &str, expected: Value) {
     let prog = compile(expr).unwrap();
+    dbg!(&prog);
     assert_eq!(run(prog).unwrap(), expected);
 }
 
 macro_rules! int {
-    ($e:expr) => (Value::Const(Const::Int($e)))
+    ($e:expr) => {
+        Value::Const(Const::Int($e))
+    };
 }
 
 macro_rules! float {
-    ($e:expr) => (Value::Const(Const::Float($e as f64)))
+    ($e:expr) => {
+        Value::Const(Const::Float($e as f64))
+    };
 }
 
 macro_rules! boolean {
-    ($e:expr) => (Value::Const(Const::Bool($e)))
+    ($e:expr) => {
+        Value::Const(Const::Bool($e))
+    };
 }
 
 macro_rules! string {
-    ($e:expr) => (Value::Const(Const::String(EcoString::from($e))))
+    ($e:expr) => {
+        Value::Const(Const::String(EcoString::from($e)))
+    };
 }
 
 macro_rules! symbol {
-    ($e:expr) => (Symbol::from($e.to_string()))
+    ($e:expr) => {
+        Symbol::from($e.to_string())
+    };
 }
 
 macro_rules! list {
@@ -88,17 +97,41 @@ fn test_bool() {
 
 #[test]
 fn test_list() {
-    test_expr("[ 1 2 3 true ]", list![int!(1), int!(2), int!(3), boolean!(true)]);
+    test_expr(
+        "[ 1 2 3 true ]",
+        list![int!(1), int!(2), int!(3), boolean!(true)],
+    );
+    test_expr(
+        "[ 1 2 ] ++ [ 3 4 ]",
+        list![int!(1), int!(2), int!(3), int!(4)],
+    );
 }
 
 #[test]
 fn test_attrs() {
-    test_expr("{ a = 1; }", attrs! {
-        symbol!("a") => int!(1)
-    });
+    test_expr(
+        "{ a = 1; }",
+        attrs! {
+            symbol!("a") => int!(1)
+        },
+    );
     test_expr("{ a = 1; }.a", int!(1));
     test_expr("{ a = 1; }.b or 1", int!(1));
-    test_expr("{ a = { a = 1; }; }.a", attrs! {
-        symbol!("a") => int!(1)
-    });
+    test_expr(
+        "{ a = { a = 1; }; }.a",
+        attrs! {
+            symbol!("a") => int!(1)
+        },
+    );
+    test_expr("{ a.b = 1; }.a.b", int!(1));
+    test_expr(
+        "{ a.b = 1; a.c = 2; }",
+        attrs! { symbol!("a") => attrs!{ symbol!("b") => int!(1), symbol!("c") => int!(2) } },
+    );
+    test_expr("{ a.b = 1; } ? a.b", boolean!(true));
+}
+
+#[test]
+fn test_if() {
+    test_expr("if true || false then 1 else 2", int!(1));
 }

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use anyhow::{anyhow, Result};
 use rnix::ast::{self, Expr};
 
-use crate::bytecode::{Const as ByteCodeConst, ConstIdx, SymIdx, ThunkIdx, Symbols, Consts};
+use crate::bytecode::{Const as ByteCodeConst, ConstIdx, Consts, SymIdx, Symbols, ThunkIdx};
 use crate::slice::Slice;
 
 use super::compile::*;
@@ -18,7 +18,11 @@ pub fn downgrade(expr: Expr) -> Result<Downgraded> {
     Ok(Downgraded {
         top_level: ir,
         consts: state.consts.into(),
-        thunks: state.thunks.into_iter().map(|(deps, thunk)| (deps.into(), thunk)).collect(),
+        thunks: state
+            .thunks
+            .into_iter()
+            .map(|(deps, thunk)| (deps.into(), thunk))
+            .collect(),
         symbols: state.sym_table.syms(),
     })
 }
@@ -404,7 +408,7 @@ impl Attrs {
                             dyns: Vec::new(),
                         };
                         attrs._insert(path, name, value)?;
-                        self.stcs.insert(ident, attrs.ir()).unwrap();
+                        assert!(self.stcs.insert(ident, attrs.ir()).is_none());
                         Ok(())
                     }
                 }
@@ -448,24 +452,29 @@ impl Attrs {
 
     pub fn insert(&mut self, path: Vec<Attr>, value: Ir) -> Result<()> {
         let mut path = path.into_iter();
-        let name = path.next().unwrap();
+        let name = path.next_back().unwrap();
         self._insert(path, name, value)
     }
 
-    fn _has_attr(&self, mut path: std::slice::Iter<Attr>) -> Option<bool> {
+    fn _has_attr(&self, mut path: std::slice::Iter<Attr>, name: Attr) -> Option<bool> {
         match path.next() {
             Some(Attr::Ident(ident)) => self
                 .stcs
-                .get(ident)
+                .get(&ident)
                 .and_then(|attrs| attrs.downcast_ref())
-                .map_or(Some(false), |attrs: &Attrs| attrs._has_attr(path)),
-            None => Some(true),
+                .map_or(Some(false), |attrs: &Attrs| attrs._has_attr(path, name)),
+            None => match name {
+                Attr::Ident(ident) => Some(self.stcs.get(&ident).is_some()),
+                _ => None,
+            },
             _ => None,
         }
     }
 
     pub fn has_attr(&self, path: &[Attr]) -> Option<bool> {
-        self._has_attr(path.iter())
+        let mut path = path.iter();
+        let name = path.next_back().unwrap().clone();
+        self._has_attr(path, name)
     }
 
     pub fn split(self) -> (StaticAttrs, DynamicAttrs) {
@@ -695,9 +704,10 @@ impl Downgrade for ast::Literal {
 impl Downgrade for ast::Ident {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         let sym = state.lookup_sym(self.ident_token().unwrap().text().to_string());
-        state
-            .lookup(sym)
-            .ok_or(anyhow!(r#""{}" not found in current scope"#, self.ident_token().unwrap().text().to_string()))
+        state.lookup(sym).ok_or(anyhow!(
+            r#""{}" not found in current scope"#,
+            self.ident_token().unwrap().text().to_string()
+        ))
     }
 }
 

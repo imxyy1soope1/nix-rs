@@ -1,4 +1,4 @@
-use std::mem::{transmute, size_of, MaybeUninit};
+use std::mem::{size_of, transmute, MaybeUninit};
 use std::ops::Deref;
 
 use anyhow::{anyhow, Result};
@@ -62,9 +62,7 @@ impl<const CAP: usize> Stack<CAP> {
 impl<const CAP: usize> Deref for Stack<CAP> {
     type Target = [VmValue];
     fn deref(&self) -> &Self::Target {
-        unsafe {
-            transmute(&self.items[0..self.top])
-        }
+        unsafe { transmute(&self.items[0..self.top]) }
     }
 }
 

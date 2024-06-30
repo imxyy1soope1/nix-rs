@@ -12,7 +12,9 @@ pub fn compile(downgraded: ir::Downgraded) -> Program {
         thunks: downgraded
             .thunks
             .into_iter()
-            .map(|(deps, thunk)| Thunk { opcodes: CompileState::new().compile(thunk) })
+            .map(|(deps, thunk)| Thunk {
+                opcodes: CompileState::new().compile(thunk),
+            })
             .collect(),
         consts: downgraded.consts,
         symbols: downgraded.symbols,
@@ -41,6 +43,14 @@ impl CompileState {
 
     fn modify(&mut self, idx: usize, code: OpCode) {
         self.opcodes[idx] = code;
+    }
+
+    fn last(&self) -> Option<OpCode> {
+        self.opcodes.last().copied()
+    }
+
+    fn pop(&mut self) -> Option<OpCode> {
+        self.opcodes.pop()
     }
 
     fn opcodes(self) -> OpCodes {
@@ -232,47 +242,63 @@ impl Compile for ir::BinOp {
 
 impl Compile for ir::HasAttr {
     fn compile(self, state: &mut CompileState) {
-        let arity = self.rhs.len();
+        self.lhs.compile(state);
+        // let arity = self.rhs.len();
         for attr in self.rhs {
             match attr {
-                ir::Attr::Ident(sym) => state.push(OpCode::Sym { sym }),
+                ir::Attr::Ident(sym) => {
+                    state.push(OpCode::SelectOrFalse { sym });
+                }
                 ir::Attr::Dynamic(dynamic) => {
                     dynamic.compile(state);
-                    state.push(OpCode::RegSym);
+                    state.push(OpCode::SelectDynamicOrFalse);
                 }
                 ir::Attr::Str(string) => {
                     string.compile(state);
-                    state.push(OpCode::RegSym);
+                    state.push(OpCode::SelectDynamicOrFalse);
                 }
             }
         }
-        state.push(OpCode::HasAttr { arity });
+        match state.pop().unwrap() {
+            OpCode::SelectOrFalse { sym } => state.push(OpCode::HasAttr { sym }),
+            OpCode::SelectDynamicOrFalse => state.push(OpCode::HasDynamicAttr),
+            _ => unreachable!(),
+        }
+        // state.push(OpCode::HasAttr { arity });
     }
 }
 
 impl Compile for ir::Select {
     fn compile(self, state: &mut CompileState) {
         self.expr.compile(state);
-        let arity = self.attrpath.len();
         for attr in self.attrpath {
             match attr {
-                ir::Attr::Ident(sym) => state.push(OpCode::Sym { sym }),
+                ir::Attr::Ident(sym) => state.push(OpCode::SelectOrFalse { sym }),
                 ir::Attr::Dynamic(dynamic) => {
                     dynamic.compile(state);
-                    state.push(OpCode::RegSym);
+                    state.push(OpCode::SelectDynamicOrFalse);
                 }
                 ir::Attr::Str(string) => {
                     string.compile(state);
-                    state.push(OpCode::RegSym);
+                    state.push(OpCode::SelectDynamicOrFalse);
                 }
             }
         }
         match self.default {
             Some(default) => {
+                let last = state.pop().unwrap();
                 default.compile(state);
-                state.push(OpCode::SelectWithDefault { arity });
+                match last {
+                    OpCode::SelectOrFalse { sym } => state.push(OpCode::SelectWithDefault { sym }),
+                    OpCode::SelectDynamicOrFalse => state.push(OpCode::SelectDynamicWithDefault),
+                    _ => unreachable!(),
+                }
             }
-            None => state.push(OpCode::Select { arity }),
+            None => match state.pop().unwrap() {
+                OpCode::SelectOrFalse { sym } => state.push(OpCode::Select { sym }),
+                OpCode::SelectDynamicOrFalse => state.push(OpCode::SelectDynamic),
+                _ => unreachable!(),
+            },
         }
     }
 }

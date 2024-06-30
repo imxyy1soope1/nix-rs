@@ -1,12 +1,12 @@
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::ops::Deref;
 use std::sync::Arc;
-use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 use derive_more::{Constructor, IsVariant, Unwrap};
-use rpds::{HashTrieMapSync, VectorSync};
 use ecow::EcoString;
+use rpds::{HashTrieMapSync, VectorSync};
 
-use crate::bytecode::{Args, OpCodes, Const as ByteCodeConst};
+use crate::bytecode::{Args, Const as ByteCodeConst, OpCodes};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Symbol(Arc<str>);
@@ -72,7 +72,7 @@ impl From<ByteCodeConst> for Const {
             Float(float) => Const::Float(float),
             Bool(bool) => Const::Bool(bool),
             String(string) => Const::String(EcoString::from(string)),
-            Func(func) => Const::Func(Arc::new(func))
+            Func(func) => Const::Func(Arc::new(func)),
         }
     }
 }
@@ -88,9 +88,7 @@ pub struct List {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Catchable {
-
-}
+pub struct Catchable {}
 
 #[derive(IsVariant, Unwrap, Clone, Debug, PartialEq)]
 pub enum Value {

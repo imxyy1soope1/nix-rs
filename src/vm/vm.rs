@@ -1,9 +1,9 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use std::cell::RefCell;
 
 use anyhow::{anyhow, Result};
-use rpds::{Vector, HashTrieMap};
+use rpds::{HashTrieMap, Vector};
 
 use crate::bytecode::{self, *};
 use crate::slice::*;
@@ -26,29 +26,42 @@ pub struct Symbols {
 
 impl Symbols {
     fn new(static_symbols: bytecode::Symbols) -> Symbols {
-        let static_symbols: Slice<value::Symbol> = static_symbols.into_iter().map(|sym| sym.into()).collect();
-        let map = static_symbols.iter().cloned().enumerate().map(|(idx, sym)| (sym, idx)).collect();
+        let static_symbols: Slice<value::Symbol> =
+            static_symbols.into_iter().map(|sym| sym.into()).collect();
+        let map = static_symbols
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(idx, sym)| (sym, idx))
+            .collect();
         Symbols {
             static_symbols,
             map,
             dynamic_symbols: RefCell::new(Vec::new()),
-            lock: RwLock::new(())
+            lock: RwLock::new(()),
         }
     }
 
     pub fn get(&self, idx: SymIdx) -> Result<value::Symbol> {
         let _guard = self.lock.read().unwrap();
         if idx < self.static_symbols.len() {
-            self.static_symbols.get(idx).cloned().ok_or_else(|| unreachable!())
+            self.static_symbols
+                .get(idx)
+                .cloned()
+                .ok_or_else(|| unreachable!())
         } else {
-            self.dynamic_symbols.borrow().get(idx).cloned().ok_or(anyhow!("internal error"))
+            self.dynamic_symbols
+                .borrow()
+                .get(idx)
+                .cloned()
+                .ok_or(anyhow!("internal error"))
         }
     }
 
-    pub fn reg(&self, sym: impl Into<value::Symbol>) -> SymIdx {
+    pub fn reg(&self, sym: impl Into<value::Symbol>) -> Symbol {
         let _guard = self.lock.write().unwrap();
         self.dynamic_symbols.borrow_mut().push(sym.into());
-        self.static_symbols.len() + self.dynamic_symbols.borrow().len() - 1
+        Symbol::new(self.static_symbols.len() + self.dynamic_symbols.borrow().len() - 1)
     }
 }
 
@@ -59,11 +72,13 @@ pub struct VM {
     // pool: ThreadPool
 }
 
-
 impl VM {
     fn new(consts: Consts, symbols: bytecode::Symbols, thunks: Thunks) -> Self {
         let symbols = Symbols::new(symbols);
-        let thunks = thunks.into_iter().map(|bytecode::Thunk { opcodes }| Arc::new(VmThunk::new(opcodes))).collect();
+        let thunks = thunks
+            .into_iter()
+            .map(|bytecode::Thunk { opcodes }| Arc::new(VmThunk::new(opcodes)))
+            .collect();
         /* let pool = ThreadPoolBuilder::new().num_threads(num_cpus::get()).spawn_handler(|thread| {
             tokio::task::spawn_blocking(|| thread.run());
             Ok(())
@@ -104,18 +119,18 @@ impl VM {
                 if let VmValue::Const(value::Const::Bool(true)) = stack.pop()? {
                     return Ok(step);
                 }
-            },
+            }
             OpCode::JmpIfFalse { step } => {
                 if let VmValue::Const(value::Const::Bool(false)) = stack.pop()? {
                     return Ok(step);
                 }
-            },
+            }
             OpCode::UnOp { op } => {
                 use UnOp::*;
                 let value = stack.pop()?;
                 stack.push(match op {
                     Neg => value.neg(),
-                    Not => value.not()
+                    Not => value.not(),
                 })?;
             }
             OpCode::BinOp { op } => {
@@ -129,17 +144,9 @@ impl VM {
                     And => lhs.and(rhs),
                     Or => lhs.or(rhs),
                     Eq => lhs.eq(rhs),
-                    _ => todo!()
+                    Con => lhs.concat(rhs),
+                    _ => todo!(),
                 })?;
-            }
-            OpCode::Sym { sym } => {
-                stack.push(VmValue::Symbol(Symbol::new(sym)))?;
-            }
-            OpCode::RegSym => {
-                let mut val = stack.pop()?;
-                val.coerce_to_string();
-                let sym = self.symbols.reg(val.unwrap_const().unwrap_string().to_string());
-                stack.push(VmValue::Symbol(Symbol::new(sym)))?;
             }
             OpCode::List => {
                 stack.push(VmValue::List(List::new(Vector::new_sync())))?;
@@ -159,24 +166,59 @@ impl VM {
                 let val = stack.pop()?;
                 let mut sym = stack.pop()?;
                 sym.coerce_to_string();
-                let sym = self.symbols.reg(sym.unwrap_const().unwrap_string().to_string());
-                stack.tos_mut()?.push_attr(Symbol::new(sym), val);
+                let sym = self
+                    .symbols
+                    .reg(sym.unwrap_const().unwrap_string().to_string());
+                stack.tos_mut()?.push_attr(sym, val);
             }
-            OpCode::Select { arity } => {
-                for _ in 0..arity {
-                    let sym = stack.pop()?.unwrap_symbol();
-                    stack.tos_mut()?.select(sym);
-                }
+            OpCode::Select { sym } => {
+                stack.tos_mut()?.select(Symbol::new(sym));
             }
-            OpCode::SelectWithDefault { arity } => {
+            OpCode::SelectWithDefault { sym } => {
                 let default = stack.pop()?;
-                for _ in 0..arity {
-                    let sym = stack.pop()?.unwrap_symbol();
-                    stack.tos_mut()?.select_with_default(sym, default.clone());
-                }
+                stack
+                    .tos_mut()?
+                    .select_with_default(Symbol::new(sym), default.clone());
             }
-            _ => todo!()
+            OpCode::SelectOrFalse { sym } => {
+                stack.tos_mut()?.select_with_default(
+                    Symbol::new(sym),
+                    VmValue::Const(value::Const::Bool(false)),
+                );
+            }
+            OpCode::SelectDynamic => {
+                let sym = self.reg_sym_tos(stack)?;
+                stack.tos_mut()?.select(sym);
+            }
+            OpCode::SelectDynamicWithDefault => {
+                let sym = self.reg_sym_tos(stack)?;
+                let default = stack.pop()?;
+                stack.tos_mut()?.select_with_default(sym, default.clone());
+            }
+            OpCode::SelectDynamicOrFalse => {
+                let sym = self.reg_sym_tos(stack)?;
+                stack
+                    .tos_mut()?
+                    .select_with_default(sym, VmValue::Const(value::Const::Bool(false)));
+            }
+            OpCode::HasAttr { sym } => {
+                stack.tos_mut()?.has_attr(Symbol::new(sym));
+            }
+            OpCode::HasDynamicAttr => {
+                let sym = self.reg_sym_tos(stack)?;
+                stack.tos_mut()?.has_attr(sym);
+            }
+            _ => todo!(),
         }
         Ok(0)
+    }
+
+    fn reg_sym_tos<const CAP: usize>(&self, stack: &mut Stack<CAP>) -> Result<Symbol> {
+        let mut val = stack.pop()?;
+        val.coerce_to_string();
+        let sym = self
+            .symbols
+            .reg(val.unwrap_const().unwrap_string().to_string());
+        Ok(sym)
     }
 }

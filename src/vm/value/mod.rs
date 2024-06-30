@@ -1,16 +1,16 @@
-use derive_more::{IsVariant, Unwrap, Constructor};
+use derive_more::{Constructor, IsVariant, Unwrap};
 
 use crate::value::*;
 
 use super::vm::VM;
 
-mod thunk;
 mod attrset;
 mod list;
+mod thunk;
 
-pub use thunk::VmThunk;
 pub use attrset::AttrSet;
 pub use list::List;
+pub use thunk::VmThunk;
 
 pub trait ToValue {
     fn to_value(self, vm: &VM) -> Value;
@@ -25,7 +25,6 @@ pub enum VmValue {
     AttrSet(AttrSet),
     List(List),
     Catchable(crate::value::Catchable),
-    Symbol(Symbol)
 }
 
 use VmValue::Const as VmConst;
@@ -34,7 +33,7 @@ impl VmValue {
         use Const::*;
         match self {
             VmConst(Bool(bool)) => VmConst(Bool(!bool)),
-            _ => todo!()
+            _ => todo!(),
         }
     }
 
@@ -42,7 +41,7 @@ impl VmValue {
         use Const::*;
         match (self, other) {
             (VmConst(Bool(a)), VmConst(Bool(b))) => VmConst(Bool(a && b)),
-            _ => todo!()
+            _ => todo!(),
         }
     }
 
@@ -50,7 +49,7 @@ impl VmValue {
         use Const::*;
         match (self, other) {
             (VmConst(Bool(a)), VmConst(Bool(b))) => VmConst(Bool(a || b)),
-            _ => todo!()
+            _ => todo!(),
         }
     }
 
@@ -64,7 +63,7 @@ impl VmValue {
         match self {
             VmConst(Int(int)) => VmConst(Int(-int)),
             VmConst(Float(float)) => VmConst(Float(-float)),
-            _ => todo!()
+            _ => todo!(),
         }
     }
 
@@ -79,8 +78,8 @@ impl VmValue {
                 let mut string = a.clone();
                 string.push_str(b.as_str());
                 VmConst(String(string))
-            },
-            _ => todo!()
+            }
+            _ => todo!(),
         }
     }
 
@@ -91,7 +90,7 @@ impl VmValue {
             (VmConst(Int(a)), VmConst(Float(b))) => VmConst(Float(a as f64 * b)),
             (VmConst(Float(a)), VmConst(Int(b))) => VmConst(Float(a * b as f64)),
             (VmConst(Float(a)), VmConst(Float(b))) => VmConst(Float(a * b)),
-            _ => todo!()
+            _ => todo!(),
         }
     }
 
@@ -104,13 +103,21 @@ impl VmValue {
             (VmConst(Int(a)), VmConst(Float(b))) => VmConst(Float(a as f64 / b)),
             (VmConst(Float(a)), VmConst(Int(b))) => VmConst(Float(a / b as f64)),
             (VmConst(Float(a)), VmConst(Float(b))) => VmConst(Float(a / b)),
-            _ => todo!()
+            _ => todo!(),
         }
     }
 
     pub fn push(&mut self, elem: VmValue) {
         if let VmValue::List(list) = self {
             list.push(elem);
+        } else {
+            todo!()
+        }
+    }
+
+    pub fn concat(self, other: VmValue) -> VmValue {
+        if let (VmValue::List(a), VmValue::List(b)) = (self, other) {
+            VmValue::List(a.concat(b))
         } else {
             todo!()
         }
@@ -128,6 +135,8 @@ impl VmValue {
         if let VmValue::AttrSet(attrs) = self {
             let val = attrs.select(sym);
             *self = val;
+        } else {
+            todo!()
         }
     }
 
@@ -135,6 +144,17 @@ impl VmValue {
         if let VmValue::AttrSet(attrs) = self {
             let val = attrs.select_with_default(sym, default);
             *self = val;
+        } else {
+            todo!()
+        }
+    }
+
+    pub fn has_attr(&mut self, sym: Symbol) {
+        if let VmValue::AttrSet(attrs) = self {
+            let val = VmConst(Const::Bool(attrs.has_attr(sym)));
+            *self = val;
+        } else {
+            *self = VmConst(Const::Bool(false));
         }
     }
 
@@ -154,7 +174,6 @@ impl ToValue for VmValue {
             VmValue::List(list) => list.to_value(vm),
             VmValue::Catchable(catchable) => Value::Catchable(catchable),
             VmValue::Const(cnst) => Value::Const(cnst),
-            VmValue::Symbol(_) => unreachable!(),
         }
     }
 }

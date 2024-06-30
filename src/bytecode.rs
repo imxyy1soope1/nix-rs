@@ -16,7 +16,7 @@ pub type Args = Slice<Arg>;
 
 #[derive(Debug, Clone)]
 pub struct Thunk {
-    pub opcodes: OpCodes
+    pub opcodes: OpCodes,
 }
 
 #[derive(Debug, Clone, Hash)]
@@ -132,8 +132,6 @@ pub enum OpCode {
     Const { idx: ConstIdx },
     /// load a dynamic var onto stack
     Var { sym: SymIdx },
-    /// create a thunk with codes[thunk_idx[idx]+1..thunk_idx[idx+1]]
-    Thunk { idx: ThunkIdx },
     /// load a thunk lazily onto stack
     LoadThunk { idx: ThunkIdx },
     /// load a thunk onto stack and force its value
@@ -164,16 +162,25 @@ pub enum OpCode {
     BinOp { op: BinOp },
     /// [ ... a ] perform a unary operation (`op` (a))
     UnOp { op: UnOp },
-    /// push a symbol onto stack
-    Sym { sym: SymIdx },
-    /// register a symbol with TOS
-    RegSym,
     /// TODO:
-    HasAttr { arity: usize },
+    HasAttr { sym: SymIdx },
     /// TODO:
-    Select { arity: usize },
+    HasDynamicAttr,
+    // HasAttr { arity: usize },
     /// TODO:
-    SelectWithDefault { arity: usize },
+    Select { sym: SymIdx },
+    // Select { arity: usize },
+    /// TODO:
+    SelectDynamic,
+    // SelectDynamic { arity: usize },
+    /// TODO:
+    SelectOrFalse { sym: SymIdx },
+    /// TODO:
+    SelectDynamicOrFalse,
+    /// TODO:
+    SelectWithDefault { sym: SymIdx },
+    /// TODO:
+    SelectDynamicWithDefault,
     /// enter the environment of the attribute set at TOS
     EnterEnv,
     /// exit the envrironment
@@ -203,10 +210,10 @@ pub enum UnOp {
     Not,
 }
 
+#[derive(Debug)]
 pub struct Program {
     pub top_level: OpCodes,
     pub thunks: Thunks,
     pub consts: Consts,
     pub symbols: Symbols,
 }
-
