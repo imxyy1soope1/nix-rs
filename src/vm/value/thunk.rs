@@ -23,7 +23,8 @@ impl VmThunk {
     }
 
     pub fn force(&mut self, vm: &VM) -> Result<VmValue> {
-        match &*self.0.read().unwrap() {
+        todo!();
+        /* match &*self.0.read().unwrap() {
             _VmThunk::Value(value) => return Ok(value.clone()),
             _VmThunk::SuspendedFrom(from) => {
                 return Err(anyhow!(
@@ -44,7 +45,7 @@ impl VmThunk {
             Ok(value.clone())
         } else {
             unreachable!()
-        }
+        } */
     }
 
     pub fn value(&self) -> Option<VmValue> {

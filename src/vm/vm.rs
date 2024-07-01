@@ -9,12 +9,13 @@ use crate::bytecode::{self, *};
 use crate::slice::*;
 use crate::value::{self, Value};
 
+use super::env::Env;
 use super::stack::{Stack, STACK_SIZE};
 use super::value::*;
 
 pub fn run(prog: Program) -> Result<Value> {
     let vm = VM::new(prog.consts, prog.symbols, prog.thunks);
-    Ok(vm.eval(prog.top_level)?.to_value(&vm))
+    Ok(vm.eval(prog.top_level, &mut Env::new())?.to_value(&vm))
 }
 
 pub struct Symbols {
@@ -74,16 +75,12 @@ pub struct VM {
 
 impl VM {
     fn new(consts: Consts, symbols: bytecode::Symbols, thunks: Thunks) -> Self {
+        let consts = consts.into_iter().map(Into::into).collect();
         let symbols = Symbols::new(symbols);
         let thunks = thunks
             .into_iter()
             .map(|bytecode::Thunk { opcodes }| Arc::new(VmThunk::new(opcodes)))
             .collect();
-        /* let pool = ThreadPoolBuilder::new().num_threads(num_cpus::get()).spawn_handler(|thread| {
-            tokio::task::spawn_blocking(|| thread.run());
-            Ok(())
-        }).build().unwrap(); */
-        let consts = consts.into_iter().map(Into::into).collect();
         VM {
             consts,
             thunks,
@@ -96,7 +93,7 @@ impl VM {
         self.consts.get(idx).cloned().ok_or(anyhow!(""))
     }
 
-    pub fn eval(&self, opcodes: OpCodes) -> Result<VmValue> {
+    pub fn eval(&self, opcodes: OpCodes, env: &mut Env) -> Result<VmValue> {
         let mut stack = Stack::<STACK_SIZE>::new();
         let mut iter = opcodes.into_iter();
         while let Some(opcode) = iter.next() {
