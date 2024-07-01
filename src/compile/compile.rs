@@ -335,7 +335,7 @@ impl Compile for ir::Let {
         self.attrs.compile(state);
         state.push(OpCode::EnterEnv);
         self.expr.compile(state);
-        state.push(OpCode::ExitEnv);
+        state.push(OpCode::LeaveEnv);
     }
 }
 
@@ -344,7 +344,7 @@ impl Compile for ir::With {
         self.namespace.compile(state);
         state.push(OpCode::EnterEnv);
         self.expr.compile(state);
-        state.push(OpCode::ExitEnv);
+        state.push(OpCode::LeaveEnv);
     }
 }
 

@@ -15,7 +15,7 @@ use super::value::*;
 
 pub fn run(prog: Program) -> Result<Value> {
     let vm = VM::new(prog.consts, prog.symbols, prog.thunks);
-    Ok(vm.eval(prog.top_level, &mut Env::new())?.to_value(&vm))
+    Ok(vm.eval(prog.top_level, &mut Env::empty())?.to_value(&vm))
 }
 
 pub struct Symbols {
@@ -97,7 +97,7 @@ impl VM {
         let mut stack = Stack::<STACK_SIZE>::new();
         let mut iter = opcodes.into_iter();
         while let Some(opcode) = iter.next() {
-            let jmp = self.single_op(opcode, &mut stack)?;
+            let jmp = self.single_op(opcode, &mut stack, env)?;
             for _ in 0..jmp {
                 iter.next().unwrap();
             }
@@ -107,7 +107,7 @@ impl VM {
     }
 
     #[inline]
-    fn single_op<const CAP: usize>(&self, opcode: OpCode, stack: &mut Stack<CAP>) -> Result<usize> {
+    fn single_op<const CAP: usize>(&self, opcode: OpCode, stack: &mut Stack<CAP>, env: &mut Env) -> Result<usize> {
         match opcode {
             OpCode::NoOp => (),
             OpCode::Const { idx } => stack.push(VmValue::Const(self.get_const(idx)?))?,
@@ -204,6 +204,15 @@ impl VM {
             OpCode::HasDynamicAttr => {
                 let sym = self.reg_sym_tos(stack)?;
                 stack.tos_mut()?.has_attr(sym);
+            }
+            OpCode::Var { sym } => {
+                stack.push(env.lookup(Symbol::new(sym)))?;
+            }
+            OpCode::EnterEnv => {
+                env.enter(stack.pop()?.unwrap_attr_set().to_data());
+            }
+            OpCode::LeaveEnv => {
+                env.leave();
             }
             _ => todo!(),
         }

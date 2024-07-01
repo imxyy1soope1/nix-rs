@@ -184,7 +184,7 @@ pub enum OpCode {
     /// enter the environment of the attribute set at TOS
     EnterEnv,
     /// exit the envrironment
-    ExitEnv,
+    LeaveEnv,
     /// return a value
     Ret,
     /// no-op

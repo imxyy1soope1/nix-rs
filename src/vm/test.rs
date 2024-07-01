@@ -135,3 +135,8 @@ fn test_attrs() {
 fn test_if() {
     test_expr("if true || false then 1 else 2", int!(1));
 }
+
+#[test]
+fn test_with() {
+    test_expr(r#"with { a = 1; }; a"#, int!(1));
+}

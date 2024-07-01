@@ -208,8 +208,7 @@ ir! {
         Path => { expr: Box<Ir> },
     }
     lazy_ir {
-        LazyList => { },
-        LazyAttrs => { },
+        LazyAttrs => {  },
     }
 }
 
@@ -599,7 +598,6 @@ impl Downgrade for Expr {
 impl Downgrade for LazyIr {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         match self {
-            LazyIr::LazyList(list) => list.downgrade(state),
             LazyIr::LazyAttrs(attrs) => attrs.downgrade(state),
             LazyIr::Expr(expr) => expr.downgrade(state),
 
@@ -738,12 +736,6 @@ impl Downgrade for ast::List {
             items.push(item.downgrade(state)?)
         }
         List { items }.ir().ok()
-    }
-}
-
-impl Downgrade for LazyList {
-    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
-        todo!()
     }
 }
 

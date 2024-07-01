@@ -7,10 +7,12 @@ use super::vm::VM;
 mod attrset;
 mod list;
 mod thunk;
+mod string;
 
 pub use attrset::AttrSet;
 pub use list::List;
 pub use thunk::VmThunk;
+pub use string::ContextfulString;
 
 pub trait ToValue {
     fn to_value(self, vm: &VM) -> Value;

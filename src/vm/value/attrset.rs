@@ -5,6 +5,7 @@ use crate::value::{self, Value};
 
 use super::super::vm::VM;
 use super::{Symbol, ToValue, VmValue};
+use super::super::env::Env;
 
 #[derive(Constructor, Clone, PartialEq)]
 pub struct AttrSet {
@@ -29,6 +30,10 @@ impl AttrSet {
 
     pub fn has_attr(&self, sym: Symbol) -> bool {
         self.data.get(&sym).is_some()
+    }
+
+    pub fn to_data(self) -> HashTrieMapSync<Symbol, VmValue> {
+        self.data
     }
 }
 
