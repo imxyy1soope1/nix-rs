@@ -107,7 +107,12 @@ impl VM {
     }
 
     #[inline]
-    fn single_op<const CAP: usize>(&self, opcode: OpCode, stack: &mut Stack<CAP>, env: &mut Env) -> Result<usize> {
+    fn single_op<const CAP: usize>(
+        &self,
+        opcode: OpCode,
+        stack: &mut Stack<CAP>,
+        env: &mut Env,
+    ) -> Result<usize> {
         match opcode {
             OpCode::NoOp => (),
             OpCode::Const { idx } => stack.push(VmValue::Const(self.get_const(idx)?))?,

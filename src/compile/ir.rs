@@ -186,6 +186,7 @@ ir! {
         Attrs => { stcs: HashMap<SymIdx, Ir>, dyns: Vec<(Ir, Ir)> },
         StaticAttrs => { stcs: HashMap<SymIdx, Ir> },
         DynamicAttrs => { dyns: Vec<(Ir, Ir)> },
+        RecAttrs => { stcs: HashMap<SymIdx, Ir>, dyns: Vec<(Ir, Ir)> },
         List  => { items: Vec<Ir> },
         HasAttr => { lhs: Box<Ir>, rhs: Vec<Attr> },
         BinOp => { lhs: Box<Ir>, rhs: Box<Ir>, kind: BinOpKind },
@@ -688,9 +689,8 @@ impl Downgrade for ast::Str {
 
 impl Downgrade for ast::Literal {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
-        // TODO: Error handling
         match self.kind() {
-            ast::LiteralKind::Integer(int) => state.new_const(int.value()?.into()),
+            ast::LiteralKind::Integer(int) => state.new_const(int.value().unwrap().into()),
             ast::LiteralKind::Float(float) => state.new_const(float.value().unwrap().into()),
             ast::LiteralKind::Uri(uri) => state.new_const(uri.to_string().into()),
         }
@@ -712,7 +712,11 @@ impl Downgrade for ast::Ident {
 impl Downgrade for ast::AttrSet {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         let rec = self.rec_token().is_some();
-        downgrade_has_entry(self, rec, state).map(|attrs| attrs.ir())
+        if rec {
+            downgrade_has_entry(self, state).map(|attrs| attrs.ir())
+        } else {
+            downgrade_rec(self, state).map(|attrs| attrs.ir())
+        }
     }
 
     fn lazy_downgrade(self, state: &mut DowngradeState) -> Result<LazyIr>
@@ -797,7 +801,7 @@ impl Downgrade for ast::Select {
 
 impl Downgrade for ast::LegacyLet {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
-        let attrs = downgrade_has_entry(self, true, state)?;
+        let attrs = downgrade_rec(self, state)?;
         let body_attr = Attr::Ident(state.lookup_sym("body".to_string()));
         Select {
             expr: attrs.ir().boxed(),
@@ -813,7 +817,7 @@ impl Downgrade for ast::LetIn {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         // let entries = ast::HasEntry::attrpath_values(&self);
         // let entries = entries.map(|e| e.attrpath());
-        let attrs = downgrade_has_entry(self, true, state)?;
+        let attrs = downgrade_rec(self, state)?;
         todo!()
     }
 }
@@ -904,7 +908,6 @@ fn downgrade_ident(ident: ast::Ident, state: &mut DowngradeState) -> SymIdx {
 
 fn downgrade_has_entry(
     has_entry: impl ast::HasEntry,
-    rec: bool,
     state: &mut DowngradeState,
 ) -> Result<Attrs> {
     // TODO:
@@ -917,11 +920,23 @@ fn downgrade_has_entry(
         match entry {
             ast::Entry::Inherit(inherit) => downgrade_inherit(inherit, &mut attrs.stcs, state)?,
             ast::Entry::AttrpathValue(value) => {
-                downgrade_attrpathvalue(value, rec, &mut attrs, state)?
+                downgrade_attrpathvalue(value, &mut attrs, state)?
             }
         }
     }
     Ok(attrs)
+}
+
+fn downgrade_rec(
+    has_entry: impl ast::HasEntry,
+    state: &mut DowngradeState
+) -> Result<RecAttrs> {
+    let entries = has_entry.entries();
+    let mut attrs = RecAttrs {
+        stcs: HashMap::new(),
+        dyns: Vec::new(),
+    };
+    for entry 
 }
 
 fn downgrade_inherit(
@@ -998,11 +1013,9 @@ fn downgrade_attrpath(attrpath: ast::Attrpath, state: &mut DowngradeState) -> Re
 
 fn downgrade_attrpathvalue(
     value: ast::AttrpathValue,
-    rec: bool,
     attrs: &mut Attrs,
     state: &mut DowngradeState,
 ) -> Result<()> {
-    // TODO: rec
     let path = downgrade_attrpath(value.attrpath().unwrap(), state)?;
     let value = value.value().unwrap().downgrade(state)?;
     attrs.insert(path, value)

@@ -140,3 +140,8 @@ fn test_if() {
 fn test_with() {
     test_expr(r#"with { a = 1; }; a"#, int!(1));
 }
+
+#[test]
+fn test_let() {
+    test_expr(r#"let a = 1; in a"#, int!(1));
+}

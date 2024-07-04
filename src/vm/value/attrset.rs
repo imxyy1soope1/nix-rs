@@ -5,7 +5,6 @@ use crate::value::{self, Value};
 
 use super::super::vm::VM;
 use super::{Symbol, ToValue, VmValue};
-use super::super::env::Env;
 
 #[derive(Constructor, Clone, PartialEq)]
 pub struct AttrSet {
@@ -17,15 +16,8 @@ impl AttrSet {
         self.data.insert_mut(sym, val);
     }
 
-    pub fn select(&self, sym: Symbol) -> VmValue {
-        self.data
-            .get(&sym)
-            .cloned()
-            .unwrap_or(VmValue::Catchable(value::Catchable {}))
-    }
-
-    pub fn select_with_default(&self, sym: Symbol, default: VmValue) -> VmValue {
-        self.data.get(&sym).cloned().unwrap_or(default)
+    pub fn select(&self, sym: Symbol) -> Option<VmValue> {
+        self.data.get(&sym).cloned()
     }
 
     pub fn has_attr(&self, sym: Symbol) -> bool {

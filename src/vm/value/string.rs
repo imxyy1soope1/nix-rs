@@ -4,27 +4,27 @@ use ecow::EcoString;
 use rpds::List;
 
 pub struct StringContext {
-    context: List<()>
+    context: List<()>,
 }
 
 impl StringContext {
     pub fn new() -> StringContext {
-        StringContext{
-            context: List::new()
+        StringContext {
+            context: List::new(),
         }
     }
 }
 
 pub struct ContextfulString {
     string: EcoString,
-    context: StringContext
+    context: StringContext,
 }
 
 impl ContextfulString {
     pub fn new(string: EcoString) -> ContextfulString {
         ContextfulString {
             string,
-            context: StringContext::new()
+            context: StringContext::new(),
         }
     }
 }

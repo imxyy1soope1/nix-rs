@@ -129,6 +129,29 @@ impl Compile for ir::DynamicAttrs {
     }
 }
 
+impl Compile for ir::RecAttrs {
+    fn compile(self, state: &mut CompileState) {
+        state.push(OpCode::AttrSet);
+        for dynamic in self.dyns.clone() {
+            dynamic.0.compile(state);
+            dynamic.1.compile(state);
+            state.push(OpCode::PushDynamicAttr)
+        }
+        state.push(OpCode::EnterEnv);
+        state.push(OpCode::AttrSet);
+        for stc in self.stcs {
+            stc.1.compile(state);
+            state.push(OpCode::PushStaticAttr { name: stc.0 });
+        }
+        for dynamic in self.dyns {
+            dynamic.0.compile(state);
+            dynamic.1.compile(state);
+            state.push(OpCode::PushDynamicAttr)
+        }
+        state.push(OpCode::LeaveEnv);
+    }
+}
+
 impl Compile for ir::List {
     fn compile(self, state: &mut CompileState) {
         state.push(OpCode::List);

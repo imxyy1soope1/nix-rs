@@ -6,13 +6,13 @@ use super::vm::VM;
 
 mod attrset;
 mod list;
-mod thunk;
 mod string;
+mod thunk;
 
 pub use attrset::AttrSet;
 pub use list::List;
-pub use thunk::VmThunk;
 pub use string::ContextfulString;
+pub use thunk::VmThunk;
 
 pub trait ToValue {
     fn to_value(self, vm: &VM) -> Value;
@@ -135,7 +135,9 @@ impl VmValue {
 
     pub fn select(&mut self, sym: Symbol) {
         if let VmValue::AttrSet(attrs) = self {
-            let val = attrs.select(sym);
+            let val = attrs
+                .select(sym)
+                .unwrap_or(VmValue::Catchable(Catchable {}));
             *self = val;
         } else {
             todo!()
@@ -144,7 +146,7 @@ impl VmValue {
 
     pub fn select_with_default(&mut self, sym: Symbol, default: VmValue) {
         if let VmValue::AttrSet(attrs) = self {
-            let val = attrs.select_with_default(sym, default);
+            let val = attrs.select(sym).unwrap_or(default);
             *self = val;
         } else {
             todo!()
