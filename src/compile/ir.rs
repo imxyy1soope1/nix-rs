@@ -75,6 +75,15 @@ macro_rules! ir {
             }
         }
 
+        impl LazyIr {
+            fn boxed(self) -> Box<Self> {
+                Box::new(self)
+            }
+            fn ok(self) -> Result<Self> {
+                Ok(self)
+            }
+        }
+
         impl Compile for Ir {
             fn compile(self, state: &mut CompileState) {
                 match self {
@@ -183,9 +192,9 @@ macro_rules! ir {
 
 ir! {
     ir {
-        Attrs => { stcs: HashMap<SymIdx, Ir>, dyns: Vec<(Ir, Ir)> },
+        Attrs => { stcs: HashMap<SymIdx, Ir>, dyns: Vec<DynamicAttrPair> },
         StaticAttrs => { stcs: HashMap<SymIdx, Ir> },
-        DynamicAttrs => { dyns: Vec<(Ir, Ir)> },
+        DynamicAttrs => { dyns: Vec<DynamicAttrPair> },
         RecAttrs => { stcs: HashMap<SymIdx, Ir>, dyns: Vec<(Ir, Ir)> },
         List  => { items: Vec<Ir> },
         HasAttr => { lhs: Box<Ir>, rhs: Vec<Attr> },
@@ -210,8 +219,28 @@ ir! {
     }
     lazy_ir {
         LazyAttrs => {  },
+        LazyStaticAttrs => { stcs: HashMap<SymIdx, LazyIr> },
+        LazyDynamicAttrs => { dyns: Vec<DynamicAttrPair> },
+        LazyRecAttrs => { stcs: HashMap<SymIdx, LazyIr>, dyns: Vec<(LazyIr, LazyIr)> },
+        LazyList  => { items: Vec<LazyIr> },
+        LazyHasAttr => { lhs: Box<LazyIr>, rhs: Vec<Attr> },
+        LazyBinOp => { lhs: Box<LazyIr>, rhs: Box<LazyIr>, kind: BinOpKind },
+        LazyUnOp  => { rhs: Box<LazyIr>, kind: UnOpKind },
+        LazySelect => { expr: Box<LazyIr>, attrpath: Vec<Attr>, default: Option<Box<LazyIr>> },
+        LazyIf => { cond: Box<LazyIr>, consq: Box<LazyIr>, alter: Box<LazyIr> },
+        LazyFunc => { args: Vec<Param>, body: Box<LazyIr> },
+        LazyCall => { func: Box<LazyIr>, args: Vec<LazyIr> },
+
+        LazyLet => { attrs: DynamicAttrs, expr: Box<LazyIr> },
+        LazyWith => { namespace: Box<LazyIr>, expr: Box<LazyIr> },
+        LazyAssert => { assertion: Box<LazyIr>, expr: Box<LazyIr> },
+        LazyConcatStrings => { parts: Vec<LazyIr> },
+        LazyPath => { expr: Box<LazyIr> },
     }
 }
+
+#[derive(Clone, Debug)]
+pub struct DynamicAttrPair(pub Ir, pub Ir);
 
 enum Env {
     Env(IrEnv),
@@ -418,7 +447,7 @@ impl Attrs {
                         dyns: Vec::new(),
                     };
                     attrs._insert(path, name, value)?;
-                    self.dyns.push((string.ir(), attrs.ir()));
+                    self.dyns.push(DynamicAttrPair(string.ir(), attrs.ir()));
                     Ok(())
                 }
                 Attr::Dynamic(dynamic) => {
@@ -427,7 +456,7 @@ impl Attrs {
                         dyns: Vec::new(),
                     };
                     attrs._insert(path, name, value)?;
-                    self.dyns.push((dynamic, attrs.ir()));
+                    self.dyns.push(DynamicAttrPair(dynamic, attrs.ir()));
                     Ok(())
                 }
             }
@@ -440,10 +469,10 @@ impl Attrs {
                     self.stcs.insert(ident, value);
                 }
                 Attr::Str(string) => {
-                    self.dyns.push((string.ir(), value));
+                    self.dyns.push(DynamicAttrPair(string.ir(), value));
                 }
                 Attr::Dynamic(dynamic) => {
-                    self.dyns.push((dynamic, value));
+                    self.dyns.push(DynamicAttrPair(dynamic, value));
                 }
             }
             Ok(())
@@ -559,11 +588,12 @@ pub enum Param {
     },
 }
 
-trait Downgrade {
+trait Downgrade
+where
+    Self: Sized
+{
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir>;
     fn lazy_downgrade(self, state: &mut DowngradeState) -> Result<LazyIr>
-    where
-        Self: Sized,
     {
         Ok(LazyIr::WrappedIr(self.downgrade(state)?))
     }
@@ -600,14 +630,29 @@ impl Downgrade for LazyIr {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         match self {
             LazyIr::LazyAttrs(attrs) => attrs.downgrade(state),
+            LazyIr::LazyStaticAttrs(attrs) => attrs.downgrade(state),
+            LazyIr::LazyDynamicAttrs(attrs) => attrs.downgrade(state),
+            LazyIr::LazyRecAttrs(attrs) => attrs.downgrade(state),
+            LazyIr::LazyList(list) => list.downgrade(state),
+            LazyIr::LazyHasAttr(op) => op.downgrade(state),
+            LazyIr::LazyBinOp(op) => op.downgrade(state),
+            LazyIr::LazyUnOp(op) => op.downgrade(state),
+            LazyIr::LazySelect(select) => select.downgrade(state),
+            LazyIr::LazyIf(if_) => if_.downgrade(state),
+            LazyIr::LazyFunc(func) => func.downgrade(state),
+            LazyIr::LazyCall(call) => call.downgrade(state),
+            LazyIr::LazyLet(let_) => let_.downgrade(state),
+            LazyIr::LazyWith(with) => with.downgrade(state),
+            LazyIr::LazyAssert(assert) => assert.downgrade(state),
+            LazyIr::LazyConcatStrings(op) => op.downgrade(state),
+            LazyIr::LazyPath(path) => path.downgrade(state),
             LazyIr::Expr(expr) => expr.downgrade(state),
+            
 
             LazyIr::WrappedIr(ir) => Ok(ir),
         }
     }
     fn lazy_downgrade(self, state: &mut DowngradeState) -> Result<LazyIr>
-    where
-        Self: Sized,
     {
         Ok(self)
     }
@@ -618,6 +663,27 @@ impl Downgrade for ast::Assert {
         Assert {
             assertion: self.condition().unwrap().downgrade(state)?.boxed(),
             expr: self.body().unwrap().downgrade(state)?.boxed(),
+        }
+        .ir()
+        .ok()
+    }
+
+    fn lazy_downgrade(self, state: &mut DowngradeState) -> Result<LazyIr>
+    {
+        LazyAssert {
+            assertion: LazyIr::Expr(self.condition().unwrap()).boxed(),
+            expr: LazyIr::Expr(self.body().unwrap()).boxed()
+        }
+        .lazy_ir()
+        .ok()
+    }
+}
+
+impl Downgrade for LazyAssert {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
+        Assert {
+            assertion: self.assertion.downgrade(state)?.boxed(),
+            expr: self.expr.downgrade(state)?.boxed()
         }
         .ir()
         .ok()
@@ -634,11 +700,71 @@ impl Downgrade for ast::IfElse {
         .ir()
         .ok()
     }
+
+    fn lazy_downgrade(self, state: &mut DowngradeState) -> Result<LazyIr> {
+        LazyIf {
+            cond: LazyIr::Expr(self.condition().unwrap()).boxed(),
+            consq: LazyIr::Expr(self.body().unwrap()).boxed(),
+            alter: LazyIr::Expr(self.else_body().unwrap()).boxed()
+        }
+        .lazy_ir()
+        .ok()
+    }
+}
+
+impl Downgrade for LazyIf {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
+        If {
+            cond: self.cond.downgrade(state)?.boxed(),
+            consq: self.consq.downgrade(state)?.boxed(),
+            alter: self.alter.downgrade(state)?.boxed()
+        }.ir().ok()
+    }
 }
 
 impl Downgrade for ast::Path {
     fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
         let parts = self
+            .parts()
+            .into_iter()
+            .map(|part| match part {
+                ast::InterpolPart::Literal(lit) => state
+                    .new_const(ByteCodeConst::String(lit.to_string()))
+                    .ir()
+                    .ok(),
+                ast::InterpolPart::Interpolation(interpol) => {
+                    interpol.expr().unwrap().downgrade(state)
+                }
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if parts.len() == 1 {
+            Path {
+                expr: parts.into_iter().next().unwrap().boxed(),
+            }
+        } else {
+            Path {
+                expr: ConcatStrings { parts }.ir().boxed(),
+            }
+        }
+        .ir()
+        .ok()
+    }
+
+    fn lazy_downgrade(self, state: &mut DowngradeState) -> Result<LazyIr> {
+        LazyPath {
+            expr: LazyIr::Expr(Expr::Path(self)).boxed()
+        }
+        .lazy_ir()
+        .ok()
+    }
+}
+
+impl Downgrade for LazyPath {
+    fn downgrade(self, state: &mut DowngradeState) -> Result<Ir> {
+        let LazyIr::Expr(Expr::Path(path)) = *self.expr else {
+            unreachable!()
+        };
+        let parts = path
             .parts()
             .into_iter()
             .map(|part| match part {
@@ -684,6 +810,10 @@ impl Downgrade for ast::Str {
         } else {
             ConcatStrings { parts }.ir().ok()
         }
+    }
+
+    fn lazy_downgrade(self, state: &mut DowngradeState) -> Result<LazyIr> {
+        
     }
 }
 
@@ -932,11 +1062,35 @@ fn downgrade_rec(
     state: &mut DowngradeState
 ) -> Result<RecAttrs> {
     let entries = has_entry.entries();
-    let mut attrs = RecAttrs {
-        stcs: HashMap::new(),
-        dyns: Vec::new(),
+    let mut stcs = HashMap::new();
+    let mut dyns = Vec::new();
+    for entry in entries {
+        match entry {
+            ast::Entry::Inherit(inherit) => {
+                let from = inherit.from();
+                for attr in inherit.attrs() {
+                    let attr = downgrade_attr(attr, state);
+                    if let Some(from) = from {
+                        stcs.insert(attr, LazyIr);
+                    }
+                }
+                let from = if let Some(from) = inherit.from() {
+                    let from = from.expr().unwrap().downgrade(state)?;
+                    Some(state.new_thunk(from))
+                } else {
+                    None
+                };
+            }
+            ast::Entry::AttrpathValue(value) => {
+
+            }
+        }
+    }
+    let attrs = RecAttrs {
+        stcs: stcs.into_iter().map(|(name, value)| (name, value.downgrade(state))).collect(),
+        dyns: dyns.into_iter().map(|(name, value)| DynamicAttrPair(name, value.downgrade(state))).collect()
     };
-    for entry 
+    Ok(attrs)
 }
 
 fn downgrade_inherit(
