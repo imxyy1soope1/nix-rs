@@ -144,4 +144,5 @@ fn test_with() {
 #[test]
 fn test_let() {
     test_expr(r#"let a = 1; in a"#, int!(1));
+    test_expr(r#"let a = { a = 1; }; b = "a"; in a.${b}"#, int!(1));
 }

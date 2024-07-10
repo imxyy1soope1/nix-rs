@@ -1,29 +1,33 @@
 use derive_more::{Constructor, IsVariant, Unwrap};
+use anyhow::Result;
 
 use crate::value::*;
 
 use super::vm::VM;
+use super::env::Env;
 
 mod attrset;
 mod list;
 mod string;
-mod thunk;
 
 pub use attrset::AttrSet;
 pub use list::List;
 pub use string::ContextfulString;
-pub use thunk::VmThunk;
 
 pub trait ToValue {
     fn to_value(self, vm: &VM) -> Value;
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Constructor)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Constructor)]
 pub struct Symbol(usize);
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Constructor)]
+pub struct Thunk(usize);
 
 #[derive(IsVariant, Unwrap, Clone, PartialEq)]
 pub enum VmValue {
     Const(Const),
+    Thunk(Thunk),
     AttrSet(AttrSet),
     List(List),
     Catchable(crate::value::Catchable),
@@ -137,7 +141,7 @@ impl VmValue {
         if let VmValue::AttrSet(attrs) = self {
             let val = attrs
                 .select(sym)
-                .unwrap_or(VmValue::Catchable(Catchable {}));
+                .unwrap_or(VmValue::Catchable(Catchable::new(Some(format!("{sym:?} not found")))));
             *self = val;
         } else {
             todo!()
@@ -169,6 +173,14 @@ impl VmValue {
             todo!()
         }
     }
+
+    pub fn force(&mut self, vm: &VM, env: &Env) -> Result<()> {
+        if let VmValue::Thunk(thunk) = self {
+            let value = vm.get_thunk_value(thunk.0, env)?;
+            *self = value
+        }
+        Ok(())
+    }
 }
 
 impl ToValue for VmValue {
@@ -178,6 +190,7 @@ impl ToValue for VmValue {
             VmValue::List(list) => list.to_value(vm),
             VmValue::Catchable(catchable) => Value::Catchable(catchable),
             VmValue::Const(cnst) => Value::Const(cnst),
+            VmValue::Thunk(_) => Value::Thunk,
         }
     }
 }

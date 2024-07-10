@@ -87,8 +87,10 @@ pub struct List {
     data: VectorSync<Value>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Catchable {}
+#[derive(Clone, Debug, PartialEq, Constructor)]
+pub struct Catchable {
+    msg: Option<String>
+}
 
 #[derive(IsVariant, Unwrap, Clone, Debug, PartialEq)]
 pub enum Value {

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use anyhow::{anyhow, Result};
+use derive_more::{IsVariant, Unwrap};
 use rpds::{HashTrieMap, Vector};
 
 use crate::bytecode::{self, *};
@@ -11,7 +12,7 @@ use crate::value::{self, Value};
 
 use super::env::Env;
 use super::stack::{Stack, STACK_SIZE};
-use super::value::*;
+use super::value::{self as vmValue, *};
 
 pub fn run(prog: Program) -> Result<Value> {
     let vm = VM::new(prog.consts, prog.symbols, prog.thunks);
@@ -61,8 +62,13 @@ impl Symbols {
 
     pub fn reg(&self, sym: impl Into<value::Symbol>) -> Symbol {
         let _guard = self.lock.write().unwrap();
-        self.dynamic_symbols.borrow_mut().push(sym.into());
-        Symbol::new(self.static_symbols.len() + self.dynamic_symbols.borrow().len() - 1)
+        let sym = sym.into();
+        if let Some(idx) = self.map.get(&sym) {
+            Symbol::new(*idx)
+        } else {
+            self.dynamic_symbols.borrow_mut().push(sym);
+            Symbol::new(self.static_symbols.len() + self.dynamic_symbols.borrow().len() - 1)
+        }
     }
 }
 
@@ -70,7 +76,6 @@ pub struct VM {
     consts: Slice<value::Const>,
     thunks: Slice<Arc<VmThunk>>,
     pub symbols: Symbols,
-    // pool: ThreadPool
 }
 
 impl VM {
@@ -85,12 +90,15 @@ impl VM {
             consts,
             thunks,
             symbols,
-            // pool
         }
     }
 
     pub fn get_const(&self, idx: usize) -> Result<value::Const> {
         self.consts.get(idx).cloned().ok_or(anyhow!(""))
+    }
+
+    pub fn get_thunk_value(&self, idx: usize, env: &Env) -> Result<VmValue> {
+        self.thunks.get(idx).unwrap().force(self, env)
     }
 
     pub fn eval(&self, opcodes: OpCodes, env: &mut Env) -> Result<VmValue> {
@@ -116,6 +124,7 @@ impl VM {
         match opcode {
             OpCode::NoOp => (),
             OpCode::Const { idx } => stack.push(VmValue::Const(self.get_const(idx)?))?,
+            OpCode::LoadThunk { idx } => stack.push(VmValue::Thunk(vmValue::Thunk::new(idx)))?,
             OpCode::Jmp { step } => return Ok(step),
             OpCode::JmpIfTrue { step } => {
                 if let VmValue::Const(value::Const::Bool(true)) = stack.pop()? {
@@ -219,6 +228,9 @@ impl VM {
             OpCode::LeaveEnv => {
                 env.leave();
             }
+            OpCode::ForceValue => {
+                stack.tos_mut()?.force(self, env)?;
+            }
             _ => todo!(),
         }
         Ok(0)
@@ -231,5 +243,63 @@ impl VM {
             .symbols
             .reg(val.unwrap_const().unwrap_string().to_string());
         Ok(sym)
+    }
+}
+
+// pub struct VmThunk(RwLock<_VmThunk>);
+
+pub struct VmThunk {
+    thunk: _VmThunk,
+    lock: RwLock<()>
+}
+
+#[derive(IsVariant, Unwrap)]
+enum _VmThunk {
+    Code(OpCodes),
+    SuspendedFrom(*const VmThunk),
+    Value(VmValue),
+}
+
+impl VmThunk {
+    pub fn new(opcodes: OpCodes) -> VmThunk {
+        // VmThunk(RwLock::new(_VmThunk::Code(opcodes)))
+        VmThunk {
+            thunk: _VmThunk::Code(opcodes),
+            lock: RwLock::new(())
+        }
+    }
+
+    pub fn force(&self, vm: &VM, env: &Env) -> Result<VmValue> {
+        todo!();
+        /* match &*self.0.read().unwrap() {
+            _VmThunk::Value(value) => return Ok(value.clone()),
+            _VmThunk::SuspendedFrom(from) => {
+                return Err(anyhow!(
+                    "already suspended from {from:p} (infinite recursion encountered)"
+                ))
+            }
+            _VmThunk::Code(_) => (),
+        }
+        let guard = &mut *self.0.write().unwrap();
+        let opcodes = std::mem::replace(
+            &mut *self.0.write().unwrap(),
+            _VmThunk::SuspendedFrom(self as *const VmThunk),
+        )
+        .unwrap_code();
+        let value = vm.eval(opcodes).unwrap();
+        let _ = std::mem::replace(guard, _VmThunk::Value(value));
+        if let _VmThunk::Value(value) = guard {
+            Ok(value.clone())
+        } else {
+            unreachable!()
+        } */
+    }
+
+    pub fn value(&self) -> Option<VmValue> {
+        let _guard = self.lock.read();
+        match &self.thunk {
+            _VmThunk::Value(value) => Some(value.clone()),
+            _ => None,
+        }
     }
 }
