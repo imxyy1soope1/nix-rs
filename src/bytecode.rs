@@ -116,12 +116,12 @@ impl Eq for Const {}
 impl Hash for Const {
     fn hash<H: Hasher>(&self, state: &mut H) {
         use Const::*;
-        match *self {
+        match self {
             Bool(b) => b.hash(state),
             Int(int) => int.hash(state),
             Float(float) => float.to_bits().hash(state),
-            String(ref string) => string.hash(state),
-            Func(ref func) => func.hash(state),
+            String(string) => string.hash(state),
+            Func(func) => func.hash(state),
         }
     }
 }
@@ -150,6 +150,8 @@ pub enum OpCode {
     JmpIfFalse { step: usize },
     /// push an empty attribute set onto stack
     AttrSet,
+    /// push an empty recursive attribute set onto stack
+    RecAttrSet,
     /// [ ... set, value ] push the static kv pair (name, (value)) into (set)
     PushStaticAttr { name: SymIdx },
     /// [ ... set, name, value ] push the dynamic kv pair ((name), (value)) in to (set)
@@ -162,6 +164,8 @@ pub enum OpCode {
     BinOp { op: BinOp },
     /// [ ... a ] perform a unary operation (`op` (a))
     UnOp { op: UnOp },
+    /// TODO:
+    ConcatString,
     /// TODO:
     HasAttr { sym: SymIdx },
     /// TODO:

@@ -24,6 +24,18 @@ impl AttrSet {
         self.data.get(&sym).is_some()
     }
 
+    pub fn update(mut self, other: AttrSet) -> AttrSet {
+        for (k, v) in other.data.iter() {
+            if let Some(attr) = self.data.get(k) {
+                let new_attr = attr.clone().update(v.clone());
+                self.data.insert_mut(*k, new_attr);
+            } else {
+                self.push_attr(*k, v.clone())
+            }
+        }
+        self
+    }
+
     pub fn to_data(self) -> HashTrieMapSync<Symbol, VmValue> {
         self.data
     }

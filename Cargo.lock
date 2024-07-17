@@ -255,6 +255,7 @@ dependencies = [
  "itertools",
  "macros",
  "num_cpus",
+ "once_cell",
  "rayon",
  "rnix",
  "rpds",
@@ -279,6 +280,12 @@ checksum = "576dfe1fc8f9df304abb159d767a29d0476f7750fbf8aa7ad07816004a207434"
 dependencies = [
  "memchr",
 ]
+
+[[package]]
+name = "once_cell"
+version = "1.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 
 [[package]]
 name = "parking_lot"

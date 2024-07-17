@@ -129,6 +129,10 @@ fn test_attrs() {
         attrs! { symbol!("a") => attrs!{ symbol!("b") => int!(1), symbol!("c") => int!(2) } },
     );
     test_expr("{ a.b = 1; } ? a.b", boolean!(true));
+    test_expr(
+        "{ a.b = 1; } // { a.c = 2 }",
+        attrs! { symbol!("a") => attrs!{ symbol!("b") => int!(1), symbol!("c") => int!(2) } },
+    );
 }
 
 #[test]
@@ -145,4 +149,8 @@ fn test_with() {
 fn test_let() {
     test_expr(r#"let a = 1; in a"#, int!(1));
     test_expr(r#"let a = { a = 1; }; b = "a"; in a.${b}"#, int!(1));
+    test_expr(
+        r#"let b = "c"; in { a.b = 1; } // { a."a${b}" = 2 }"}"#,
+        attrs! { symbol!("a") => attrs!{ symbol!("b") => int!(1), symbol!("ac") => int!(2) } },
+    );
 }

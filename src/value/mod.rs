@@ -77,9 +77,19 @@ impl From<ByteCodeConst> for Const {
     }
 }
 
-#[derive(Constructor, Clone, Debug, PartialEq)]
+#[derive(Constructor, Clone, PartialEq)]
 pub struct AttrSet {
     data: HashTrieMapSync<Symbol, Value>,
+}
+
+impl Debug for AttrSet {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "{{ ")?;
+        for (k, v) in self.data.iter() {
+            write!(f, "{k:?} = {v:?}; ")?;
+        }
+        write!(f, "}}")
+    }
 }
 
 #[derive(Constructor, Clone, Debug, PartialEq)]

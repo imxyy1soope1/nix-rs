@@ -24,28 +24,28 @@ impl<T: Sized> FromIterator<T> for Slice<T> {
     }
 }
 
-impl<T: ?Sized + Clone, S: Into<Box<[T]>>> From<S> for Slice<T> {
+impl<T: Sized , S: Into<Box<[T]>>> From<S> for Slice<T> {
     fn from(value: S) -> Self {
         Self(value.into())
     }
 }
 
-impl<T: ?Sized + Clone> Deref for Slice<T> {
+impl<T: Sized > Deref for Slice<T> {
     type Target = [T];
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<T: ?Sized + Clone> DerefMut for Slice<T> {
+impl<T: Sized > DerefMut for Slice<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-pub struct IntoIter<T: ?Sized + Clone>(Box<[MaybeUninit<T>]>, usize);
+pub struct IntoIter<T: Sized>(Box<[MaybeUninit<T>]>, usize);
 
-impl<T: ?Sized + Clone> Iterator for IntoIter<T> {
+impl<T: Sized> Iterator for IntoIter<T> {
     type Item = T;
     fn next(&mut self) -> Option<Self::Item> {
         if self.1 == self.0.len() {
@@ -60,7 +60,7 @@ impl<T: ?Sized + Clone> Iterator for IntoIter<T> {
     }
 }
 
-impl<T: ?Sized + Clone> IntoIterator for Slice<T> {
+impl<T: Sized> IntoIterator for Slice<T> {
     type Item = T;
     type IntoIter = IntoIter<T>;
     fn into_iter(self) -> Self::IntoIter {

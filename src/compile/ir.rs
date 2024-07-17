@@ -18,11 +18,7 @@ pub fn downgrade(expr: Expr) -> Result<Downgraded> {
     Ok(Downgraded {
         top_level: ir,
         consts: state.consts.into(),
-        thunks: state
-            .thunks
-            .into_iter()
-            .map(|(deps, thunk)| (deps.into(), thunk))
-            .collect(),
+        thunks: state.thunks.into(),
         symbols: state.sym_table.syms(),
     })
 }
@@ -175,7 +171,7 @@ pub struct DowngradeError {
 pub struct DowngradeState {
     sym_table: SymTable,
     envs: Vec<Env>,
-    thunks: Vec<(Vec<ThunkIdx>, Ir)>,
+    thunks: Vec<Ir>,
     consts: Vec<ByteCodeConst>,
     consts_table: HashMap<ByteCodeConst, ConstIdx>,
 }
@@ -183,7 +179,7 @@ pub struct DowngradeState {
 pub struct Downgraded {
     pub top_level: Ir,
     pub consts: Consts,
-    pub thunks: Slice<(Slice<ThunkIdx>, Ir)>,
+    pub thunks: Slice<Ir>,
     pub symbols: Symbols,
 }
 
@@ -289,38 +285,14 @@ impl DowngradeState {
 
     fn new_thunk(&mut self, thunk: Ir) -> Thunk {
         let idx = self.thunks.len();
-        self.thunks.push((Vec::new(), thunk));
+        self.thunks.push(thunk);
         Thunk { idx }
     }
 
-    fn lookup_thunk(&self, idx: ThunkIdx) -> &(Vec<ThunkIdx>, Ir) {
+    fn lookup_thunk(&self, idx: ThunkIdx) -> &Ir {
         self.thunks.get(idx).unwrap()
     }
-
-    fn thunk_add_dep(&mut self, idx: ThunkIdx, dep: ThunkIdx) {
-        self.thunks.get_mut(idx).unwrap().0.push(dep)
-    }
 }
-
-/* macro_rules! ir {
-    ($name:ident, $($attr:ident : $t:ty),*) => {
-        pub struct $name {
-            $(
-                pub $attr: $t,
-            )*
-        }
-        impl Ir for $name {}
-    };
-    (#[derive($($de:ident),*)]$name:ident, $($attr:ident : $t:ty),*) => {
-        #[derive($($de,)*)]
-        pub struct $name {
-            $(
-                pub $attr: $t,
-            )*
-        }
-        impl Ir for $name {}
-    };
-} */
 
 impl Attrs {
     fn _insert(&mut self, mut path: std::vec::IntoIter<Attr>, name: Attr, value: Ir) -> Result<()> {
@@ -816,7 +788,6 @@ fn downgrade_has_entry(
     rec: bool,
     state: &mut DowngradeState,
 ) -> Result<Attrs> {
-    // TODO:
     let entires = has_entry.entries();
     let mut attrs = Attrs {
         stcs: HashMap::new(),

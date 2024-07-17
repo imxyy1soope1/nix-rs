@@ -113,12 +113,22 @@ impl VmValue {
         }
     }
 
-    pub fn push(&mut self, elem: VmValue) {
+    pub fn concat_string(&mut self, mut other: VmValue) -> &mut Self {
+        if let (VmConst(Const::String(a)), VmConst(Const::String(b))) = (self.coerce_to_string(), other.coerce_to_string()) {
+            a.push_str(b.as_str());
+        } else {
+            todo!()
+        }
+        self
+    }
+
+    pub fn push(&mut self, elem: VmValue) -> &mut Self {
         if let VmValue::List(list) = self {
             list.push(elem);
         } else {
             todo!()
         }
+        self
     }
 
     pub fn concat(self, other: VmValue) -> VmValue {
@@ -129,15 +139,24 @@ impl VmValue {
         }
     }
 
-    pub fn push_attr(&mut self, sym: Symbol, val: VmValue) {
+    pub fn push_attr(&mut self, sym: Symbol, val: VmValue) -> &mut Self {
         if let VmValue::AttrSet(attrs) = self {
             attrs.push_attr(sym, val)
         } else {
             todo!()
         }
+        self
     }
 
-    pub fn select(&mut self, sym: Symbol) {
+    pub fn update(self, other: VmValue) -> VmValue {
+        if let (VmValue::AttrSet(a), VmValue::AttrSet(b)) = (self, other) {
+            VmValue::AttrSet(a.update(b))
+        } else {
+            todo!()
+        }
+    }
+
+    pub fn select(&mut self, sym: Symbol) -> &mut Self {
         if let VmValue::AttrSet(attrs) = self {
             let val = attrs
                 .select(sym)
@@ -146,40 +165,44 @@ impl VmValue {
         } else {
             todo!()
         }
+        self
     }
 
-    pub fn select_with_default(&mut self, sym: Symbol, default: VmValue) {
+    pub fn select_with_default(&mut self, sym: Symbol, default: VmValue) -> &mut Self {
         if let VmValue::AttrSet(attrs) = self {
             let val = attrs.select(sym).unwrap_or(default);
             *self = val;
         } else {
             todo!()
         }
+        self
     }
 
-    pub fn has_attr(&mut self, sym: Symbol) {
+    pub fn has_attr(&mut self, sym: Symbol) -> &mut Self {
         if let VmValue::AttrSet(attrs) = self {
             let val = VmConst(Const::Bool(attrs.has_attr(sym)));
             *self = val;
         } else {
             *self = VmConst(Const::Bool(false));
         }
+        self
     }
 
-    pub fn coerce_to_string(&mut self) {
+    pub fn coerce_to_string(&mut self) -> &mut Self {
         if let VmConst(Const::String(_)) = self {
             ()
         } else {
             todo!()
         }
+        self
     }
 
-    pub fn force(&mut self, vm: &VM, env: &Env) -> Result<()> {
+    pub fn force(&mut self, vm: &VM, env: &mut Env) -> Result<&mut Self> {
         if let VmValue::Thunk(thunk) = self {
             let value = vm.get_thunk_value(thunk.0, env)?;
             *self = value
         }
-        Ok(())
+        Ok(self)
     }
 }
 

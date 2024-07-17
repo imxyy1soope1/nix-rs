@@ -1,9 +1,8 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 
 use anyhow::{anyhow, Result};
-use derive_more::{IsVariant, Unwrap};
 use rpds::{HashTrieMap, Vector};
 
 use crate::bytecode::{self, *};
@@ -13,6 +12,7 @@ use crate::value::{self, Value};
 use super::env::Env;
 use super::stack::{Stack, STACK_SIZE};
 use super::value::{self as vmValue, *};
+use super::vmthunk::*;
 
 pub fn run(prog: Program) -> Result<Value> {
     let vm = VM::new(prog.consts, prog.symbols, prog.thunks);
@@ -74,7 +74,7 @@ impl Symbols {
 
 pub struct VM {
     consts: Slice<value::Const>,
-    thunks: Slice<Arc<VmThunk>>,
+    thunks: Slice<VmThunk>,
     pub symbols: Symbols,
 }
 
@@ -84,7 +84,7 @@ impl VM {
         let symbols = Symbols::new(symbols);
         let thunks = thunks
             .into_iter()
-            .map(|bytecode::Thunk { opcodes }| Arc::new(VmThunk::new(opcodes)))
+            .map(|bytecode::Thunk { opcodes }| VmThunk::new(opcodes))
             .collect();
         VM {
             consts,
@@ -97,7 +97,7 @@ impl VM {
         self.consts.get(idx).cloned().ok_or(anyhow!(""))
     }
 
-    pub fn get_thunk_value(&self, idx: usize, env: &Env) -> Result<VmValue> {
+    pub fn get_thunk_value(&self, idx: usize, env: &mut Env) -> Result<VmValue> {
         self.thunks.get(idx).unwrap().force(self, env)
     }
 
@@ -125,6 +125,12 @@ impl VM {
             OpCode::NoOp => (),
             OpCode::Const { idx } => stack.push(VmValue::Const(self.get_const(idx)?))?,
             OpCode::LoadThunk { idx } => stack.push(VmValue::Thunk(vmValue::Thunk::new(idx)))?,
+            OpCode::LoadValue { idx } => {
+                stack.push(self.get_thunk_value(idx, env)?)?;
+            }
+            OpCode::ForceValue => {
+                stack.tos_mut()?.force(self, env)?;
+            }
             OpCode::Jmp { step } => return Ok(step),
             OpCode::JmpIfTrue { step } => {
                 if let VmValue::Const(value::Const::Bool(true)) = stack.pop()? {
@@ -156,8 +162,13 @@ impl VM {
                     Or => lhs.or(rhs),
                     Eq => lhs.eq(rhs),
                     Con => lhs.concat(rhs),
+                    Upd => lhs.update(rhs),
                     _ => todo!(),
                 })?;
+            }
+            OpCode::ConcatString => {
+                let rhs = stack.pop()?;
+                stack.tos_mut()?.concat_string(rhs);
             }
             OpCode::List => {
                 stack.push(VmValue::List(List::new(Vector::new_sync())))?;
@@ -175,15 +186,11 @@ impl VM {
             }
             OpCode::PushDynamicAttr => {
                 let val = stack.pop()?;
-                let mut sym = stack.pop()?;
-                sym.coerce_to_string();
-                let sym = self
-                    .symbols
-                    .reg(sym.unwrap_const().unwrap_string().to_string());
+                let sym = self.reg_sym_tos(stack)?;
                 stack.tos_mut()?.push_attr(sym, val);
             }
             OpCode::Select { sym } => {
-                stack.tos_mut()?.select(Symbol::new(sym));
+                stack.tos_mut()?.select(Symbol::new(sym)).force(self, env)?;
             }
             OpCode::SelectWithDefault { sym } => {
                 let default = stack.pop()?;
@@ -228,9 +235,6 @@ impl VM {
             OpCode::LeaveEnv => {
                 env.leave();
             }
-            OpCode::ForceValue => {
-                stack.tos_mut()?.force(self, env)?;
-            }
             _ => todo!(),
         }
         Ok(0)
@@ -246,60 +250,3 @@ impl VM {
     }
 }
 
-// pub struct VmThunk(RwLock<_VmThunk>);
-
-pub struct VmThunk {
-    thunk: _VmThunk,
-    lock: RwLock<()>
-}
-
-#[derive(IsVariant, Unwrap)]
-enum _VmThunk {
-    Code(OpCodes),
-    SuspendedFrom(*const VmThunk),
-    Value(VmValue),
-}
-
-impl VmThunk {
-    pub fn new(opcodes: OpCodes) -> VmThunk {
-        // VmThunk(RwLock::new(_VmThunk::Code(opcodes)))
-        VmThunk {
-            thunk: _VmThunk::Code(opcodes),
-            lock: RwLock::new(())
-        }
-    }
-
-    pub fn force(&self, vm: &VM, env: &Env) -> Result<VmValue> {
-        todo!();
-        /* match &*self.0.read().unwrap() {
-            _VmThunk::Value(value) => return Ok(value.clone()),
-            _VmThunk::SuspendedFrom(from) => {
-                return Err(anyhow!(
-                    "already suspended from {from:p} (infinite recursion encountered)"
-                ))
-            }
-            _VmThunk::Code(_) => (),
-        }
-        let guard = &mut *self.0.write().unwrap();
-        let opcodes = std::mem::replace(
-            &mut *self.0.write().unwrap(),
-            _VmThunk::SuspendedFrom(self as *const VmThunk),
-        )
-        .unwrap_code();
-        let value = vm.eval(opcodes).unwrap();
-        let _ = std::mem::replace(guard, _VmThunk::Value(value));
-        if let _VmThunk::Value(value) = guard {
-            Ok(value.clone())
-        } else {
-            unreachable!()
-        } */
-    }
-
-    pub fn value(&self) -> Option<VmValue> {
-        let _guard = self.lock.read();
-        match &self.thunk {
-            _VmThunk::Value(value) => Some(value.clone()),
-            _ => None,
-        }
-    }
-}

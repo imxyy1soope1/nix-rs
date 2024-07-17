@@ -12,7 +12,7 @@ pub fn compile(downgraded: ir::Downgraded) -> Program {
         thunks: downgraded
             .thunks
             .into_iter()
-            .map(|(deps, thunk)| Thunk {
+            .map(|thunk| Thunk {
                 opcodes: CompileState::new().compile(thunk),
             })
             .collect(),
@@ -328,7 +328,12 @@ impl Compile for ir::Select {
 
 impl Compile for ir::ConcatStrings {
     fn compile(self, state: &mut CompileState) {
-        todo!()
+        let mut iter = self.parts.into_iter();
+        iter.next().unwrap().compile(state);
+        for item in iter {
+            item.compile(state);
+            state.push(OpCode::ConcatString);
+        }
     }
 }
 
